@@ -13,6 +13,8 @@ test("audio becomes stale after script, voice or instructions change", () => {
       instructions: p.instructions,
     };
   assert.equal(current(s, p), true);
+  assert.equal(current(s, p, "openai"), false);
+  assert.equal(current({ ...s, audioKind: "openai" }, p, "openai"), true);
   assert.equal(current({ ...s, text: s.text + "。" }, p), false);
   assert.equal(current(s, { ...p, voice: "coral" }), false);
   assert.equal(current(s, { ...p, instructions: "Changed" }), false);
@@ -119,5 +121,15 @@ test("gateway adapter enforces HTTPS, fails safely and validates audio", async (
       new AbortController().signal,
     ),
     /Invalid audio response/,
+  );
+});
+
+test("WAV assembly rejects incompatible sample rates", async () => {
+  const a = await demoAudio("x", new AbortController().signal);
+  const bytes = await a.arrayBuffer();
+  new DataView(bytes).setUint32(24, 48000, true);
+  await assert.rejects(
+    joinDemoWavs([a, new Blob([bytes], { type: "audio/wav" })]),
+    /incompatible/,
   );
 });

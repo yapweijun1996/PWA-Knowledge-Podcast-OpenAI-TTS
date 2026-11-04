@@ -10,6 +10,7 @@ import {
 } from "./model";
 import { demoAudio, download, joinDemoWavs } from "./audio";
 import { createBackup, readBackup } from "./backup";
+import { generateBrowserSpeech } from "./browser-tts";
 
 function Player({ blob }: { blob: Blob }) {
   const [url, setUrl] = useState("");
@@ -18,9 +19,7 @@ function Player({ blob }: { blob: Blob }) {
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [blob]);
-  return (
-    <audio controls preload="metadata" src={url} aria-label="播放模拟音频" />
-  );
+  return <audio controls preload="metadata" src={url} aria-label="播放音频" />;
 }
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]),
@@ -30,7 +29,11 @@ export default function App() {
     [busy, setBusy] = useState(""),
     [online, setOnline] = useState(navigator.onLine),
     [waiting, setWaiting] = useState<ServiceWorker | null>(null),
-    [updating, setUpdating] = useState(false);
+    [updating, setUpdating] = useState(false),
+    [mode, setMode] = useState<"demo" | "openai">("demo"),
+    [keyPresent, setKeyPresent] = useState(false),
+    [consent, setConsent] = useState(false);
+  const keyInput = useRef<HTMLInputElement | null>(null);
   const projectRef = useRef<Project | null>(null),
     abort = useRef<AbortController | null>(null),
     applyingUpdate = useRef(false),
@@ -69,12 +72,21 @@ export default function App() {
         setError("无法打开本地存储，请检查浏览器的隐私和存储设置。"),
       );
     const net = () => setOnline(navigator.onLine);
+    const clearSession = () => {
+      abort.current?.abort();
+      if (keyInput.current) keyInput.current.value = "";
+      setKeyPresent(false);
+      setConsent(false);
+    };
     window.addEventListener("online", net);
     window.addEventListener("offline", net);
+    window.addEventListener("pagehide", clearSession);
     return () => {
       window.removeEventListener("online", net);
       window.removeEventListener("offline", net);
+      window.removeEventListener("pagehide", clearSession);
       abort.current?.abort();
+      if (keyInput.current) keyInput.current.value = "";
     };
   }, []);
   useEffect(() => {
@@ -125,8 +137,13 @@ export default function App() {
       setError("离线时无法开始生成。");
       return;
     }
+    const key = keyInput.current?.value.trim() || "";
+    if (mode === "openai" && (!key || !consent)) {
+      setError("请输入你的 API key，并确认计费及浏览器密钥风险。");
+      return;
+    }
     const targets = p.segments.filter(
-      (s) => (!id || s.id === id) && s.text.trim() && !current(s, p),
+      (s) => (!id || s.id === id) && s.text.trim() && !current(s, p, mode),
     );
     if (!targets.length) {
       setError("没有需要生成的非空片段。");
@@ -138,8 +155,19 @@ export default function App() {
     try {
       for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
-        setBusy(`正在模拟 ${i + 1} / ${targets.length}`);
-        const blob = await demoAudio(target.text, ctrl.signal);
+        setBusy(
+          `${mode === "openai" ? "正在生成" : "正在模拟"} ${i + 1} / ${targets.length}`,
+        );
+        const blob =
+          mode === "openai"
+            ? await generateBrowserSpeech(
+                key,
+                target.text,
+                p.voice,
+                p.instructions,
+                ctrl.signal,
+              )
+            : await demoAudio(target.text, ctrl.signal);
         const now = projectRef.current;
         if (now && now.id === p.id) {
           commit({
@@ -150,6 +178,7 @@ export default function App() {
                 ? {
                     ...s,
                     audio: blob,
+                    audioKind: mode,
                     audioFor: target.text,
                     voice: p.voice,
                     instructions: p.instructions,
@@ -159,11 +188,18 @@ export default function App() {
           });
         }
       }
-      setStatus("模拟完成：音频为提示音，非人声");
+      setStatus(
+        mode === "openai" ? "语音生成完成" : "模拟完成：音频为提示音，非人声",
+      );
     } catch (e) {
       if ((e as Error).name === "AbortError")
         setStatus("已取消；已完成的片段已保留");
-      else setError("模拟失败，可重试该片段。");
+      else
+        setError(
+          mode === "openai"
+            ? (e as Error).message || "生成失败；可能已经产生费用。"
+            : "模拟失败，可重试该片段。",
+        );
     } finally {
       abort.current = null;
       setBusy("");
@@ -222,15 +258,15 @@ export default function App() {
   async function exportDemo() {
     const p = projectRef.current;
     if (!p) return;
-    const valid = p.segments.filter((s) => current(s, p));
+    const valid = p.segments.filter((s) => current(s, p, mode));
     if (valid.length !== p.segments.length || !valid.length) {
-      setError("请先模拟全部非空片段，再导出提示音。");
+      setError("请先生成全部非空片段，再导出音频。");
       return;
     }
     try {
       download(
         await joinDemoWavs(valid.map((s) => s.audio!)),
-        "demo-tones.wav",
+        mode === "openai" ? "podcast.wav" : "demo-tones.wav",
       );
     } catch {
       setError("音频导出失败。");
@@ -256,7 +292,7 @@ export default function App() {
       </main>
     );
   const stale = active.segments.filter(
-    (s) => s.audio && !current(s, active),
+    (s) => s.audio && !current(s, active, mode),
   ).length;
   return (
     <>
@@ -268,7 +304,9 @@ export default function App() {
           </span>
         </a>
         <div className="top-right">
-          <span className="badge">● {online ? "DEMO MODE" : "离线"}</span>
+          <span className="badge">
+            ● {online ? (mode === "openai" ? "BYOK" : "DEMO MODE") : "离线"}
+          </span>
           <span className="saved">{status}</span>
         </div>
       </header>
@@ -298,7 +336,7 @@ export default function App() {
             ⌁ &nbsp;本地优先
             <br />
             <small>
-              脚本和模拟音频保存在这台设备。浏览器清除数据可能导致丢失。
+              脚本和音频保存在这台设备。浏览器清除数据可能导致丢失。
             </small>
           </div>
         </aside>
@@ -316,10 +354,12 @@ export default function App() {
             </button>
           </div>
           <div className="notice">
-            <strong>演示模式</strong>
+            <strong>{mode === "demo" ? "演示模式" : "浏览器 BYOK"}</strong>
             <span>
-              无需密钥。生成的是提示音，不是语音或 OpenAI
-              声音；可使用本机朗读试听脚本。真实生成需经认证的安全网关，当前未配置。
+              {mode === "demo"
+                ? "无需密钥。生成的是提示音，不是语音或 OpenAI 声音；可使用本机朗读试听脚本。"
+                : "浏览器直接连接 OpenAI，不经过本项目服务器。密钥仅保留在本页面内存；扩展程序、恶意脚本或共享设备可能读取它。仅在可信设备使用。"}{" "}
+              <a href="#generate">设置浏览器 BYOK</a>
             </span>
           </div>
           {waiting && (
@@ -382,8 +422,10 @@ export default function App() {
                     <b>片段 {i + 1}</b>
                     <span className="segment-status">
                       {s.audio
-                        ? current(s, active)
-                          ? "已模拟"
+                        ? current(s, active, mode)
+                          ? mode === "openai"
+                            ? "已生成"
+                            : "已模拟"
                           : "需重新生成"
                         : "未生成"}
                     </span>
@@ -423,18 +465,27 @@ export default function App() {
                       onClick={() => generate(s.id)}
                       disabled={!!busy || !s.text.trim() || !online}
                     >
-                      ↻ 模拟片段
+                      ↻ {mode === "openai" ? "生成片段" : "模拟片段"}
                     </button>
                     <span>{s.text.length} 字符</span>
                   </div>
-                  {s.audio && current(s, active) && (
+                  {s.audio && current(s, active, mode) && (
                     <div className="audio">
                       <Player blob={s.audio} />
                       <button
                         className="text-button"
-                        onClick={() => download(s.audio!, "demo-segment.wav")}
+                        onClick={() =>
+                          download(
+                            s.audio!,
+                            mode === "openai"
+                              ? "segment.wav"
+                              : "demo-segment.wav",
+                          )
+                        }
                       >
-                        下载 WAV 提示音
+                        {mode === "openai"
+                          ? "下载 WAV 语音"
+                          : "下载 WAV 提示音"}
                       </button>
                     </div>
                   )}
@@ -514,13 +565,74 @@ export default function App() {
                   />
                 </label>
                 <p className="hint">
-                  Marin、Cedar 和 Coral
-                  是否可用取决于所连接的模型。演示不提供真实声音比较。
+                  Marin、Cedar 和 Coral 是否可用取决于 OpenAI 模型和账户权限。
                 </p>
               </section>
-              <section className="card generate">
+              <section id="generate" className="card generate">
                 <div className="eyebrow">03 / GENERATE</div>
                 <h2>准备试听</h2>
+                <label className="field">
+                  生成模式
+                  <select
+                    value={mode}
+                    disabled={!!busy}
+                    onChange={(e) => {
+                      if (keyInput.current) keyInput.current.value = "";
+                      setKeyPresent(false);
+                      setConsent(false);
+                      setMode(e.target.value as "demo" | "openai");
+                      setError("");
+                    }}
+                  >
+                    <option value="demo">演示提示音（免费）</option>
+                    <option value="openai">OpenAI · 浏览器 BYOK</option>
+                  </select>
+                </label>
+                {mode === "openai" && (
+                  <div className="byok">
+                    <label className="field">
+                      OpenAI API key
+                      <input
+                        ref={keyInput}
+                        disabled={!!busy}
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="输入你自己的 key"
+                        onChange={(e) =>
+                          setKeyPresent(!!e.currentTarget.value.trim())
+                        }
+                      />
+                    </label>
+                    <p className="hint">
+                      仅存当前页面内存；刷新、关闭或切换模式会清除。你的 key
+                      会由浏览器直接发送给
+                      OpenAI。请勿在不可信设备或扩展程序环境中使用。
+                      此连接为实验性功能，真实生成尚未验证。
+                    </p>
+                    <label className="consent">
+                      <input
+                        type="checkbox"
+                        disabled={!!busy}
+                        checked={consent}
+                        onChange={(e) => setConsent(e.currentTarget.checked)}
+                      />
+                      我了解浏览器密钥风险，并同意点击生成时使用我的 OpenAI
+                      账户、可能产生费用。
+                    </label>
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        abort.current?.abort();
+                        if (keyInput.current) keyInput.current.value = "";
+                        setKeyPresent(false);
+                        setConsent(false);
+                      }}
+                    >
+                      清除 key
+                    </button>
+                  </div>
+                )}
                 <p>
                   {" "}
                   {active.segments.length} 个片段 ·{" "}
@@ -530,9 +642,14 @@ export default function App() {
                 <button
                   className="primary"
                   onClick={() => generate()}
-                  disabled={!!busy || !online}
+                  disabled={
+                    !!busy ||
+                    !online ||
+                    (mode === "openai" && (!keyPresent || !consent))
+                  }
                 >
-                  {busy || "生成模拟提示音"}
+                  {busy ||
+                    (mode === "openai" ? "生成 OpenAI 语音" : "生成模拟提示音")}
                 </button>
                 {busy && (
                   <button
@@ -551,7 +668,9 @@ export default function App() {
                   ▶ 本机朗读全文
                 </button>
                 <button className="outline full" onClick={exportDemo}>
-                  下载完整 WAV 提示音
+                  {mode === "openai"
+                    ? "下载完整 WAV 语音"
+                    : "下载完整 WAV 提示音"}
                 </button>
                 <button
                   className="outline full"
@@ -587,8 +706,8 @@ export default function App() {
                   />
                 </label>
                 <p className="hint">
-                  备份包含脚本和设置，不包含音频。本机朗读由浏览器提供，声音因设备而异，不能导出。本演示不支持
-                  MP3 或真实人声导出。
+                  备份包含脚本和设置，不包含音频。本机朗读由浏览器提供，声音因设备而异，不能导出。OpenAI
+                  语音生成使用你的账户；目前不支持 MP3。
                 </p>
               </section>
               <button className="danger" onClick={remove} disabled={!!busy}>
@@ -596,7 +715,9 @@ export default function App() {
               </button>
             </div>
           </div>
-          <footer>Knowledge Podcast Studio · 本地演示 · 无需 API 密钥</footer>
+          <footer>
+            Knowledge Podcast Studio · 本地项目 · AI 语音须向听众披露
+          </footer>
         </div>
       </main>
     </>

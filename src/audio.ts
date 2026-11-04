@@ -53,19 +53,31 @@ export function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(u), 1000);
 }
 
-/** Concatenate the PCM data produced by demoAudio into a valid mono WAV. */
+/** Concatenate compatible PCM mono WAV segments without changing their format. */
 export async function joinDemoWavs(blobs: Blob[]): Promise<Blob> {
   if (!blobs.length) throw new Error("No audio to export");
   const arrays = await Promise.all(
     blobs.map(async (blob) => new Uint8Array(await blob.arrayBuffer())),
   );
+  let sampleRate: number | undefined;
   for (const a of arrays) {
+    const view = new DataView(a.buffer, a.byteOffset, a.byteLength);
     if (
       a.length < 44 ||
       new TextDecoder().decode(a.slice(0, 4)) !== "RIFF" ||
-      new TextDecoder().decode(a.slice(8, 12)) !== "WAVE"
+      new TextDecoder().decode(a.slice(8, 12)) !== "WAVE" ||
+      new TextDecoder().decode(a.slice(12, 16)) !== "fmt " ||
+      new TextDecoder().decode(a.slice(36, 40)) !== "data" ||
+      view.getUint32(16, true) !== 16 ||
+      view.getUint16(20, true) !== 1 ||
+      view.getUint16(22, true) !== 1 ||
+      view.getUint16(34, true) !== 16 ||
+      view.getUint32(40, true) !== a.length - 44 ||
+      (a.length - 44) % 2 !== 0 ||
+      (sampleRate !== undefined && sampleRate !== view.getUint32(24, true))
     )
-      throw new Error("Invalid demo audio");
+      throw new Error("Invalid or incompatible WAV audio");
+    sampleRate = view.getUint32(24, true);
   }
   const bytes = arrays.reduce((sum, a) => sum + a.length - 44, 0);
   const result = new Uint8Array(44 + bytes);
