@@ -60,7 +60,7 @@ those WAVs or make paid OpenAI calls.
 
 ## P1 — Reliable production and narration continuity
 
-- [ ] **T03 — Preflight the entire paid batch** (impact: high; effort: S;
+- [x] **T03 — Preflight the entire paid batch** (impact: high; effort: S;
   risk: medium). Current per-segment validation can discover a later 4,000-character
   limit only after earlier requests; backup import accepts larger fields.
   - First change: validate every selected segment and instructions before any
@@ -68,6 +68,10 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: over-limit later segment, over-limit instructions and invalid
     inputs each produce zero provider requests; input is preserved without
     silent truncation, and corrected input can proceed after consent.
+  - Implemented: one shared set of application limits is checked against every
+    selected BYOK segment and instructions before opening a provider connection.
+    Mocked browser tests verify multiple invalid segments, preserved input and
+    successful progression to the provider after correction; no paid call made.
 
 - [ ] **T04 — Allow safe re-recording and comparison** (impact: high; effort: M;
   risk: medium). The per-segment button is visible for current audio, but

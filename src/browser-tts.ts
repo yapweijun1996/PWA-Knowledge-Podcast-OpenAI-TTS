@@ -1,4 +1,5 @@
 import type { Voice } from "./model";
+import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
 
 /** Direct browser use exposes a user-supplied key to the page runtime. */
 export async function generateBrowserSpeech(
@@ -11,10 +12,12 @@ export async function generateBrowserSpeech(
   if (
     !key.trim() ||
     !text.trim() ||
-    text.length > 4000 ||
-    instructions.length > 2000
+    text.length > MAX_SEGMENT_LENGTH ||
+    instructions.length > MAX_INSTRUCTIONS_LENGTH
   )
-    throw new Error("请检查 API key 和片段长度（每段最多 4000 字符）。");
+    throw new Error(
+      `请检查 API key、片段长度（最多 ${MAX_SEGMENT_LENGTH} 字符）和旁白指令（最多 ${MAX_INSTRUCTIONS_LENGTH} 字符）。`,
+    );
   if (
     !globalThis.RTCPeerConnection ||
     !globalThis.AudioContext ||
