@@ -506,7 +506,10 @@ export default function App() {
     const rerecord = !!id && current(targets[0], p, mode);
     if (mode === "openai") {
       const tooLong = targets
-        .map((segment) => ({ segment, index: p.segments.indexOf(segment) + 1 }))
+        .map((segment) => ({
+          segment,
+          index: p.segments.findIndex((item) => item.id === segment.id) + 1,
+        }))
         .filter(({ segment }) => segment.text.length > MAX_SEGMENT_LENGTH);
       const problems: string[] = [];
       if (tooLong.length) {
