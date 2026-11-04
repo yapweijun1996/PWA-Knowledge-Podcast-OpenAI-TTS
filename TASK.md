@@ -180,13 +180,16 @@ those WAVs or make paid OpenAI calls.
 
 ## P2 — Usability, portability and knowledge workflow
 
-- [ ] **T13 — Align style selection with actual instructions** (impact: medium;
+- [x] **T13 — Align style selection with actual instructions** (impact: medium;
   effort: S; risk: low). The preset selector uses a default value rather than
   deriving its label from the project's instructions.
   - First change: use one authoritative state and show Custom when text differs.
   - Acceptance: edit, reload, backup restore and project switching show the
     true selection without overwriting custom instructions; choosing a preset
     has a visible, predictable effect.
+  - Implemented: the displayed preset derives from the saved instruction text;
+    unmatched text shows Custom. Browser coverage checks edits, reload, preset
+    selection, backup restore and switching projects without provider calls.
 
 - [ ] **T14 — Improve offline demo and export edge cases** (impact: medium;
   effort: S; risk: low). All generation is currently disabled offline,
