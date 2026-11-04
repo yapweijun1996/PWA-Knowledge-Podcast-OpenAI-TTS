@@ -268,7 +268,7 @@ those WAVs or make paid OpenAI calls.
 
 ## Suggested sequence
 
-T01–T04, T13, T14 and T16 have been implemented as described above. Run T05
-before committing to T06 or audio post-processing. Larger remaining investments
-include T06, T09 and T12. Dependencies, cost authorization and actual
-verification take precedence over the sequence.
+T01–T04 and T07–T16 are implemented as described above. T05 remains open:
+complete the bounded three-way real-provider comparison and listener assessment
+before selecting and implementing T06. Do not treat simulated audio or inserted
+silence as proof of improved narration continuity.
