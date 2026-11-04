@@ -437,8 +437,8 @@ export default function App() {
       setError("项目有未保存的内容，请先恢复保存或下载音频。");
       return;
     }
-    if (!online) {
-      setError("离线时无法开始生成。");
+    if (!online && mode === "openai") {
+      setError("离线时无法使用 OpenAI 生成。");
       return;
     }
     const key = keyInput.current?.value.trim() || "";
@@ -713,8 +713,9 @@ export default function App() {
   async function exportDemo() {
     const p = projectRef.current;
     if (!p) return;
-    const valid = p.segments.filter((s) => current(s, p, mode));
-    if (valid.length !== p.segments.length || !valid.length) {
+    const nonempty = p.segments.filter((s) => s.text.trim());
+    const valid = nonempty.filter((s) => current(s, p, mode));
+    if (valid.length !== nonempty.length || !valid.length) {
       setError("请先生成全部非空片段，再导出音频。");
       return;
     }
@@ -984,7 +985,13 @@ export default function App() {
               <strong className="summary-mode">
                 {mode === "openai" ? "浏览器 BYOK" : "演示模式"}
               </strong>
-              <small>{online ? "可以开始创作" : "当前离线"}</small>
+              <small>
+                {online
+                  ? "可以开始创作"
+                  : mode === "demo"
+                    ? "离线演示可用"
+                    : "当前离线"}
+              </small>
             </div>
           </div>
           <div className="notice">
@@ -1149,7 +1156,10 @@ export default function App() {
                           void generate(s.id);
                         }}
                         disabled={
-                          !!busy || !!s.alternative || !s.text.trim() || !online
+                          !!busy ||
+                          !!s.alternative ||
+                          !s.text.trim() ||
+                          (!online && mode === "openai")
                         }
                       >
                         ↻{" "}
@@ -1425,7 +1435,7 @@ export default function App() {
                     onClick={() => generate()}
                     disabled={
                       !!busy ||
-                      !online ||
+                      (!online && mode === "openai") ||
                       (mode === "openai" && (!keyPresent || !consent))
                     }
                   >
