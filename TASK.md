@@ -79,7 +79,7 @@ those WAVs or make paid OpenAI calls.
     Mocked browser tests verify multiple invalid segments, preserved input and
     successful progression to the provider after correction; no paid call made.
 
-- [ ] **T04 — Allow safe re-recording and comparison** (impact: high; effort: M;
+- [x] **T04 — Allow safe re-recording and comparison** (impact: high; effort: M;
   risk: medium). The per-segment button is visible for current audio, but
   `generate` excludes current audio. This was reproduced in the free demo.
   - First change: add an explicit re-record action with clear potential cost;
@@ -88,6 +88,11 @@ those WAVs or make paid OpenAI calls.
     failure or cancel preserves the playable previous WAV, and success allows
     a listener to compare old and new before choosing one.
   - Dependencies: T01 and T02 for durable, complete replacement.
+  - Implemented: explicitly confirmed BYOK re-recording saves a separate take,
+    retains the previous take and supports listening, swapping and confirmed
+    removal. Failure, cancellation and save-failure recovery preserve the old
+    take. Browser tests use mocked provider requests; live speech comparison
+    and perceived narration quality remain unverified.
 
 - [ ] **T05 — Evaluate continuity before choosing an architecture** (impact:
   high; effort: M; risk: medium). Each segment currently opens its own Realtime

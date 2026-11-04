@@ -54,9 +54,18 @@ test("script backup excludes audio and restores with a new identity", async () =
   const { createBackup, readBackup } = await import("../src/backup.ts");
   const p = makeProject(true);
   p.segments[0].audio = new Blob(["private bytes"]);
+  p.segments[0].alternative = {
+    audio: new Blob(["alternate private bytes"]),
+    audioKind: "openai",
+    audioFor: p.segments[0].text,
+    voice: p.voice,
+    instructions: "alternate-only metadata",
+  };
   const blob = createBackup(p);
   const text = await blob.text();
   assert.equal(text.includes("private bytes"), false);
+  assert.equal(text.includes("alternate-only metadata"), false);
+  assert.equal(text.includes('"alternative"'), false);
   const restored = await readBackup(new File([blob], "backup.json"));
   assert.notEqual(restored.id, p.id);
   assert.equal(restored.segments[0].text, p.segments[0].text);

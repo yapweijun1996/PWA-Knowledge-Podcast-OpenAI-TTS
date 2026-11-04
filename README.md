@@ -35,11 +35,13 @@ The owner reports that browser BYOK produced WAV speech; the implementation team
 
 OpenAI clips are marked **awaiting listening verification**, including clips saved by older versions. Listen to each clip and compare it with the script before confirming it; the full WAV export requires confirmations. Individual clips remain downloadable before confirmation. This is a human check, not proof that the transport captured all audio, and a truncated clip may need an explicitly initiated, potentially chargeable replacement.
 
+Re-record an existing segment to keep a separate alternate take for listening and comparison. OpenAI re-recording asks for confirmation because it may incur a charge. The current take is retained on failure or cancellation; choosing the alternate swaps the takes. Resolve or explicitly remove an existing alternate before creating another. Script-only backups do not include either take.
+
 ## Important gaps
 
 - The owner reports successful live BYOK speech generation; independent verification of the provider session, completeness, narration continuity and Chinese pronunciation remains outstanding. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
 - Individual clips use separate sessions and are joined without transition processing; the owner reports inconsistent emotion and pacing between clips. A controlled listening comparison and improvements are planned, not yet implemented.
-- Real voice comparison, reusable user presets, audio-inclusive backup, full chunk planning, and provider retry/error behavior remain incomplete. There is no automatic retry after an ambiguous paid request.
+- Cross-voice comparison, reusable user presets, audio-inclusive backup, full chunk planning, and provider retry/error behavior remain incomplete. There is no automatic retry after an ambiguous paid request.
 - Firefox, iOS Safari, real-device installation and multi-tab update behavior remain unverified. Quota-failure injection exposed a batch-continuation issue; single-tab deployed updates were checked separately.
 
 The [prioritized task backlog](TASK.md) and [six-persona review](docs/REVIEW-2026-11-04.md) describe current risks, evidence and proposed next steps.
