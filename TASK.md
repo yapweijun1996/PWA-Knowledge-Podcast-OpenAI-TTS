@@ -25,7 +25,7 @@ those WAVs or make paid OpenAI calls.
 
 ## P0 — Protect paid work and output integrity
 
-- [ ] **T01 — Stop a batch when audio cannot be saved** (impact: high; effort: M;
+- [x] **T01 — Stop a batch when audio cannot be saved** (impact: high; effort: M;
   risk: high). `src/App.tsx` queues `commit` asynchronously and continues the
   generation loop. A reviewer reproduced all five free demo segments continuing
   after an injected IndexedDB quota failure; the equivalent paid-path risk is
@@ -38,6 +38,11 @@ those WAVs or make paid OpenAI calls.
     retry never automatically repeats a possibly charged request.
   - Dependencies: T02 for recovery semantics; preserve ordering and existing
     partial successes.
+  - Implemented: wait for local persistence before the next segment; stop on
+    failure and provide in-memory WAV download or explicit save retry. A page
+    exit warning and update guard protect unresolved recovery. Mocked BYOK and
+    keyless tests cover no second request, download and successful save retry;
+    real provider behavior was not tested.
 
 - [ ] **T02 — Prevent false-complete, truncated narration** (impact: high;
   effort: L; risk: high). `src/browser-tts.ts` treats a two-second quiet tail
