@@ -6,6 +6,7 @@ export function createBackup(p: Project): Blob {
     segments: p.segments.map(
       ({
         audio: _,
+        audioKind: _kind,
         audioFor: __,
         voice: ___,
         instructions: ____,

@@ -476,3 +476,21 @@ footer {
   opacity: 0;
   cursor: pointer;
 }
+.byok {
+  margin-top: 16px;
+  border-top: 1px solid #e5ebe4;
+}
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #52645a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.consent input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+}

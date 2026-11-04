@@ -1,6 +1,6 @@
 # Knowledge Podcast Studio — work in progress
 
-A Mandarin-first local podcast script workspace and keyless simulation for GitHub Pages. This is an **incomplete prototype**, not a production release. The included weather script describes a research question; it contains no claimed five-kilometre rainfall measurements.
+A Mandarin-first podcast script workspace for GitHub Pages with keyless simulation and experimental browser-only BYOK. This is an **incomplete prototype**, not a production release. The included weather script describes a research question; it contains no claimed five-kilometre rainfall measurements.
 
 ## Run locally
 
@@ -19,16 +19,19 @@ npm audit
 
 Vite is configured for `/PWA-Knowledge-Podcast-OpenAI-TTS/`. The preview command prints the complete local URL. The build creates a versioned service worker with a user-confirmed update flow. The service worker precaches build artifacts only, not API responses or project data. Offline access requires one successful online visit and service-worker activation first.
 
-## Demo and privacy
+## Demo, browser BYOK and privacy
 
-Projects and simulated segment audio stay in IndexedDB on the device and may be deleted if browser data is cleared. The browser's own speech synthesis can read the script aloud; voice and availability depend on the device. The generated WAV files are **synthetic one-second tones, not speech**, and are not representations of OpenAI voices. This demo makes no paid requests and has no API key field. Text transcripts and full-program simulated tone WAVs can be downloaded. JSON backup and restore include scripts and settings, not audio. A script, voice or instructions change marks an existing segment stale. Cancelling preserves completed segments. Existing stale audio is not offered as current.
+Demo mode requires no key and produces **synthetic one-second tones, not speech**. Browser BYOK mode sends a user-entered OpenAI API key and the script directly from the browser to OpenAI. Select **OpenAI · 浏览器 BYOK**, enter your own key, acknowledge the risk and possible charges, then click generate. No API request is made until generation is clicked. Cancellation or a failed request may still incur charges; requests are not retried automatically.
+
+**Security trade-off:** OpenAI recommends keeping standard API keys on a trusted server. This experimental browser-only design was requested by the project owner and exposes the key to this page's scripts, browser extensions and potentially the device. A malicious script, compromised deployment, extension or shared device could steal it. Use a restricted, budget-limited key on a trusted device. The field is not written to application storage, backups, service-worker caches or logs; it is cleared on page exit, mode change or explicit clear. This does not protect the key against a compromised browser or frontend. The browser sends the script to OpenAI; projects and resulting audio are stored in local IndexedDB and can be lost if browser data is cleared.
+
+The OpenAI Realtime WebRTC path is implemented, but **no paid live generation has been tested**. A successful preflight or mocked test does not prove the endpoint accepts browser calls, that an account has model access, or that browser audio capture and exports work correctly with real provider output. The API may change. Users must listen to generated audio and verify narration matches the script. Browser speech synthesis is separate and cannot be exported. The current WAV assembly requires compatible sample formats; MP3 is not supported. JSON backup contains scripts and settings but no audio.
 
 ## Important gaps
 
-- No real OpenAI integration or hosted BYOK gateway exists; `DisabledGatewayProvider` fails closed. A disconnected `GatewayProvider` implements a bounded HTTPS transport contract for a short-lived gateway session, but it is not wired into the UI or validated against a real backend. A real backend needs authenticated sessions, strict origins and CSRF protection, quotas and rate limits, request limits, abuse controls, TLS, cancellation and idempotency policy, sanitized errors, and an explicit cost consent flow. It must keep provider keys out of browser persistence, logs and public assets. A production security review and owner approval are required before activation or hosting.
-- This is not yet a complete podcast production flow: real voice comparison, reusable user presets, audio assembly, MP3 encoding, full-program speech WAV, audio-inclusive backup, robust chunk planning, and provider retry/error behavior remain unimplemented. The demo tones are not a replacement for a narrated sample.
-- Offline shell, persistence and update were tested in local Chromium only. Firefox, iOS Safari, install prompts, real devices, and quota failures remain unverified.
-- The service-worker update test changes a local built worker; it is not proof of a two-release GitHub Pages deployment. Verify deployed behavior separately.
+- Live paid OpenAI generation, model access, WebRTC audio capture, output completeness and Chinese pronunciation remain unverified. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
+- Real voice comparison, reusable user presets, audio-inclusive backup, full chunk planning, and provider retry/error behavior remain incomplete. There is no automatic retry after an ambiguous paid request.
+- Firefox, iOS Safari, installation on real devices, quota failures and deployed two-release update behavior remain unverified.
 
 ## Provider migration
 
@@ -36,4 +39,4 @@ OpenAI's [text-to-speech guide](https://developers.openai.com/api/docs/guides/te
 
 ## Deployment
 
-CI runs on pushes and pull requests. The Pages workflow runs on pushes to `main` and can also be dispatched manually. It runs the security audit, typecheck, unit tests, build, and Chromium E2E tests before publishing. GitHub Pages must be configured to use GitHub Actions in repository settings. Never put API secrets in the frontend, GitHub Pages artifacts, browser storage or this repository.
+CI runs on pushes and pull requests. The Pages workflow runs on pushes to `main` and can also be dispatched manually. It runs the security audit, typecheck, unit tests, build, and Chromium E2E tests before publishing. GitHub Pages must be configured to use GitHub Actions in repository settings. Never embed API secrets in source, GitHub Pages artifacts, persistent browser storage or this repository. Browser BYOK exposes a user-entered key to the page runtime as described above.

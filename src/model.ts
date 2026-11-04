@@ -3,6 +3,7 @@ export type Segment = {
   id: string;
   text: string;
   audio?: Blob;
+  audioKind?: "demo" | "openai";
   audioFor?: string;
   voice?: Voice;
   instructions?: string;
@@ -45,9 +46,14 @@ export function makeProject(sample = false): Project {
     updated: Date.now(),
   };
 }
-export function current(s: Segment, p: Project) {
+export function current(
+  s: Segment,
+  p: Project,
+  kind: "demo" | "openai" = "demo",
+) {
   return (
     !!s.audio &&
+    (s.audioKind ?? "demo") === kind &&
     s.audioFor === s.text &&
     s.voice === p.voice &&
     s.instructions === p.instructions
