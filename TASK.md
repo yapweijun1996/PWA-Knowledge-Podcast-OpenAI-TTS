@@ -154,7 +154,7 @@ those WAVs or make paid OpenAI calls.
     corruption, not malicious alteration. Browser tests cover a synthetic paid
     metadata fixture, legacy import, size and quota failures, retry and no key.
 
-- [ ] **T10 — Make key exposure and release hardening explicit** (impact: high;
+- [x] **T10 — Make key exposure and release hardening explicit** (impact: high;
   effort: M; risk: high). Browser BYOK is an owner-selected trade-off; a CSP
   is defense in depth and cannot protect against malicious extensions or a
   compromised same-origin deployment.
@@ -164,10 +164,11 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: deployed-policy tests exercise those paths and reject unintended
     origins without logging secrets; audit and threat documentation clearly
     state residual browser and extension exposure.
-  - Implementation in review: built Pages HTML has a restrictive CSP, Actions
-    are pinned to verified commit IDs, and Pages job permissions are scoped.
-    Local mocked provider, WebRTC, offline and policy tests pass. Deployed-policy
-    and deployment-permission verification are still required before completion.
+  - Implemented: built Pages HTML has a restrictive CSP, Actions are pinned to
+    verified commit IDs, and Pages job permissions are scoped. The Pages deploy
+    for commit 9087f09 succeeded, and deployed Chromium tests verified blocked
+    origins, local offline demo and mocked-provider WebRTC. CSP cannot protect
+    against extensions or a compromised same-origin release.
 
 - [x] **T11 — Record truthful audio provenance and batch snapshots** (impact:
   high; effort: M; risk: medium). Assets record requested voice/instructions
