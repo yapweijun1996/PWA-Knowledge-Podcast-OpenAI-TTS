@@ -466,6 +466,10 @@ aside {
   box-shadow: 0 2px 8px #18392a08;
   min-width: 0;
 }
+.run-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .card h2 {
   font-size: 18px;
   letter-spacing: -0.02em;

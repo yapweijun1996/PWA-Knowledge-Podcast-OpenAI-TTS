@@ -1,4 +1,10 @@
 export type Voice = "marin" | "cedar" | "coral";
+export type AudioProvenance = {
+  requestedModel: string;
+  requestedInstructions?: string;
+  effectiveModel?: string;
+  effectiveVoice?: string;
+};
 export type AudioTake = {
   audio: Blob;
   audioKind: "demo" | "openai";
@@ -6,6 +12,7 @@ export type AudioTake = {
   voice: Voice;
   instructions: string;
   audioVerified?: boolean;
+  provenance?: AudioProvenance;
 };
 export type Segment = {
   id: string;
@@ -16,6 +23,7 @@ export type Segment = {
   voice?: Voice;
   instructions?: string;
   audioVerified?: boolean;
+  provenance?: AudioProvenance;
   alternative?: AudioTake;
 };
 export type Project = {
