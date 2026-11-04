@@ -2,20 +2,17 @@ import type { Project, Segment, Voice } from "./model";
 const voices: Voice[] = ["marin", "cedar", "coral"];
 export function createBackup(p: Project): Blob {
   const project = {
-    ...p,
-    segments: p.segments.map(
-      ({
-        audio: _,
-        audioKind: _kind,
-        audioFor: __,
-        voice: ___,
-        instructions: ____,
-        audioVerified: _verified,
-        alternative: _alternative,
-        provenance: _provenance,
-        ...segment
-      }) => segment,
-    ),
+    id: p.id,
+    title: p.title,
+    language: p.language,
+    voice: p.voice,
+    instructions: p.instructions,
+    notes: p.notes,
+    updated: p.updated,
+    segments: p.segments.map((segment) => ({
+      id: segment.id,
+      text: segment.text,
+    })),
   };
   return new Blob(
     [
