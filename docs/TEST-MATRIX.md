@@ -26,3 +26,14 @@ short disclosed fixture with no automatic retry, and record actual charges and
 listening results without saving credentials or private audio to documentation.
 The owner has authorized up to US$5 for the planned small continuity comparison;
 that authorization is not proof that a call or charge occurred.
+
+## Deployed upgrade evidence (2026-11-04)
+
+For the [T12 Pages deployment](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/41815020765),
+Chromium opened two isolated tabs on the previous live release and saved a
+different disposable draft in each. After the new worker was deployed, the old
+client's update request did not activate it while both tabs remained open. After
+one tab closed, activation succeeded; offline reload preserved both drafts. A
+separate deployed Chromium test exercised same-project conflict recovery and a
+simulated quota failure with synthetic audio. These checks made no paid requests
+and do not establish real-device behavior.
