@@ -860,14 +860,26 @@ export default function App() {
       id: crypto.randomUUID(),
       title: `${p.title.slice(0, 180)}（冲突副本）`,
       updated: Date.now(),
-      revision: undefined,
+      revision: crypto.randomUUID(),
     };
+    updateLock.current = true;
     setBusy("正在保存副本…");
     try {
-      if (await commit(copy)) {
-        failedProjects.current.delete(originalId);
-        conflictedProjects.current.delete(originalId);
-        if (recovery?.projectId === originalId) setRecovery(null);
+      await saveQueue.current;
+      await saveProject(copy, null);
+      projectVersions.current.set(copy.id, copy.revision);
+      failedProjects.current.delete(originalId);
+      conflictedProjects.current.delete(originalId);
+      if (recovery?.projectId === originalId) setRecovery(null);
+      projectRef.current = copy;
+      setActive(copy);
+      setProjects((projects) => [
+        copy,
+        ...projects.filter((project) => project.id !== copy.id),
+      ]);
+      setError("");
+      setStatus("冲突副本已保存在此设备");
+      try {
         const latest = (await allProjects()).find(
           (project) => project.id === originalId,
         );
@@ -879,12 +891,13 @@ export default function App() {
             project.id === originalId ? (latest ? [latest] : []) : [project],
           ),
         );
-        setError("");
-        setStatus("冲突副本已保存在此设备");
+      } catch {
+        setError("副本已保存，但无法刷新原项目列表。请重新打开应用。");
       }
     } catch {
-      setError("副本已保存，但无法刷新项目列表。请重新打开应用。");
+      setError("副本尚未保存。请释放空间后重试，或先下载未保存音频。");
     } finally {
+      updateLock.current = false;
       setBusy("");
     }
   }

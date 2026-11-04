@@ -181,6 +181,19 @@ test("concurrent project changes preserve generated audio in a conflict copy", a
     requests++;
     await route.abort();
   });
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (
+        (window as unknown as { failCopy: boolean }).failCopy &&
+        value?.title?.includes("冲突副本")
+      )
+        throw new DOMException("Injected quota failure", "QuotaExceededError");
+      return key === undefined
+        ? put.call(this, value)
+        : put.call(this, value, key);
+    };
+  });
   await page.goto("./");
   await page.getByLabel("片段 1 脚本").fill("原始旁白。");
   await expect(page.getByText("已保存在此设备")).toBeVisible();
@@ -196,6 +209,20 @@ test("concurrent project changes preserve generated audio in a conflict copy", a
   await expect(
     page.getByRole("button", { name: "下载未保存音频" }),
   ).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { failCopy: boolean }).failCopy = true;
+  });
+  await page.getByRole("button", { name: "另存为新项目" }).click();
+  await expect(page.getByRole("alert")).toContainText("副本尚未保存");
+  await expect(
+    page.getByRole("button", { name: "下载未保存音频" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "另存为新项目" }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { failCopy: boolean }).failCopy = false;
+  });
   await page.getByRole("button", { name: "另存为新项目" }).click();
   await expect(page.getByText("冲突副本已保存在此设备")).toBeVisible();
   await expect(
