@@ -120,6 +120,11 @@ export default function App() {
     [mode, setMode] = useState<"demo" | "openai">("demo"),
     [keyPresent, setKeyPresent] = useState(false),
     [consent, setConsent] = useState(false),
+    [recovery, setRecovery] = useState<{
+      projectId: string;
+      segmentId: string;
+      audio: Blob;
+    } | null>(null),
     [collapsed, setCollapsed] = useState(
       () => readPreference("podcast-sidebar", "expanded") === "collapsed",
     ),
@@ -143,6 +148,15 @@ export default function App() {
   const keyInput = useRef<HTMLInputElement | null>(null);
   const menuButton = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!recovery) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recovery]);
   const showHint = (target: HTMLElement, id: string, text: string) => {
     if (!collapsed || mobile) return;
     const rect = target.getBoundingClientRect();
@@ -319,7 +333,7 @@ export default function App() {
     setProjects((old) => [p, ...old.filter((x) => x.id !== p.id)]);
     const version = ++saveVersion.current;
     setStatus("正在保存…");
-    saveQueue.current = saveQueue.current
+    const saved = saveQueue.current
       .then(() => saveProject(p))
       .then(() => {
         failedProjects.current.delete(p.id);
@@ -328,12 +342,16 @@ export default function App() {
             failedProjects.current.size ? "部分项目保存失败" : "已保存在此设备",
           );
         }
+        return true;
       })
       .catch(() => {
         failedProjects.current.add(p.id);
         setStatus("保存失败");
         setError("保存失败：设备存储可能已满或不可用。请备份文本。");
+        return false;
       });
+    saveQueue.current = saved.then(() => undefined);
+    return saved;
   };
   useEffect(() => {
     allProjects()
@@ -414,6 +432,10 @@ export default function App() {
     const p = projectRef.current;
     if (!p || busy || abort.current || deleteLock.current || updateLock.current)
       return;
+    if (recovery || failedProjects.current.has(p.id)) {
+      setError("项目有未保存的内容，请先恢复保存或下载音频。");
+      return;
+    }
     if (!online) {
       setError("离线时无法开始生成。");
       return;
@@ -435,6 +457,12 @@ export default function App() {
     operationEpoch.current++;
     abort.current = ctrl;
     try {
+      setBusy("正在检查本地保存…");
+      await saveQueue.current;
+      if (failedProjects.current.has(p.id)) {
+        setError("项目尚未保存，已停止生成。请先解决本地保存问题。");
+        return;
+      }
       for (let i = 0; i < targets.length; i++) {
         if (ctrl.signal.aborted || projectRef.current?.id !== p.id)
           throw new DOMException("Cancelled", "AbortError");
@@ -454,7 +482,7 @@ export default function App() {
             : await demoAudio(target.text, ctrl.signal);
         const now = projectRef.current;
         if (now && now.id === p.id) {
-          commit({
+          const saved = await commit({
             ...now,
             updated: Date.now(),
             segments: now.segments.map((s) =>
@@ -470,10 +498,27 @@ export default function App() {
                 : s,
             ),
           });
+          if (!saved) {
+            setRecovery({
+              projectId: now.id,
+              segmentId: target.id,
+              audio: blob,
+            });
+            setStatus("保存失败，已停止生成");
+            setError(
+              "音频保存失败，已停止生成。请下载未保存音频或重试保存；已生成的语音可能已产生费用。",
+            );
+            return;
+          }
         }
       }
+      await saveQueue.current;
       setStatus(
-        mode === "openai" ? "语音生成完成" : "模拟完成：音频为提示音，非人声",
+        failedProjects.current.size
+          ? "部分项目保存失败"
+          : mode === "openai"
+            ? "已保存在此设备 · 语音生成完成"
+            : "已保存在此设备 · 模拟完成：音频为提示音，非人声",
       );
     } catch (e) {
       if ((e as Error).name === "AbortError")
@@ -486,6 +531,36 @@ export default function App() {
         );
     } finally {
       abort.current = null;
+      setBusy("");
+    }
+  }
+  async function retryRecovery() {
+    const p = projectRef.current;
+    if (
+      !recovery ||
+      !p ||
+      busy ||
+      abort.current ||
+      deleteLock.current ||
+      updateLock.current
+    )
+      return;
+    if (
+      p.id !== recovery.projectId ||
+      !p.segments.some(
+        (s) => s.id === recovery.segmentId && s.audio === recovery.audio,
+      )
+    ) {
+      setError("请打开对应项目；如片段已改变，请先下载未保存音频。");
+      return;
+    }
+    setBusy("正在重试保存…");
+    try {
+      if (await commit({ ...p, updated: Date.now() })) {
+        setRecovery(null);
+        setError("");
+      }
+    } finally {
       setBusy("");
     }
   }
@@ -613,7 +688,8 @@ export default function App() {
       updating ||
       abort.current ||
       deleteLock.current ||
-      updateLock.current
+      updateLock.current ||
+      recovery
     )
       return;
     updateLock.current = true;
@@ -859,7 +935,7 @@ export default function App() {
           {waiting && (
             <div className="notice update">
               <span>
-                {failedProjects.current.size
+                {failedProjects.current.size || recovery
                   ? "有项目尚未保存，请先解决保存问题。"
                   : "新版本已准备好。项目保存在本地。"}
               </span>
@@ -870,7 +946,8 @@ export default function App() {
                   deleting ||
                   !!busy ||
                   status === "正在保存…" ||
-                  failedProjects.current.size > 0
+                  failedProjects.current.size > 0 ||
+                  !!recovery
                 }
               >
                 {updating ? "正在更新…" : "立即更新"}
@@ -882,6 +959,24 @@ export default function App() {
               {error}{" "}
               <button onClick={() => setError("")} aria-label="关闭提示">
                 ×
+              </button>
+            </div>
+          )}
+          {recovery && (
+            <div className="notice" aria-label="未保存音频恢复">
+              <span>
+                音频仍在本页面内存中。关闭页面前请下载或重试保存；不会自动重新生成。
+              </span>
+              <button
+                onClick={() => download(recovery.audio, "unsaved-segment.wav")}
+              >
+                下载未保存音频
+              </button>
+              <button
+                onClick={() => void retryRecovery()}
+                disabled={!!busy || deleting || updating}
+              >
+                重试保存音频
               </button>
             </div>
           )}
