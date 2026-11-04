@@ -142,11 +142,13 @@ export default function App() {
       instructions: string;
       targets: Array<{ index: number; text: string }>;
     } | null>(null),
+    [pauseMs, setPauseMs] = useState(0),
     [previewStart, setPreviewStart] = useState(""),
     [preview, setPreview] = useState<{
       projectId: string;
       mode: "demo" | "openai";
       startId: string;
+      pauseMs: number;
       segments: Array<{ id: string; audio: Blob }>;
       audio: Blob;
     } | null>(null),
@@ -958,7 +960,10 @@ export default function App() {
     }
     try {
       download(
-        await joinDemoWavs(valid.map((s) => s.audio!)),
+        await joinDemoWavs(
+          valid.map((s) => s.audio!),
+          pauseMs,
+        ),
         mode === "openai" ? "podcast.wav" : "demo-tones.wav",
       );
     } catch {
@@ -987,6 +992,7 @@ export default function App() {
     try {
       const audio = await joinDemoWavs(
         segments.map((segment) => segment.audio!),
+        pauseMs,
       );
       if (operationEpoch.current !== epoch || projectRef.current?.id !== p.id) {
         setError("项目在准备试听时发生变化，请重新准备。");
@@ -997,6 +1003,7 @@ export default function App() {
         projectId: p.id,
         mode,
         startId,
+        pauseMs,
         segments: segments.map((segment) => ({
           id: segment.id,
           audio: segment.audio!,
@@ -1130,6 +1137,7 @@ export default function App() {
     preview.projectId === active.id &&
     preview.mode === mode &&
     preview.startId === previewStartId &&
+    preview.pauseMs === pauseMs &&
     preview.segments.length === previewSegments.length &&
     previewSegments.every(
       (segment, index) =>
@@ -1912,6 +1920,23 @@ export default function App() {
                   )}
                   <div id="assets" className="asset-actions">
                     <h3>播放与导出</h3>
+                    <label className="field">
+                      片段间停顿
+                      <select
+                        value={pauseMs}
+                        onChange={(event) =>
+                          setPauseMs(Number(event.target.value))
+                        }
+                      >
+                        <option value={0}>无额外停顿（原始拼接）</option>
+                        <option value={200}>增加 0.2 秒</option>
+                        <option value={500}>增加 0.5 秒</option>
+                      </select>
+                    </label>
+                    <p className="hint">
+                      仅在片段之间添加静音，不修改原录音；重新准备试听可对比，完整
+                      WAV 使用当前设置。
+                    </p>
                     <label className="field">
                       从片段开始试听
                       <select

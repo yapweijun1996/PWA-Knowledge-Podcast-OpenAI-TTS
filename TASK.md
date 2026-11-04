@@ -117,7 +117,7 @@ those WAVs or make paid OpenAI calls.
     mock tests cannot be treated as proof of natural-sounding speech.
   - Dependencies: T01–T03 and T05.
 
-- [ ] **T07 — Provide adjustable, non-destructive audio joins** (impact: high;
+- [x] **T07 — Provide adjustable, non-destructive audio joins** (impact: high;
   effort: M; risk: medium). WAV edges currently retain up to 150 ms leading and
   250 ms trailing padding, and `src/audio.ts` concatenates samples without
   normalization or fades. Audible impact on the owner's samples is unknown.
@@ -127,6 +127,12 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: tests cover silence, low-level final syllables, clicks and sample
     rates without removing words; a listener can compare and revert processing.
   - Dependencies: T02 and a clear narration-quality rubric from T05.
+  - Implemented: optional 0.2/0.5-second silence between segments for preview
+    and full WAV export; zero restores the original join. Source audio remains
+    unchanged. Unit tests verify all samples including quiet endings and multiple
+    sample rates; browser tests cover A/B preview and export. The [listening
+    rubric](docs/NARRATION-EVALUATION.md) defines quality checks; T05 real-provider
+    comparison and any perceived improvement remain unverified.
 
 - [x] **T08 — Add continuous playback and boundary review** (impact: high;
   effort: M; risk: low). Current players are per segment; a full WAV is
