@@ -29,10 +29,18 @@ for (const scenario of [
         spoken: string[];
         responses: number;
         savedAtResponse: number[];
+        saveAttempted: boolean;
       };
       win.spoken = [];
       win.responses = 0;
       win.savedAtResponse = [];
+      win.saveAttempted = false;
+      const get = IDBObjectStore.prototype.get;
+      IDBObjectStore.prototype.get = function (key) {
+        if (kind === "cancel-save" && win.responses > 0)
+          win.saveAttempted = true;
+        return get.call(this, key);
+      };
       const put = IDBObjectStore.prototype.put;
       IDBObjectStore.prototype.put = function (value, key) {
         if (
@@ -175,7 +183,17 @@ for (const scenario of [
         loop();
       });
       try {
-        await page.waitForTimeout(3000);
+        await expect
+          .poll(
+            () =>
+              page.evaluate(
+                () =>
+                  (window as unknown as { saveAttempted: boolean })
+                    .saveAttempted,
+              ),
+            { timeout: 12000 },
+          )
+          .toBe(true);
         await page.getByRole("button", { name: "取消", exact: true }).click();
         expect(sessions).toHaveLength(1);
         await expect(
