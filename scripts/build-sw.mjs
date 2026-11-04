@@ -49,11 +49,35 @@ async function precache() {
   }
 }
 self.addEventListener('install', event => event.waitUntil(precache()));
-self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('podcast-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
-self.addEventListener('message', event => { if(event.data === 'SKIP_WAITING') self.skipWaiting(); });
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+self.addEventListener('message', event => {
+  if(event.data !== 'SKIP_WAITING' && event.data !== 'SKIP_WAITING_IF_SINGLE') return;
+  event.waitUntil((async () => {
+    const scope = new URL(self.registration.scope);
+    const windows = await self.clients.matchAll({type:'window', includeUncontrolled:true});
+    const relevant = windows.filter(client => {
+      const url = new URL(client.url);
+      return url.origin === scope.origin && url.pathname.startsWith(scope.pathname);
+    });
+    if(relevant.length > 1) { event.ports[0]?.postMessage({ok:false}); return; }
+    event.ports[0]?.postMessage({ok:true});
+    await self.skipWaiting();
+  })());
+});
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if(event.request.method !== 'GET' || url.origin !== location.origin || !url.pathname.startsWith(self.registration.scope.replace(location.origin, ''))) return;
-  event.respondWith(caches.open(CACHE).then(cache => cache.match(event.request, {ignoreVary:true})).then(hit => hit || fetch(event.request)));
+  event.respondWith((async () => {
+    const hit = await (await caches.open(CACHE)).match(event.request, {ignoreVary:true});
+    if(hit) return hit;
+    // Retain prior versioned assets for tabs that were already open at activation.
+    for(const name of await caches.keys()) {
+      if(name.startsWith('podcast-') && name !== CACHE) {
+        const old = await (await caches.open(name)).match(event.request, {ignoreVary:true});
+        if(old) return old;
+      }
+    }
+    return fetch(event.request);
+  })());
 });`;
 await writeFile("dist/sw.js", sw);

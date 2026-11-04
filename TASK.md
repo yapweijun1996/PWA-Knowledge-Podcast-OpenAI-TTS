@@ -195,7 +195,7 @@ those WAVs or make paid OpenAI calls.
     without asserting their cause. Mocked browser tests cover edits during a
     batch, missing/mismatched metadata, reload and credential-free backup.
 
-- [ ] **T12 — Protect updates across tabs** (impact: high; effort: L; risk:
+- [x] **T12 — Protect updates across tabs** (impact: high; effort: L; risk:
   high). The update guard checks the current tab, while activation claims
   clients and removes old caches; cross-tab disruption is a code-based risk,
   not a reproduced incident.
@@ -204,6 +204,13 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: a two-tab test covers a running generation plus an update,
     pending save, offline recovery and no secret sharing; neither tab silently
     loses work or restarts paid generation.
+  - Implemented: tabs hold shared Web Locks while open; a forced update requires
+    exclusive access and a second service-worker client check. Old caches remain
+    available for offline assets. Project writes use transactional revisions;
+    conflicts retain local work and offer a separate copy. Browser tests cover
+    pending saves, interrupted mocked generation, legacy update messages, offline
+    recovery and a concurrent save conflict without sharing keys. Browsers without
+    Web Locks must close all app pages before a waiting update can activate.
 
 ## P2 — Usability, portability and knowledge workflow
 
