@@ -99,14 +99,14 @@ function savePreference(key: string, value: string) {
   }
 }
 
-function Player({ blob }: { blob: Blob }) {
+function Player({ blob, label = "播放音频" }: { blob: Blob; label?: string }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     const u = URL.createObjectURL(blob);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [blob]);
-  return <audio controls preload="metadata" src={url} aria-label="播放音频" />;
+  return <audio controls preload="metadata" src={url} aria-label={label} />;
 }
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]),
@@ -121,6 +121,14 @@ export default function App() {
     [mode, setMode] = useState<"demo" | "openai">("demo"),
     [keyPresent, setKeyPresent] = useState(false),
     [consent, setConsent] = useState(false),
+    [previewStart, setPreviewStart] = useState(""),
+    [preview, setPreview] = useState<{
+      projectId: string;
+      mode: "demo" | "openai";
+      startId: string;
+      segments: Array<{ id: string; audio: Blob }>;
+      audio: Blob;
+    } | null>(null),
     [recovery, setRecovery] = useState<{
       projectId: string;
       segmentId: string;
@@ -754,6 +762,50 @@ export default function App() {
       setError("音频导出失败。");
     }
   }
+  async function preparePreview(startId: string) {
+    const p = projectRef.current;
+    if (!p || busy || abort.current || deleteLock.current || updateLock.current)
+      return;
+    const index = p.segments.findIndex((segment) => segment.id === startId);
+    const segments = p.segments
+      .slice(index)
+      .filter((segment) => segment.text.trim());
+    if (
+      index < 0 ||
+      !segments.length ||
+      segments.some((segment) => !current(segment, p, mode))
+    ) {
+      setPreview(null);
+      setError("所选范围有片段需要重新生成，无法连续试听。");
+      return;
+    }
+    const epoch = operationEpoch.current;
+    setBusy("正在准备试听…");
+    try {
+      const audio = await joinDemoWavs(
+        segments.map((segment) => segment.audio!),
+      );
+      if (operationEpoch.current !== epoch || projectRef.current?.id !== p.id) {
+        setError("项目在准备试听时发生变化，请重新准备。");
+        return;
+      }
+      setError("");
+      setPreview({
+        projectId: p.id,
+        mode,
+        startId,
+        segments: segments.map((segment) => ({
+          id: segment.id,
+          audio: segment.audio!,
+        })),
+        audio,
+      });
+    } catch {
+      setError("无法准备连续试听，请检查片段音频格式。");
+    } finally {
+      setBusy("");
+    }
+  }
   async function update() {
     if (
       !waiting ||
@@ -809,6 +861,35 @@ export default function App() {
           (s) => current(s, active, mode) && !s.audioVerified,
         ).length
       : 0;
+  const previewOptions = active.segments.filter((segment) =>
+    segment.text.trim(),
+  );
+  const previewStartId = previewOptions.some(
+    (segment) => segment.id === previewStart,
+  )
+    ? previewStart
+    : (previewOptions[0]?.id ?? "");
+  const previewIndex = active.segments.findIndex(
+    (segment) => segment.id === previewStartId,
+  );
+  const previewSegments =
+    previewIndex < 0
+      ? []
+      : active.segments
+          .slice(previewIndex)
+          .filter((segment) => segment.text.trim());
+  const visiblePreview =
+    preview &&
+    preview.projectId === active.id &&
+    preview.mode === mode &&
+    preview.startId === previewStartId &&
+    preview.segments.length === previewSegments.length &&
+    previewSegments.every(
+      (segment, index) =>
+        current(segment, active, mode) &&
+        segment.id === preview.segments[index].id &&
+        segment.audio === preview.segments[index].audio,
+    );
   return (
     <>
       <header className="top">
@@ -1496,6 +1577,44 @@ export default function App() {
                   )}
                   <div id="assets" className="asset-actions">
                     <h3>播放与导出</h3>
+                    <label className="field">
+                      从片段开始试听
+                      <select
+                        value={previewStartId}
+                        onChange={(event) =>
+                          setPreviewStart(event.target.value)
+                        }
+                      >
+                        {active.segments.map(
+                          (segment, index) =>
+                            segment.text.trim() && (
+                              <option key={segment.id} value={segment.id}>
+                                片段 {index + 1}
+                              </option>
+                            ),
+                        )}
+                      </select>
+                    </label>
+                    <button
+                      className="outline full"
+                      disabled={!!busy || !previewStartId}
+                      onClick={() => void preparePreview(previewStartId)}
+                    >
+                      准备连续试听
+                    </button>
+                    {visiblePreview && preview && (
+                      <>
+                        <div className="audio">
+                          <Player blob={preview.audio} label="连续试听播放器" />
+                        </div>
+                        <button
+                          className="outline full"
+                          onClick={() => setPreview(null)}
+                        >
+                          关闭连续试听
+                        </button>
+                      </>
+                    )}
                     <button
                       className="outline full"
                       onClick={() =>
