@@ -1106,20 +1106,25 @@ export default function App() {
                   </label>
                   {mode === "openai" && (
                     <div className="byok">
-                      <label className="field">
-                        OpenAI API key
-                        <input
-                          ref={keyInput}
-                          disabled={!!busy}
-                          type="password"
-                          autoComplete="off"
-                          spellCheck={false}
-                          placeholder="输入你自己的 key"
-                          onChange={(e) =>
-                            setKeyPresent(!!e.currentTarget.value.trim())
-                          }
-                        />
-                      </label>
+                      <form
+                        autoComplete="off"
+                        onSubmit={(event) => event.preventDefault()}
+                      >
+                        <label className="field">
+                          OpenAI API key
+                          <input
+                            ref={keyInput}
+                            disabled={!!busy}
+                            type="password"
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="输入你自己的 key"
+                            onChange={(e) =>
+                              setKeyPresent(!!e.currentTarget.value.trim())
+                            }
+                          />
+                        </label>
+                      </form>
                       <p className="hint">
                         仅存当前页面内存；刷新、关闭或切换模式会清除。你的 key
                         会由浏览器直接发送给
