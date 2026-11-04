@@ -81,3 +81,66 @@ test("a waiting update needs confirmation and preserves the draft", async ({
     await fs.writeFile(sw, original);
   }
 });
+
+test("a mixed-version install fails without replacing the active worker", async ({
+  page,
+}) => {
+  const fs = await import("node:fs/promises");
+  const swPath = "dist/sw.js",
+    htmlPath = "dist/index.html";
+  const sw = await fs.readFile(swPath, "utf8"),
+    html = await fs.readFile(htmlPath, "utf8");
+  try {
+    await page.goto("./");
+    await page.getByLabel("片段 1 脚本").fill("升级前草稿");
+    await expect(page.getByText("已保存在此设备")).toBeVisible();
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await fs.writeFile(htmlPath, html + "<!-- incorrect cached release -->");
+    await fs.writeFile(
+      swPath,
+      sw.replace(/podcast-([a-f0-9]+)/, "podcast-$1-stale"),
+    );
+    const result = await page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (!registration) throw new Error("Missing registration");
+      const state = new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("Worker did not settle")),
+          15000,
+        );
+        registration.addEventListener(
+          "updatefound",
+          () => {
+            const worker = registration.installing;
+            if (!worker) return;
+            worker.addEventListener("statechange", () => {
+              if (
+                worker.state === "redundant" ||
+                worker.state === "installed"
+              ) {
+                clearTimeout(timer);
+                resolve(worker.state);
+              }
+            });
+          },
+          { once: true },
+        );
+      });
+      await registration.update();
+      return await state;
+    });
+    expect(result).toBe("redundant");
+    expect(
+      await page.evaluate(async () =>
+        (await caches.keys()).some((key) => key.endsWith("-stale")),
+      ),
+    ).toBe(false);
+    await page.reload();
+    await expect(page.getByLabel("片段 1 脚本")).toHaveValue("升级前草稿");
+    await expect(page.getByRole("button", { name: "立即更新" })).toHaveCount(0);
+  } finally {
+    await fs.writeFile(htmlPath, html);
+    await fs.writeFile(swPath, sw);
+  }
+});
