@@ -207,7 +207,7 @@ those WAVs or make paid OpenAI calls.
     Browser tests verify offline operation, valid WAV output and zero provider
     requests. Blank-only projects still require at least one nonempty segment.
 
-- [ ] **T15 — Expand device, browser and lifecycle evidence** (impact: medium;
+- [x] **T15 — Expand device, browser and lifecycle evidence** (impact: medium;
   effort: M; risk: medium). CI uses Chromium, while paid provider output,
   real iOS/Android installation, Firefox, interrupted sessions and multi-tab
   behavior are not independently verified.
@@ -216,6 +216,11 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: CI provisions and runs supported free browser cases; each
     untested device/provider path is labeled NOT VERIFIED, with steps and
     explicit owner approval required for any paid test.
+  - Implemented: [evidence matrix](docs/TEST-MATRIX.md) distinguishes CI,
+    mock, deployed and physical-device checks. CI provisions Firefox and runs
+    free persistence, offline, export and responsive cases; actual CI results
+    determine whether that revision passed. Physical-device and real-provider
+    paths remain explicitly unverified.
 
 - [x] **T16 — Add editing and script-source workflow** (impact: medium; effort:
   L; risk: low). At review, the studio had add/delete but no segment reordering,
