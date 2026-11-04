@@ -773,6 +773,10 @@ export default function App() {
     (s) => current(s, active, mode) && (mode !== "openai" || s.audioVerified),
   ).length;
   const totalChars = active.segments.reduce((n, s) => n + s.text.length, 0);
+  const selectedPreset =
+    Object.entries(presets).find(
+      ([, instructions]) => instructions === active.instructions,
+    )?.[0] ?? "Custom";
   const stale = active.segments.filter(
     (s) => s.audio && !current(s, active, mode),
   ).length;
@@ -1302,7 +1306,7 @@ export default function App() {
                   <label className="field">
                     朗读风格
                     <select
-                      defaultValue="Documentary"
+                      value={selectedPreset}
                       onChange={(e) =>
                         change({
                           instructions:
@@ -1310,6 +1314,9 @@ export default function App() {
                         })
                       }
                     >
+                      <option value="Custom" disabled>
+                        自定义
+                      </option>
                       {Object.keys(presets).map((x) => (
                         <option key={x}>{x}</option>
                       ))}

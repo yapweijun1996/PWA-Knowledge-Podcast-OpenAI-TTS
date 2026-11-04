@@ -19,7 +19,7 @@ npm audit
 
 Vite is configured for `/PWA-Knowledge-Podcast-OpenAI-TTS/`. The preview command prints the complete local URL. The build creates a versioned service worker with a user-confirmed update flow. Before accepting an update it fetches cache-busted build assets and checks their hashes; a mixed release fails installation and leaves the old version active. The service worker precaches build artifacts only, not API responses or project data. Offline access requires one successful online visit and service-worker activation first.
 
-The admin workspace provides navigation to the script, voice, generation, export and settings sections. The desktop sidebar can be collapsed, and the mobile navigation opens as a drawer. Appearance supports light, dark and system preferences; appearance and sidebar preferences are stored locally. The settings section shows the application version and can check for updates.
+The admin workspace provides navigation to the script, voice, generation, export and settings sections. The desktop sidebar can be collapsed, and the mobile navigation opens as a drawer. The style selector reflects the saved narrator instructions and shows Custom for text that does not match a built-in preset. Appearance supports light, dark and system preferences; appearance and sidebar preferences are stored locally. The settings section shows the application version and can check for updates.
 
 ## Demo, browser BYOK and privacy
 
