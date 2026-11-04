@@ -1,3 +1,5 @@
+import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
+
 /** A provider-neutral boundary. The public demo does not instantiate a gateway. */
 export interface AudioRequest {
   text: string;
@@ -49,8 +51,8 @@ export class GatewayProvider implements AudioProvider {
   async generate(request: AudioRequest, signal: AbortSignal): Promise<Blob> {
     if (
       !request.text.trim() ||
-      request.text.length > 4000 ||
-      request.instructions.length > 2000 ||
+      request.text.length > MAX_SEGMENT_LENGTH ||
+      request.instructions.length > MAX_INSTRUCTIONS_LENGTH ||
       !/^[a-z0-9_-]{1,64}$/i.test(request.voice) ||
       !/^[a-z0-9_-]{1,128}$/i.test(request.requestId)
     ) {

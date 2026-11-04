@@ -12,6 +12,7 @@ import {
 import { demoAudio, download, joinDemoWavs } from "./audio";
 import { createBackup, readBackup } from "./backup";
 import { generateBrowserSpeech } from "./browser-tts";
+import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
 import packageInfo from "../package.json";
 
 type Theme = "light" | "dark" | "system";
@@ -451,6 +452,27 @@ export default function App() {
     if (!targets.length) {
       setError("没有需要生成的非空片段。");
       return;
+    }
+    if (mode === "openai") {
+      const tooLong = targets
+        .map((segment) => ({ segment, index: p.segments.indexOf(segment) + 1 }))
+        .filter(({ segment }) => segment.text.length > MAX_SEGMENT_LENGTH);
+      const problems: string[] = [];
+      if (tooLong.length) {
+        const names = tooLong
+          .slice(0, 10)
+          .map(({ index }) => `片段 ${index}`)
+          .join("、");
+        problems.push(
+          `${names}${tooLong.length > 10 ? ` 等 ${tooLong.length} 个片段` : ""}超过 ${MAX_SEGMENT_LENGTH} 字符`,
+        );
+      }
+      if (p.instructions.length > MAX_INSTRUCTIONS_LENGTH)
+        problems.push(`旁白指令超过 ${MAX_INSTRUCTIONS_LENGTH} 字符`);
+      if (problems.length) {
+        setError(`${problems.join("；")}。请修改后再生成，本次未发送请求。`);
+        return;
+      }
     }
     setError("");
     const ctrl = new AbortController();
