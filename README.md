@@ -17,7 +17,7 @@ npm run e2e
 npm audit
 ```
 
-Vite is configured for `/PWA-Knowledge-Podcast-OpenAI-TTS/`. The preview command prints the complete local URL. The build creates a versioned service worker with a user-confirmed update flow. The service worker precaches build artifacts only, not API responses or project data. Offline access requires one successful online visit and service-worker activation first.
+Vite is configured for `/PWA-Knowledge-Podcast-OpenAI-TTS/`. The preview command prints the complete local URL. The build creates a versioned service worker with a user-confirmed update flow. Before accepting an update it fetches cache-busted build assets and checks their hashes; a mixed release fails installation and leaves the old version active. The service worker precaches build artifacts only, not API responses or project data. Offline access requires one successful online visit and service-worker activation first.
 
 ## Demo, browser BYOK and privacy
 
