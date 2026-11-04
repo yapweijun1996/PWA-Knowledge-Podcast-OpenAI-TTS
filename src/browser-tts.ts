@@ -5,6 +5,12 @@ export const REALTIME_MODEL = "gpt-realtime-2.1-mini";
 export const composeInstructions = (instructions: string) =>
   `Read the user's text exactly as written, without introduction, commentary, omissions, or added words. ${instructions}`;
 
+export type BrowserTake = {
+  audio: Blob;
+  provenance: AudioProvenance;
+  complete: boolean;
+};
+
 /** Direct browser use exposes a user-supplied key to the page runtime. */
 export async function generateBrowserSpeech(
   key: string,
@@ -12,12 +18,43 @@ export async function generateBrowserSpeech(
   voice: Voice,
   instructions: string,
   signal: AbortSignal,
-): Promise<{ audio: Blob; provenance: AudioProvenance }> {
+): Promise<BrowserTake> {
+  let result: BrowserTake | undefined;
+  await generateBrowserSpeechSequence(
+    key,
+    [text],
+    voice,
+    instructions,
+    signal,
+    async (take) => {
+      result = take;
+    },
+  );
+  if (!result) throw new Error("未收到音频。");
+  return result;
+}
+
+/** Generate short sequential responses in one session, saving each before the next. */
+export async function generateBrowserSpeechSequence(
+  key: string,
+  texts: readonly string[],
+  voice: Voice,
+  instructions: string,
+  signal: AbortSignal,
+  onTake: (take: BrowserTake, index: number) => Promise<void>,
+  maxOutputTokens?: number,
+  preserveIncomplete = false,
+): Promise<void> {
   if (
     !key.trim() ||
-    !text.trim() ||
-    text.length > MAX_SEGMENT_LENGTH ||
-    instructions.length > MAX_INSTRUCTIONS_LENGTH
+    texts.length < 1 ||
+    texts.length > 3 ||
+    texts.some((text) => !text.trim() || text.length > MAX_SEGMENT_LENGTH) ||
+    instructions.length > MAX_INSTRUCTIONS_LENGTH ||
+    (maxOutputTokens !== undefined &&
+      (!Number.isInteger(maxOutputTokens) ||
+        maxOutputTokens < 1 ||
+        maxOutputTokens > 1024))
   )
     throw new Error(
       `请检查 API key、片段长度（最多 ${MAX_SEGMENT_LENGTH} 字符）和旁白指令（最多 ${MAX_INSTRUCTIONS_LENGTH} 字符）。`,
@@ -63,21 +100,31 @@ export async function generateBrowserSpeech(
     const connection = peer;
     const events = channel;
 
-    const output = new Promise<Float32Array[]>((resolve, reject) => {
+    const output = new Promise<void>((resolve, reject) => {
       let settled = false;
       let channelReady = false;
       let sessionReady = false;
       let trackReady = false;
       let started = false;
       let completed = false;
+      let incomplete = false;
       let finishing = false;
+      let savingTake = false;
+      let deferredFailure: Error | undefined;
       let totalSamples = 0;
       let lastSoundAt = 0;
-      const chunks: Float32Array[] = [];
-      const fail = (message: string | DOMException) => {
+      let chunks: Float32Array[] = [];
+      let index = 0;
+      const fail = (message: string | Error) => {
         if (settled) return;
+        const error =
+          typeof message === "string" ? new Error(message) : message;
+        if (savingTake) {
+          deferredFailure ??= error;
+          return;
+        }
         settled = true;
-        reject(typeof message === "string" ? new Error(message) : message);
+        reject(error);
       };
       const start = () => {
         if (
@@ -92,6 +139,7 @@ export async function generateBrowserSpeech(
         started = true;
         capture.port.postMessage("start");
       };
+      // A completed capture is saved before cancellation or disconnection is reported.
       onAbort = () => fail(new DOMException("Cancelled", "AbortError"));
       signal.addEventListener("abort", onAbort, { once: true });
       if (signal.aborted) onAbort();
@@ -141,7 +189,7 @@ export async function generateBrowserSpeech(
                     item: {
                       type: "message",
                       role: "user",
-                      content: [{ type: "input_text", text }],
+                      content: [{ type: "input_text", text: texts[index] }],
                     },
                   }),
                 );
@@ -173,8 +221,58 @@ export async function generateBrowserSpeech(
                 fail("未收到完整音频；可能已经产生费用。");
                 return;
               }
-              settled = true;
-              resolve(chunks);
+              let take: BrowserTake;
+              try {
+                take = {
+                  audio: pcmToWav(chunks, audioContext.sampleRate),
+                  provenance: {
+                    requestedModel: REALTIME_MODEL,
+                    requestedInstructions: composeInstructions(instructions),
+                    effectiveModel,
+                    effectiveVoice,
+                    responseStatus: incomplete ? "incomplete" : "completed",
+                  },
+                  complete: !incomplete,
+                };
+              } catch (error) {
+                fail(error as Error);
+                return;
+              }
+              savingTake = true;
+              void Promise.resolve()
+                .then(() => onTake(take, index))
+                .then(() => {
+                  savingTake = false;
+                  if (settled) return;
+                  if (deferredFailure) {
+                    fail(deferredFailure);
+                    return;
+                  }
+                  if (signal.aborted) {
+                    fail(new DOMException("Cancelled", "AbortError"));
+                    return;
+                  }
+                  if (++index === texts.length) {
+                    settled = true;
+                    resolve();
+                    return;
+                  }
+                  chunks = [];
+                  totalSamples = 0;
+                  lastSoundAt = 0;
+                  completed = false;
+                  incomplete = false;
+                  finishing = false;
+                  capture?.port.postMessage("start");
+                })
+                .catch((error: unknown) => {
+                  savingTake = false;
+                  fail(
+                    error instanceof Error
+                      ? error
+                      : new Error("无法保存音频。"),
+                  );
+                });
             }
           };
           source.connect(capture);
@@ -222,8 +320,12 @@ export async function generateBrowserSpeech(
         }
         if (e.type === "response.done") {
           if (e.response?.status !== "completed") {
-            fail("语音生成未完成；可能已经产生费用。");
-            return;
+            if (preserveIncomplete && e.response?.status === "incomplete")
+              incomplete = true;
+            else {
+              fail("语音生成未完成；可能已经产生费用。");
+              return;
+            }
           }
           completed = true;
         }
@@ -283,6 +385,9 @@ export async function generateBrowserSpeech(
         output_modalities: ["audio"],
         instructions: composeInstructions(instructions),
         audio: { output: { voice } },
+        ...(maxOutputTokens === undefined
+          ? {}
+          : { max_output_tokens: maxOutputTokens }),
       }),
     );
     const response = await fetch("https://api.openai.com/v1/realtime/calls", {
@@ -307,16 +412,7 @@ export async function generateBrowserSpeech(
     if (!answer || answer.length > 200_000)
       throw new Error("OpenAI 返回了无效的连接信息。");
     await connection.setRemoteDescription({ type: "answer", sdp: answer });
-    const audio = pcmToWav(await output, audioContext.sampleRate);
-    return {
-      audio,
-      provenance: {
-        requestedModel: REALTIME_MODEL,
-        requestedInstructions: composeInstructions(instructions),
-        effectiveModel,
-        effectiveVoice,
-      },
-    };
+    await output;
   } finally {
     if (timer) clearTimeout(timer);
     if (finishTimer) clearTimeout(finishTimer);

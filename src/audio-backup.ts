@@ -89,6 +89,7 @@ async function encodeTake(take: AudioTake): Promise<EncodedTake> {
       requestedInstructions: take.provenance.requestedInstructions,
       effectiveModel: take.provenance.effectiveModel,
       effectiveVoice: take.provenance.effectiveVoice,
+      responseStatus: take.provenance.responseStatus,
     },
   };
 }
@@ -142,7 +143,10 @@ function provenance(value: unknown): AudioProvenance | undefined {
         !/^gpt-realtime-[a-z0-9.-]{1,64}$/.test(p.effectiveModel))) ||
     (p.effectiveVoice !== undefined &&
       (typeof p.effectiveVoice !== "string" ||
-        !/^[a-z]{1,32}$/.test(p.effectiveVoice)))
+        !/^[a-z]{1,32}$/.test(p.effectiveVoice))) ||
+    (p.responseStatus !== undefined &&
+      p.responseStatus !== "completed" &&
+      p.responseStatus !== "incomplete")
   )
     throw new Error("Invalid provenance");
   return {
@@ -150,6 +154,7 @@ function provenance(value: unknown): AudioProvenance | undefined {
     requestedInstructions: p.requestedInstructions as string | undefined,
     effectiveModel: p.effectiveModel as string | undefined,
     effectiveVoice: p.effectiveVoice as string | undefined,
+    responseStatus: p.responseStatus as "completed" | "incomplete" | undefined,
   };
 }
 

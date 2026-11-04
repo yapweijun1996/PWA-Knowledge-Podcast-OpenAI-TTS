@@ -37,15 +37,16 @@ not repair clicks, change delivery or guarantee a more natural result.
 
 Use the same short fixture above, requested voice and narrator instructions for
 all approaches. Keep every take and record failures; do not automatically retry.
-The current studio does not yet implement the shared-session experiment or a
-cost-limited comparison runner, so this protocol is not an instruction to start
-seven unbounded paid generations in the current interface.
+The experimental browser runner shows the fixture and exact session inputs,
+asks for explicit cost consent and runs this sequence with at most 1024 output
+tokens per response. It has only been validated with intercepted provider events;
+actual provider behavior and audible results remain unverified.
 
-| Approach | Request sequence | Text and context | Recovery and cost considerations |
-| --- | --- | --- | --- |
-| A: one response | One session, one response | Send all three fixture paragraphs in order as one input. | One failure can affect the whole recording; one long response has no per-section recovery. |
-| B: shared session | One session, three sequential responses | Send paragraph 1, then 2, then 3 in the same session; wait for capture and local save before requesting the next. The default conversation may carry previous turns. | Earlier saved takes survive a later failure; context and output usage can grow across turns. |
-| C: separate sessions | Three sessions, one response each | Send only the current paragraph as text to be read. Include at most the immediately preceding and following fixture paragraphs as clearly marked reference-only context in the instructions; never ask to speak that context. | A failed segment can be repeated separately, but every session may reset delivery. Context increases input usage and may still be spoken accidentally. |
+| Approach             | Request sequence                        | Text and context                                                                                                                                                                                                              | Recovery and cost considerations                                                                                                                       |
+| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A: one response      | One session, one response               | Send all three fixture paragraphs in order as one input.                                                                                                                                                                      | One failure can affect the whole recording; one long response has no per-section recovery.                                                             |
+| B: shared session    | One session, three sequential responses | Send paragraph 1, then 2, then 3 in the same session; wait for capture and local save before requesting the next. The default conversation may carry previous turns.                                                          | Earlier saved takes survive a later failure; context and output usage can grow across turns.                                                           |
+| C: separate sessions | Three sessions, one response each       | Send only the current paragraph as text to be read. Include at most the immediately preceding and following fixture paragraphs as clearly marked reference-only context in the instructions; never ask to speak that context. | A failed segment can be repeated separately, but every session may reset delivery. Context increases input usage and may still be spoken accidentally. |
 
 For C, paragraph 1 has no preceding context, paragraph 2 has paragraphs 1 and 3,
 and paragraph 3 has no following context. Compare the assembled order against
@@ -53,11 +54,12 @@ the fixture, including the boundaries. The [Realtime conversation documentation]
 describes session conversation state, but neither shared state nor contextual
 instructions guarantees consistent expression or exact wording.
 
-A future runner must show a preview of every text and instruction, obtain the
-user's key only in page memory, use a fixed small per-response output limit,
-make no more than the seven described responses, save each take before the next
-request, support cancel without automatic retry, and stop on capture or storage
-failure. A token limit is not a guaranteed dollar cap: model prices, usage and
+The runner previews every text and instruction, keeps the user's key in page
+memory, limits each response to 1024 output tokens, makes no more than the seven
+described responses in one run, saves each take before the next request, and
+stops on cancellation, capture or storage failure without automatic retry. An
+incomplete response is retained when audio can be captured, but cannot be marked
+complete or included in a full export. A token limit is not a guaranteed dollar cap: model prices, usage and
 account billing need checking on the [model's current pricing page](https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini)
 and the user's usage dashboard. The owner has authorized at most US$5 in total;
 stop if the remaining budget or actual cost cannot be established. No result,

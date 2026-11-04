@@ -21,9 +21,11 @@ import { createAudioBackup, readAudioBackup } from "./audio-backup";
 import {
   composeInstructions,
   generateBrowserSpeech,
+  generateBrowserSpeechSequence,
   REALTIME_MODEL,
 } from "./browser-tts";
 import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
+import { continuityFixture, continuityPlan } from "./continuity-plan";
 import packageInfo from "../package.json";
 
 type Theme = "light" | "dark" | "system";
@@ -135,6 +137,8 @@ export default function App() {
     [mode, setMode] = useState<"demo" | "openai">("demo"),
     [keyPresent, setKeyPresent] = useState(false),
     [consent, setConsent] = useState(false),
+    [labConsent, setLabConsent] = useState(false),
+    [labRunning, setLabRunning] = useState(false),
     [runSnapshot, setRunSnapshot] = useState<{
       projectId: string;
       mode: "demo" | "openai";
@@ -455,6 +459,7 @@ export default function App() {
       if (keyInput.current) keyInput.current.value = "";
       setKeyPresent(false);
       setConsent(false);
+      setLabConsent(false);
     };
     window.addEventListener("online", net);
     window.addEventListener("offline", net);
@@ -698,6 +703,154 @@ export default function App() {
         );
     } finally {
       abort.current = null;
+      setBusy("");
+    }
+  }
+  async function runContinuityComparison() {
+    const source = projectRef.current;
+    const key = keyInput.current?.value.trim() || "";
+    if (
+      !source ||
+      mode !== "openai" ||
+      !online ||
+      !key ||
+      !consent ||
+      !labConsent ||
+      busy ||
+      abort.current ||
+      deleteLock.current ||
+      updateLock.current ||
+      recovery ||
+      failedProjects.current.size
+    )
+      return;
+    const plan = continuityPlan(source.instructions);
+    if (
+      plan.some(
+        (session) =>
+          session.instructions.length > MAX_INSTRUCTIONS_LENGTH ||
+          session.texts.some((text) => text.length > MAX_SEGMENT_LENGTH),
+      )
+    ) {
+      setError("对照试验的指令或脚本超过长度限制，本次未发送请求。");
+      return;
+    }
+    if (
+      !window.confirm(
+        "本次对照最多产生 7 次语音响应，可能收费；每次最多 1024 个输出 token。token 上限不是金额上限，请先核对你的预算和用量。确认开始吗？",
+      )
+    )
+      return;
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    updateLock.current = true;
+    setLabRunning(true);
+    setLabConsent(false);
+    setError("");
+    let completed = 0;
+    let project: Project | undefined;
+    let cIndex = 0;
+    try {
+      await saveQueue.current;
+      if (failedProjects.current.size)
+        throw new Error("有项目尚未保存，本次未发送请求。");
+      for (const session of plan) {
+        if (ctrl.signal.aborted)
+          throw new DOMException("Cancelled", "AbortError");
+        if (
+          !project ||
+          !project.title.startsWith(`旁白对照 ${session.project} ·`)
+        ) {
+          project = {
+            ...makeProject(),
+            title: `旁白对照 ${session.project} · ${session.project === "A" ? "单次响应" : session.project === "B" ? "同一会话" : "相邻文本参考"}`,
+            voice: source.voice,
+            instructions: source.instructions,
+            notes: "请对照脚本完整试听，并记录情绪、节奏和片段衔接感受。",
+            segments: (session.project === "A"
+              ? [continuityFixture.join("\n")]
+              : [...continuityFixture]
+            ).map((text) => ({ id: crypto.randomUUID(), text })),
+          };
+          setBusy(`正在保存对照项目 ${session.project}…`);
+          if (!(await commit(project)))
+            throw new Error("对照项目保存失败，已停止；尚未继续发送请求。");
+        }
+        const projectId = project.id;
+        const first = session.project === "C" ? cIndex : 0;
+        setRunSnapshot({
+          projectId,
+          mode: "openai",
+          voice: source.voice,
+          instructions: session.instructions,
+          targets: session.texts.map((text, index) => ({
+            index: first + index + 1,
+            text,
+          })),
+        });
+        setBusy(`正在生成对照 ${session.project} · ${completed} / 7`);
+        await generateBrowserSpeechSequence(
+          key,
+          session.texts,
+          source.voice,
+          session.instructions,
+          ctrl.signal,
+          async (take, index) => {
+            const now = projectRef.current;
+            const targetIndex = first + index;
+            if (!now || now.id !== projectId || !now.segments[targetIndex])
+              throw new Error("项目状态发生变化，已停止对照。");
+            const target = now.segments[targetIndex];
+            const saved = await commit({
+              ...now,
+              updated: Date.now(),
+              segments: now.segments.map((segment, i) =>
+                i === targetIndex
+                  ? {
+                      ...segment,
+                      audio: take.audio,
+                      audioKind: "openai",
+                      audioFor: session.texts[index],
+                      voice: source.voice,
+                      instructions: source.instructions,
+                      audioVerified: false,
+                      provenance: take.provenance,
+                    }
+                  : segment,
+              ),
+            });
+            if (!saved) {
+              setRecovery({
+                projectId,
+                segmentId: target.id,
+                audio: take.audio,
+              });
+              throw new Error(
+                "对照音频保存失败，已停止；请下载未保存音频或重试保存。可能已经产生费用。",
+              );
+            }
+            completed++;
+            setBusy(`正在生成对照 ${session.project} · ${completed} / 7`);
+            if (!take.complete)
+              throw new Error(
+                "对照音频不完整，已保存待试听片段并停止；可能已经产生费用。",
+              );
+          },
+          1024,
+          true,
+        );
+        if (session.project === "C") cIndex++;
+      }
+      setStatus("对照音频已保存；请逐段试听核验并记录评分");
+    } catch (error) {
+      if ((error as Error).name === "AbortError")
+        setStatus("对照已取消；已保存音频保留，可能已经产生费用");
+      else
+        setError((error as Error).message || "对照已停止；可能已经产生费用。");
+    } finally {
+      abort.current = null;
+      updateLock.current = false;
+      setLabRunning(false);
       setBusy("");
     }
   }
@@ -955,7 +1108,14 @@ export default function App() {
       setError("请先生成全部非空片段，再导出音频。");
       return;
     }
-    if (mode === "openai" && valid.some((segment) => !segment.audioVerified)) {
+    if (
+      mode === "openai" &&
+      valid.some(
+        (segment) =>
+          !segment.audioVerified ||
+          segment.provenance?.responseStatus === "incomplete",
+      )
+    ) {
       setError("请先试听并核验所有片段的完整性，再导出完整音频。");
       return;
     }
@@ -1100,7 +1260,10 @@ export default function App() {
       </main>
     );
   const readyCount = active.segments.filter(
-    (s) => current(s, active, mode) && (mode !== "openai" || s.audioVerified),
+    (s) =>
+      current(s, active, mode) &&
+      (mode !== "openai" ||
+        (s.audioVerified && s.provenance?.responseStatus !== "incomplete")),
   ).length;
   const totalChars = active.segments.reduce((n, s) => n + s.text.length, 0);
   const selectedPreset =
@@ -1113,7 +1276,9 @@ export default function App() {
   const unverified =
     mode === "openai"
       ? active.segments.filter(
-          (s) => current(s, active, mode) && !s.audioVerified,
+          (s) =>
+            current(s, active, mode) &&
+            (!s.audioVerified || s.provenance?.responseStatus === "incomplete"),
         ).length
       : 0;
   const previewOptions = active.segments.filter((segment) =>
@@ -1441,7 +1606,7 @@ export default function App() {
             disabled={updating || deleting}
           >
             <div className="studio">
-              <section id="script" className="editor card">
+              <section id="script" className="editor card" inert={labRunning}>
                 <div className="card-head">
                   <div>
                     <div className="eyebrow">01 / SCRIPT</div>
@@ -1486,9 +1651,11 @@ export default function App() {
                         {s.audio
                           ? current(s, active, mode)
                             ? mode === "openai"
-                              ? s.audioVerified
-                                ? "已核验"
-                                : "待试听核验"
+                              ? s.provenance?.responseStatus === "incomplete"
+                                ? "服务端报告不完整"
+                                : s.audioVerified
+                                  ? "已核验"
+                                  : "待试听核验"
                               : "已模拟"
                             : "需重新生成"
                           : "未生成"}
@@ -1601,11 +1768,22 @@ export default function App() {
                             <p className="hint">
                               音频可能缺失或截断，请完整试听并对照脚本。
                             </p>
+                            {s.provenance?.responseStatus === "incomplete" && (
+                              <p className="hint">
+                                服务端报告此响应不完整，已保留供下载；请重录后再核验和导出。
+                              </p>
+                            )}
                             <label className="consent">
                               <input
                                 type="checkbox"
                                 aria-label={`确认片段 ${i + 1} 音频完整`}
-                                checked={!!s.audioVerified}
+                                disabled={
+                                  s.provenance?.responseStatus === "incomplete"
+                                }
+                                checked={
+                                  !!s.audioVerified &&
+                                  s.provenance?.responseStatus !== "incomplete"
+                                }
                                 onChange={(event) =>
                                   edit(s.id, {
                                     audioVerified: event.target.checked,
@@ -1643,6 +1821,10 @@ export default function App() {
                         <p>
                           请求声音：{s.voice ?? "未知"}；服务端会话报告的声音：
                           {s.provenance?.effectiveVoice ?? "未知"}
+                        </p>
+                        <p>
+                          服务端响应状态：
+                          {s.provenance?.responseStatus ?? "未知"}
                         </p>
                         <p>
                           请求的完整指令：
@@ -1734,7 +1916,7 @@ export default function App() {
                 </p>
               </section>
               <div className="right">
-                <section id="voice" className="card voice">
+                <section id="voice" className="card voice" inert={labRunning}>
                   <div className="eyebrow">02 / VOICE</div>
                   <h2>声音与风格</h2>
                   <p className="muted">
@@ -1805,6 +1987,7 @@ export default function App() {
                         if (keyInput.current) keyInput.current.value = "";
                         setKeyPresent(false);
                         setConsent(false);
+                        setLabConsent(false);
                         setMode(e.target.value as "demo" | "openai");
                         setError("");
                       }}
@@ -1857,11 +2040,84 @@ export default function App() {
                           if (keyInput.current) keyInput.current.value = "";
                           setKeyPresent(false);
                           setConsent(false);
+                          setLabConsent(false);
                         }}
                       >
                         清除 key
                       </button>
                     </div>
+                  )}
+                  {mode === "openai" && (
+                    <details className="run-details">
+                      <summary>旁白连续性对照（实验）</summary>
+                      <p className="hint">
+                        使用固定短样本依次对比单次响应、同一会话三次响应和相邻文本参考。一次最多
+                        5 个会话、7 次语音响应；每次输出上限为 1024
+                        token。可能产生费用，token
+                        上限不是金额上限，请先检查用量并遵守预算。失败或取消后不会自动重试；每段保存后才继续。
+                      </p>
+                      <p>
+                        请求声音：{active.voice}；请求模型：{REALTIME_MODEL}
+                      </p>
+                      <p>
+                        <a
+                          href="https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/blob/main/docs/NARRATION-EVALUATION.md"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          查看样本和试听评分标准
+                        </a>{" "}
+                        ·{" "}
+                        <a
+                          href="https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          查看模型价格
+                        </a>
+                      </p>
+                      {continuityPlan(active.instructions).map(
+                        (session, index) => (
+                          <details key={index} className="run-details">
+                            <summary>
+                              会话 {index + 1} · 方案 {session.project}
+                            </summary>
+                            <p>
+                              完整指令：
+                              {composeInstructions(session.instructions)}
+                            </p>
+                            {session.texts.map((text, i) => (
+                              <p key={i}>
+                                朗读文本 {i + 1}：{text}
+                              </p>
+                            ))}
+                          </details>
+                        ),
+                      )}
+                      <label className="consent">
+                        <input
+                          type="checkbox"
+                          checked={labConsent}
+                          disabled={!!busy}
+                          onChange={(event) =>
+                            setLabConsent(event.currentTarget.checked)
+                          }
+                        />
+                        我已阅读对照样本和费用说明，同意启动一次对照。
+                      </label>
+                      <button
+                        disabled={
+                          !!busy ||
+                          !online ||
+                          !keyPresent ||
+                          !consent ||
+                          !labConsent
+                        }
+                        onClick={() => void runContinuityComparison()}
+                      >
+                        开始一次旁白对照
+                      </button>
+                    </details>
                   )}
                   {runSnapshot?.projectId === active.id && (
                     <details className="run-details" open>
