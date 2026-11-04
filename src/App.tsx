@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { allProjects, saveProject, deleteProject } from "./storage";
+import {
+  allProjects,
+  saveProject,
+  deleteProject,
+  projectVersion,
+  ProjectConflict,
+} from "./storage";
 import {
   current,
   makeProject,
@@ -121,6 +127,9 @@ export default function App() {
     [busy, setBusy] = useState(""),
     [online, setOnline] = useState(navigator.onLine),
     [waiting, setWaiting] = useState<ServiceWorker | null>(null),
+    [tabGuard, setTabGuard] = useState<"waiting" | "held" | "unsupported">(
+      "waiting",
+    ),
     [updating, setUpdating] = useState(false),
     [deleting, setDeleting] = useState(false),
     [mode, setMode] = useState<"demo" | "openai">("demo"),
@@ -169,15 +178,38 @@ export default function App() {
   const keyInput = useRef<HTMLInputElement | null>(null);
   const menuButton = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
+  const releaseTab = useRef<(() => void) | null>(null);
+  const acquireTab = useRef<(() => void) | null>(null);
   useEffect(() => {
-    if (!recovery) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
+    let disposed = false;
+    if (!navigator.locks) {
+      setTabGuard("unsupported");
+      return;
+    }
+    const acquire = () => {
+      if (disposed) return;
+      setTabGuard("waiting");
+      void navigator.locks
+        .request("podcast-studio-update", { mode: "shared" }, async () => {
+          if (disposed) return;
+          await new Promise<void>((resolve) => {
+            releaseTab.current = resolve;
+            setTabGuard("held");
+          });
+          releaseTab.current = null;
+        })
+        .catch(() => {
+          if (!disposed) setTabGuard("unsupported");
+        });
     };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [recovery]);
+    acquireTab.current = acquire;
+    acquire();
+    return () => {
+      disposed = true;
+      acquireTab.current = null;
+      releaseTab.current?.();
+    };
+  }, []);
   const showHint = (target: HTMLElement, id: string, text: string) => {
     if (!collapsed || mobile) return;
     const rect = target.getBoundingClientRect();
@@ -346,8 +378,20 @@ export default function App() {
     saveQueue = useRef(Promise.resolve()),
     saveVersion = useRef(0),
     operationEpoch = useRef(0),
-    failedProjects = useRef(new Set<string>());
-  const commit = (p: Project) => {
+    failedProjects = useRef(new Set<string>()),
+    conflictedProjects = useRef(new Set<string>()),
+    projectVersions = useRef(new Map<string, string | null>());
+  useEffect(() => {
+    if (!recovery && !failedProjects.current.size) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recovery, status]);
+  const commit = (input: Project) => {
+    const p = { ...input, revision: crypto.randomUUID() };
     operationEpoch.current++;
     projectRef.current = p;
     setActive(p);
@@ -355,9 +399,11 @@ export default function App() {
     const version = ++saveVersion.current;
     setStatus("正在保存…");
     const saved = saveQueue.current
-      .then(() => saveProject(p))
+      .then(() => saveProject(p, projectVersions.current.get(p.id) ?? null))
       .then(() => {
+        projectVersions.current.set(p.id, p.revision);
         failedProjects.current.delete(p.id);
+        conflictedProjects.current.delete(p.id);
         if (version === saveVersion.current) {
           setStatus(
             failedProjects.current.size ? "部分项目保存失败" : "已保存在此设备",
@@ -365,10 +411,17 @@ export default function App() {
         }
         return true;
       })
-      .catch(() => {
+      .catch((reason: unknown) => {
         failedProjects.current.add(p.id);
+        if (reason instanceof ProjectConflict) {
+          conflictedProjects.current.add(p.id);
+          setError(
+            "其他标签页已修改此项目。当前更改仍在内存中，请另存为新项目，避免覆盖。",
+          );
+        } else {
+          setError("保存失败：设备存储可能已满或不可用。请备份文本。");
+        }
         setStatus("保存失败");
-        setError("保存失败：设备存储可能已满或不可用。请备份文本。");
         return false;
       });
     saveQueue.current = saved.then(() => undefined);
@@ -377,6 +430,9 @@ export default function App() {
   useEffect(() => {
     allProjects()
       .then((p) => {
+        p.forEach((project) =>
+          projectVersions.current.set(project.id, projectVersion(project)),
+        );
         if (!p.length) {
           const demo = makeProject(true);
           commit(demo);
@@ -722,8 +778,13 @@ export default function App() {
     operationEpoch.current++;
     try {
       await saveQueue.current;
-      await deleteProject(active.id);
+      await deleteProject(
+        active.id,
+        projectVersions.current.get(active.id) ?? null,
+      );
+      projectVersions.current.delete(active.id);
       failedProjects.current.delete(active.id);
+      conflictedProjects.current.delete(active.id);
       const remaining = projects.filter((p) => p.id !== active.id);
       setProjects(remaining);
       setActive(remaining[0] || null);
@@ -731,8 +792,12 @@ export default function App() {
       setStatus(
         failedProjects.current.size ? "部分项目保存失败" : "项目已删除",
       );
-    } catch {
-      setError("删除失败。");
+    } catch (reason) {
+      setError(
+        reason instanceof ProjectConflict
+          ? "其他标签页已修改或删除此项目，请重新打开后再处理。"
+          : "删除失败。",
+      );
     } finally {
       deleteLock.current = false;
       setDeleting(false);
@@ -776,6 +841,51 @@ export default function App() {
       }
     } catch {
       setError("无法导入此备份：文件无效、损坏或过大。");
+    }
+  }
+  async function saveConflictedCopy() {
+    const p = projectRef.current;
+    if (
+      !p ||
+      !conflictedProjects.current.has(p.id) ||
+      busy ||
+      abort.current ||
+      deleteLock.current ||
+      updateLock.current
+    )
+      return;
+    const originalId = p.id;
+    const copy = {
+      ...p,
+      id: crypto.randomUUID(),
+      title: `${p.title.slice(0, 180)}（冲突副本）`,
+      updated: Date.now(),
+      revision: undefined,
+    };
+    setBusy("正在保存副本…");
+    try {
+      if (await commit(copy)) {
+        failedProjects.current.delete(originalId);
+        conflictedProjects.current.delete(originalId);
+        if (recovery?.projectId === originalId) setRecovery(null);
+        const latest = (await allProjects()).find(
+          (project) => project.id === originalId,
+        );
+        if (latest)
+          projectVersions.current.set(latest.id, projectVersion(latest));
+        else projectVersions.current.delete(originalId);
+        setProjects((projects) =>
+          projects.flatMap((project) =>
+            project.id === originalId ? (latest ? [latest] : []) : [project],
+          ),
+        );
+        setError("");
+        setStatus("冲突副本已保存在此设备");
+      }
+    } catch {
+      setError("副本已保存，但无法刷新项目列表。请重新打开应用。");
+    } finally {
+      setBusy("");
     }
   }
   async function retryProjectSave() {
@@ -897,6 +1007,10 @@ export default function App() {
       recovery
     )
       return;
+    if (!navigator.locks || tabGuard !== "held") {
+      setError("此浏览器无法安全协调更新。请关闭所有应用页面，再重新打开。 ");
+      return;
+    }
     updateLock.current = true;
     operationEpoch.current++;
     setUpdating(true);
@@ -907,21 +1021,61 @@ export default function App() {
       setError("项目尚未保存，请先备份或解决存储问题，再更新应用。");
       return;
     }
-    applyingUpdate.current = true;
-    waiting.postMessage("SKIP_WAITING");
-    setTimeout(() => {
+    releaseTab.current?.();
+    try {
+      await navigator.locks.request(
+        "podcast-studio-update",
+        { mode: "exclusive", ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            setError("其他标签页仍在使用应用。请保存并关闭其他页面后再更新。");
+            return false;
+          }
+          applyingUpdate.current = true;
+          const approved = await new Promise<boolean>((resolve) => {
+            const channel = new MessageChannel();
+            const timer = setTimeout(() => {
+              channel.port1.close();
+              resolve(false);
+            }, 5000);
+            channel.port1.onmessage = (
+              event: MessageEvent<{ ok?: boolean }>,
+            ) => {
+              clearTimeout(timer);
+              channel.port1.close();
+              resolve(event.data?.ok === true);
+            };
+            waiting.postMessage("SKIP_WAITING_IF_SINGLE", [channel.port2]);
+          });
+          if (!approved) {
+            setError(
+              "其他页面可能仍在使用应用，或更新未响应。请关闭其他页面后重试。",
+            );
+            return false;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 10000));
+          applyingUpdate.current = false;
+          setError("更新未完成，请重新打开应用后重试。");
+          return false;
+        },
+      );
+    } catch {
+      setError("无法安全协调更新，请关闭其他页面后重试。");
+    } finally {
       applyingUpdate.current = false;
       updateLock.current = false;
       setUpdating(false);
-      setError("更新未完成，请重新打开应用后重试。");
-    }, 10000);
+      acquireTab.current?.();
+    }
   }
-  if (!active)
+  if (!active || tabGuard === "waiting")
     return (
       <main className="loading">
         <h1>Knowledge Podcast Studio</h1>
-        <p>{error || status}</p>
-        <button onClick={create}>新建项目</button>
+        <p>
+          {tabGuard === "waiting" ? "正在等待安全更新完成…" : error || status}
+        </p>
+        {tabGuard !== "waiting" && <button onClick={create}>新建项目</button>}
       </main>
     );
   const readyCount = active.segments.filter(
@@ -1216,14 +1370,32 @@ export default function App() {
               </button>
             </div>
           )}
-          {failedProjects.current.has(active.id) && !recovery && (
-            <div className="notice" aria-label="未保存项目恢复">
-              <span>当前项目仍在页面内存中，请释放空间并重试保存。</span>
-              <button disabled={!!busy} onClick={() => void retryProjectSave()}>
-                重试保存项目
+          {conflictedProjects.current.has(active.id) && (
+            <div className="notice" aria-label="项目冲突恢复">
+              <span>
+                其他标签页已修改此项目。请将本页内容另存为新项目，再继续编辑。
+              </span>
+              <button
+                disabled={!!busy}
+                onClick={() => void saveConflictedCopy()}
+              >
+                另存为新项目
               </button>
             </div>
           )}
+          {failedProjects.current.has(active.id) &&
+            !recovery &&
+            !conflictedProjects.current.has(active.id) && (
+              <div className="notice" aria-label="未保存项目恢复">
+                <span>当前项目仍在页面内存中，请释放空间并重试保存。</span>
+                <button
+                  disabled={!!busy}
+                  onClick={() => void retryProjectSave()}
+                >
+                  重试保存项目
+                </button>
+              </div>
+            )}
           {recovery && (
             <div className="notice" aria-label="未保存音频恢复">
               <span>

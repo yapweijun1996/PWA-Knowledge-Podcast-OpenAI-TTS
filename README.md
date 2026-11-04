@@ -45,6 +45,8 @@ The optional audio backup is an unencrypted JSON file containing script, both WA
 
 Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible, and the preview does not automatically smooth boundaries.
 
+Updates wait until other app tabs are closed. If Web Locks are unavailable, close every app page and reopen it to activate a waiting update. Old asset caches are retained for offline recovery and may consume storage. Concurrent changes to the same project are detected on save; the affected tab keeps its local changes and can save a separate conflict copy. Back up important projects before clearing site data.
+
 Release hardening and browser-key limitations are described in [the security notes](docs/SECURITY.md).
 
 ## Important gaps
