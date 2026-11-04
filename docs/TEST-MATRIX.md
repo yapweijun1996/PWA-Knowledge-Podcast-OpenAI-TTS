@@ -14,7 +14,7 @@ prove provider voice quality or coverage outside the listed cases.
 | iOS Safari and installed PWA on an iPhone/iPad      | NOT VERIFIED on physical hardware. Desktop viewport emulation is not a device test.                                                                                                   |
 | Android Chrome and installed PWA on a phone/tablet  | NOT VERIFIED on physical hardware. Desktop viewport emulation is not a device test.                                                                                                   |
 | Firefox real OpenAI WebRTC and interrupted sessions | NOT VERIFIED by the free Firefox cases.                                                                                                                                               |
-| Multiple tabs during an update and offline recovery | NOT VERIFIED; see T12 for the required coordination and test.                                                                                                                         |
+| Multiple tabs during an update and offline recovery | Chromium automation covers a pending save, interrupted mocked generation, legacy activation rejection, offline recovery and a same-project conflict copy. Physical-device multi-tab behavior remains NOT VERIFIED.                                                                                                                         |
 | Screen reader and hardware audio output             | NOT VERIFIED on real devices.                                                                                                                                                         |
 
 For a device check, open the deployed HTTPS URL, create a disposable project,

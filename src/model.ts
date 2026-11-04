@@ -35,6 +35,7 @@ export type Project = {
   instructions: string;
   notes: string;
   updated: number;
+  revision?: string;
 };
 export const presets = {
   Documentary:
