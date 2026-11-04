@@ -32,3 +32,34 @@ optional 0.2- or 0.5-second pause. Changing the option invalidates the prepared
 preview; preparing it again enables an A/B comparison, and selecting zero restores
 the unprocessed join. The original clips are not modified. Silence insertion does
 not repair clicks, change delivery or guarantee a more natural result.
+
+## Planned controlled comparison (not yet run)
+
+Use the same short fixture above, requested voice and narrator instructions for
+all approaches. Keep every take and record failures; do not automatically retry.
+The current studio does not yet implement the shared-session experiment or a
+cost-limited comparison runner, so this protocol is not an instruction to start
+seven unbounded paid generations in the current interface.
+
+| Approach | Request sequence | Text and context | Recovery and cost considerations |
+| --- | --- | --- | --- |
+| A: one response | One session, one response | Send all three fixture paragraphs in order as one input. | One failure can affect the whole recording; one long response has no per-section recovery. |
+| B: shared session | One session, three sequential responses | Send paragraph 1, then 2, then 3 in the same session; wait for capture and local save before requesting the next. The default conversation may carry previous turns. | Earlier saved takes survive a later failure; context and output usage can grow across turns. |
+| C: separate sessions | Three sessions, one response each | Send only the current paragraph as text to be read. Include at most the immediately preceding and following fixture paragraphs as clearly marked reference-only context in the instructions; never ask to speak that context. | A failed segment can be repeated separately, but every session may reset delivery. Context increases input usage and may still be spoken accidentally. |
+
+For C, paragraph 1 has no preceding context, paragraph 2 has paragraphs 1 and 3,
+and paragraph 3 has no following context. Compare the assembled order against
+the fixture, including the boundaries. The [Realtime conversation documentation](https://developers.openai.com/api/docs/guides/realtime-conversations)
+describes session conversation state, but neither shared state nor contextual
+instructions guarantees consistent expression or exact wording.
+
+A future runner must show a preview of every text and instruction, obtain the
+user's key only in page memory, use a fixed small per-response output limit,
+make no more than the seven described responses, save each take before the next
+request, support cancel without automatic retry, and stop on capture or storage
+failure. A token limit is not a guaranteed dollar cap: model prices, usage and
+account billing need checking on the [model's current pricing page](https://developers.openai.com/api/docs/models/gpt-realtime-2.1-mini)
+and the user's usage dashboard. The owner has authorized at most US$5 in total;
+stop if the remaining budget or actual cost cannot be established. No result,
+spend or subjective improvement is asserted until a person listens and the usage
+is reviewed. T05 and the dependent T06 remain pending.
