@@ -33,3 +33,9 @@ The browser tests use intercepted provider requests and synthetic audio. A
 passing policy test or WebRTC loopback does not prove a real OpenAI account,
 voice, generated content, or browser extension is safe. Do not log keys, audio
 payloads or private scripts during diagnosis.
+
+The scoped Pages workflow deployed commit `9087f09` successfully in
+[run 41812526581](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/41812526581).
+Chromium tests on that deployed build verified blocked external connections and
+inline scripts, offline demo operation, and a real local WebRTC loopback with
+the provider intercepted. No paid request was made.
