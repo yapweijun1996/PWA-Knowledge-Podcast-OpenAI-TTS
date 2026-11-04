@@ -74,7 +74,9 @@ test("a waiting update needs confirmation and preserves the draft", async ({
     await expect(page.getByText("新版本已准备好。")).toBeVisible({
       timeout: 15000,
     });
+    const reloaded = page.waitForEvent("load", { timeout: 15000 });
     await page.getByRole("button", { name: "立即更新" }).click();
+    await reloaded;
     await expect(page.getByLabel("片段 1 脚本")).toHaveValue(
       "更新前的本地草稿。",
       { timeout: 15000 },

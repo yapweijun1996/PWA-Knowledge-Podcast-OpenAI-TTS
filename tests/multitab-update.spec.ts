@@ -112,7 +112,19 @@ test("blocks update while another tab generates and preserves pending saves offl
     await page.getByRole("button", { name: "取消", exact: true }).click();
     releaseRequest();
     await page.close();
+    await expect
+      .poll(() =>
+        other.evaluate(
+          async () =>
+            (await navigator.locks.query()).held?.filter(
+              (lock) => lock.name === "podcast-studio-update",
+            ).length,
+        ),
+      )
+      .toBe(1);
+    const reloaded = other.waitForEvent("load", { timeout: 15000 });
     await other.getByRole("button", { name: "立即更新" }).click();
+    await reloaded;
     await expect(other.getByLabel("片段 1 脚本")).toHaveValue(
       "等待保存的草稿。",
       { timeout: 15000 },
