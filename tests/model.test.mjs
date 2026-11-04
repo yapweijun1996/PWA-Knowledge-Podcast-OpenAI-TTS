@@ -158,3 +158,68 @@ test("PCM export rejects silence and preserves multi-chunk samples", async () =>
   assert.ok(view.getInt16(44, true) > 16000);
   assert.ok(view.getInt16(46, true) < -16000);
 });
+
+test("optional pauses preserve every PCM sample including quiet endings", async () => {
+  for (const rate of [16000, 48000]) {
+    const base = await demoAudio("fixture", new AbortController().signal);
+    const one = await base.arrayBuffer();
+    const two = await base.arrayBuffer();
+    for (const buffer of [one, two]) {
+      const view = new DataView(buffer);
+      view.setUint32(24, rate, true);
+      view.setUint32(28, rate * 2, true);
+    }
+    const a = new DataView(one);
+    const b = new DataView(two);
+    a.setInt16(one.byteLength - 2, 1, true);
+    b.setInt16(44, -1, true);
+    const joined = new DataView(
+      await (
+        await joinDemoWavs([new Blob([one]), new Blob([two])], 200)
+      ).arrayBuffer(),
+    );
+    const pauseBytes = rate * 0.2 * 2;
+    const boundary = one.byteLength;
+    assert.equal(joined.getInt16(boundary - 2, true), 1);
+    for (let i = boundary; i < boundary + pauseBytes; i += 2)
+      assert.equal(joined.getInt16(i, true), 0);
+    assert.equal(joined.getInt16(boundary + pauseBytes, true), -1);
+    assert.deepEqual(
+      new Uint8Array(joined.buffer, 44, one.byteLength - 44),
+      new Uint8Array(one, 44),
+    );
+    assert.deepEqual(
+      new Uint8Array(joined.buffer, boundary + pauseBytes, two.byteLength - 44),
+      new Uint8Array(two, 44),
+    );
+    assert.equal(
+      joined.byteLength,
+      one.byteLength + two.byteLength - 44 + pauseBytes,
+    );
+    assert.equal(a.getInt16(one.byteLength - 2, true), 1);
+    assert.equal(b.getInt16(44, true), -1);
+    const original = await joinDemoWavs([new Blob([one]), new Blob([two])], 0);
+    assert.equal(original.size, one.byteLength + two.byteLength - 44);
+  }
+  const source = await demoAudio("boundary", new AbortController().signal);
+  const left = await source.arrayBuffer(),
+    right = await source.arrayBuffer();
+  new Uint8Array(left, 44).fill(0);
+  new Uint8Array(right, 44).fill(0);
+  const silent = new Uint8Array(
+    await (
+      await joinDemoWavs([new Blob([left]), new Blob([right])], 200)
+    ).arrayBuffer(),
+  );
+  assert.ok(silent.subarray(44).every((sample) => sample === 0));
+  new DataView(left).setInt16(left.byteLength - 2, 32767, true);
+  new DataView(right).setInt16(44, -32768, true);
+  const abrupt = new DataView(
+    await (
+      await joinDemoWavs([new Blob([left]), new Blob([right])], 0)
+    ).arrayBuffer(),
+  );
+  assert.equal(abrupt.getInt16(left.byteLength - 2, true), 32767);
+  assert.equal(abrupt.getInt16(left.byteLength, true), -32768);
+  await assert.rejects(joinDemoWavs([new Blob()], 1001), /pause/);
+});

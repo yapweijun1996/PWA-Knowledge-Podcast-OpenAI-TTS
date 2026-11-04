@@ -43,7 +43,7 @@ Each generation shows its fixed input snapshot. OpenAI takes retain their reques
 
 The optional audio backup is an unencrypted JSON file containing script, both WAV takes and provenance. Audio is limited to 16 MiB total; the file limit is 24 MiB. Treat it as private. Each WAV has a SHA-256 checksum for accidental corruption, not proof of authenticity: import only trusted files. Import creates a separate project, and a failed local save can be retried without changing the source backup. Older script-only backups remain supported. API keys are not included.
 
-Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible, and the preview does not automatically smooth boundaries.
+Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible. Choose no added pause, 0.2 seconds or 0.5 seconds between segments for the preview and full WAV export; original clips remain untouched. This does not smooth clicks or guarantee consistent delivery. A [listening rubric](docs/NARRATION-EVALUATION.md) supports comparison.
 
 Release hardening and browser-key limitations are described in [the security notes](docs/SECURITY.md).
 
