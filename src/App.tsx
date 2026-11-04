@@ -185,6 +185,7 @@ export default function App() {
   const menuButton = useRef<HTMLButtonElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
   const releaseTab = useRef<(() => void) | null>(null);
+  const tabLockTask = useRef<Promise<void> | null>(null);
   const acquireTab = useRef<(() => void) | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -195,7 +196,7 @@ export default function App() {
     const acquire = () => {
       if (disposed) return;
       setTabGuard("waiting");
-      void navigator.locks
+      tabLockTask.current = navigator.locks
         .request("podcast-studio-update", { mode: "shared" }, async () => {
           if (disposed) return;
           await new Promise<void>((resolve) => {
@@ -1204,6 +1205,7 @@ export default function App() {
     }
     releaseTab.current?.();
     try {
+      await tabLockTask.current;
       await navigator.locks.request(
         "podcast-studio-update",
         { mode: "exclusive", ifAvailable: true },

@@ -32,8 +32,10 @@ that authorization is not proof that a call or charge occurred.
 For the [T12 Pages deployment](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/41815020765),
 Chromium opened two isolated tabs on the previous live release and saved a
 different disposable draft in each. After the new worker was deployed, the old
-client's update request did not activate it while both tabs remained open. After
-one tab closed, activation succeeded; offline reload preserved both drafts. A
-separate deployed Chromium test exercised same-project conflict recovery and a
-simulated quota failure with synthetic audio. These checks made no paid requests
+client's update request did not activate it while both tabs remained open, and
+an offline reload preserved both drafts. That check did not establish that the
+second update request had activated the new worker. A subsequent test requiring
+an actual reload exposed a lock handoff bug; the local regression now covers the
+corrected handoff. A separate deployed Chromium test exercised same-project
+conflict recovery and a simulated quota failure with synthetic audio. These checks made no paid requests
 and do not establish real-device behavior.
