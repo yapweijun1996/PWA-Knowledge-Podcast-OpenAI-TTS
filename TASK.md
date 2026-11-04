@@ -109,7 +109,8 @@ those WAVs or make paid OpenAI calls.
   - Partial implementation: the experimental browser runner executes the
     [bounded fixture and comparison protocol](docs/NARRATION-EVALUATION.md),
     with mocked tests for ordering, reference-only context, save failures and
-    incomplete responses. Real-provider trials, actual cost and listener scores
+    incomplete responses, plus a real local WebRTC loopback for all seven
+    responses. Real-provider trials, actual cost and listener scores
     remain outstanding; no paid call has been made.
 
 - [ ] **T06 — Implement the chosen continuity workflow** (impact: high; effort:

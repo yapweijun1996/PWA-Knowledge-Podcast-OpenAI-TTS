@@ -40,7 +40,8 @@ all approaches. Keep every take and record failures; do not automatically retry.
 The experimental browser runner shows the fixture and exact session inputs,
 asks for explicit cost consent and runs this sequence with at most 1024 output
 tokens per response. It has only been validated with intercepted provider events;
-actual provider behavior and audible results remain unverified.
+a local browser WebRTC loopback also exercised all seven responses. Actual
+provider behavior and audible results remain unverified.
 
 | Approach             | Request sequence                        | Text and context                                                                                                                                                                                                              | Recovery and cost considerations                                                                                                                       |
 | -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
