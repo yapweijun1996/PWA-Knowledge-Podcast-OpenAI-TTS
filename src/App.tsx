@@ -384,7 +384,8 @@ export default function App() {
     conflictedProjects = useRef(new Set<string>()),
     projectVersions = useRef(new Map<string, string | null>());
   useEffect(() => {
-    if (!recovery && !failedProjects.current.size) return;
+    if (!recovery && !failedProjects.current.size && status !== "正在保存…")
+      return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
