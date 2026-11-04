@@ -128,13 +128,17 @@ those WAVs or make paid OpenAI calls.
     rates without removing words; a listener can compare and revert processing.
   - Dependencies: T02 and a clear narration-quality rubric from T05.
 
-- [ ] **T08 — Add continuous playback and boundary review** (impact: high;
+- [x] **T08 — Add continuous playback and boundary review** (impact: high;
   effort: M; risk: low). Current players are per segment; a full WAV is
   downloadable, but there is no sequential preview or boundary A/B control.
   - First change: provide in-order preview with a clearly selected starting
     segment and accessible pause/seek behavior.
   - Acceptance: order and transitions match the project; pause, resume,
     cancellation and stale segments are handled without a provider request.
+  - Implemented: prepare a local sequential WAV preview from any nonempty
+    segment, with native pause/seek and explicit close. Changes to included
+    segments invalidate the preview. Browser tests verify order, controls and
+    stale handling without provider requests; this does not smooth transitions.
 
 - [ ] **T09 — Preserve paid audio in optional project backups** (impact: high;
   effort: L; risk: medium). Current JSON backup deliberately excludes audio.
