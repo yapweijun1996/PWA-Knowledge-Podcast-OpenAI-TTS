@@ -133,3 +133,19 @@ test("WAV assembly rejects incompatible sample rates", async () => {
     /incompatible/,
   );
 });
+
+test("PCM export rejects silence and preserves multi-chunk samples", async () => {
+  const { pcmToWav } = await import("../src/browser-tts.ts");
+  assert.throws(
+    () => pcmToWav([new Float32Array(64)], 16000),
+    /未收到可听见的音频/,
+  );
+  const result = pcmToWav(
+    [new Float32Array([0.5]), new Float32Array([-0.5])],
+    16000,
+  );
+  const view = new DataView(await result.arrayBuffer());
+  assert.equal(view.getUint32(40, true), 4);
+  assert.ok(view.getInt16(44, true) > 16000);
+  assert.ok(view.getInt16(46, true) < -16000);
+});
