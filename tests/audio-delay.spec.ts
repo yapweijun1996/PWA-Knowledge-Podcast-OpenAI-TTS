@@ -94,7 +94,7 @@ test("waits for delayed browser audio after the provider finishes", async ({
 }) => {
   test.setTimeout(30_000);
   const calls = await startMockGeneration(page);
-  await expect(page.getByText("已生成").first()).toBeVisible({
+  await expect(page.getByText("待试听核验").first()).toBeVisible({
     timeout: 15_000,
   });
   expect(calls()).toBe(1);
@@ -115,5 +115,5 @@ test("reports silence without saving or retrying a paid request", async ({
     timeout: 15_000,
   });
   expect(calls()).toBe(1);
-  await expect(page.getByText("已生成")).toHaveCount(0);
+  await expect(page.getByText("待试听核验")).toHaveCount(0);
 });

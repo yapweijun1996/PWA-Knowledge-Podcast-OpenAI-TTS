@@ -516,6 +516,7 @@ export default function App() {
                     audioFor: target.text,
                     voice: p.voice,
                     instructions: p.instructions,
+                    audioVerified: false,
                   }
                 : s,
             ),
@@ -539,7 +540,7 @@ export default function App() {
         failedProjects.current.size
           ? "部分项目保存失败"
           : mode === "openai"
-            ? "已保存在此设备 · 语音生成完成"
+            ? "已保存在此设备 · 语音待试听核验"
             : "已保存在此设备 · 模拟完成：音频为提示音，非人声",
       );
     } catch (e) {
@@ -694,6 +695,10 @@ export default function App() {
       setError("请先生成全部非空片段，再导出音频。");
       return;
     }
+    if (mode === "openai" && valid.some((segment) => !segment.audioVerified)) {
+      setError("请先试听并核验所有片段的完整性，再导出完整音频。");
+      return;
+    }
     try {
       download(
         await joinDemoWavs(valid.map((s) => s.audio!)),
@@ -741,13 +746,19 @@ export default function App() {
         <button onClick={create}>新建项目</button>
       </main>
     );
-  const readyCount = active.segments.filter((s) =>
-    current(s, active, mode),
+  const readyCount = active.segments.filter(
+    (s) => current(s, active, mode) && (mode !== "openai" || s.audioVerified),
   ).length;
   const totalChars = active.segments.reduce((n, s) => n + s.text.length, 0);
   const stale = active.segments.filter(
     (s) => s.audio && !current(s, active, mode),
   ).length;
+  const unverified =
+    mode === "openai"
+      ? active.segments.filter(
+          (s) => current(s, active, mode) && !s.audioVerified,
+        ).length
+      : 0;
   return (
     <>
       <header className="top">
@@ -934,7 +945,11 @@ export default function App() {
                 {readyCount} <i>/ {active.segments.length}</i>
               </strong>
               <small>
-                {stale ? `${stale} 个片段需要更新` : "按当前设置统计"}
+                {unverified
+                  ? `${unverified} 个片段待试听核验`
+                  : stale
+                    ? `${stale} 个片段需要更新`
+                    : "按当前设置统计"}
               </small>
             </div>
             <div className="summary-card">
@@ -1052,7 +1067,9 @@ export default function App() {
                         {s.audio
                           ? current(s, active, mode)
                             ? mode === "openai"
-                              ? "已生成"
+                              ? s.audioVerified
+                                ? "已核验"
+                                : "待试听核验"
                               : "已模拟"
                             : "需重新生成"
                           : "未生成"}
@@ -1101,24 +1118,46 @@ export default function App() {
                       <span>{s.text.length} 字符</span>
                     </div>
                     {s.audio && current(s, active, mode) && (
-                      <div className="audio">
-                        <Player blob={s.audio} />
-                        <button
-                          className="text-button"
-                          onClick={() =>
-                            download(
-                              s.audio!,
-                              mode === "openai"
-                                ? "segment.wav"
-                                : "demo-segment.wav",
-                            )
-                          }
-                        >
-                          {mode === "openai"
-                            ? "下载 WAV 语音"
-                            : "下载 WAV 提示音"}
-                        </button>
-                      </div>
+                      <>
+                        <div className="audio">
+                          <Player blob={s.audio} />
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              download(
+                                s.audio!,
+                                mode === "openai"
+                                  ? "segment.wav"
+                                  : "demo-segment.wav",
+                              )
+                            }
+                          >
+                            {mode === "openai"
+                              ? "下载 WAV 语音"
+                              : "下载 WAV 提示音"}
+                          </button>
+                        </div>
+                        {mode === "openai" && (
+                          <>
+                            <p className="hint">
+                              音频可能缺失或截断，请完整试听并对照脚本。
+                            </p>
+                            <label className="consent">
+                              <input
+                                type="checkbox"
+                                aria-label={`确认片段 ${i + 1} 音频完整`}
+                                checked={!!s.audioVerified}
+                                onChange={(event) =>
+                                  edit(s.id, {
+                                    audioVerified: event.target.checked,
+                                  })
+                                }
+                              />
+                              我已试听并确认此片段内容完整。
+                            </label>
+                          </>
+                        )}
+                      </>
                     )}
                   </article>
                 ))}

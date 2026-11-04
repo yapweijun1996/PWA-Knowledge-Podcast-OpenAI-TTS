@@ -105,9 +105,11 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
     page.getByRole("button", { name: "生成 OpenAI 语音" }),
   ).toBeDisabled();
   expect(calls).toHaveLength(0);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.getByRole("button", { name: "生成 OpenAI 语音" }).click();
-  await expect(page.getByText("已生成")).toHaveCount(5, { timeout: 20000 });
+  await expect(page.getByText("待试听核验", { exact: true })).toHaveCount(5, {
+    timeout: 20000,
+  });
   expect(calls).toEqual(["POST", "POST", "POST", "POST", "POST"]);
   await expect(page.getByRole("status").first()).toContainText(
     "已保存在此设备",
@@ -204,10 +206,12 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
     page.getByRole("button", { name: "生成 OpenAI 语音" }),
   ).toBeDisabled();
   await key.fill(fakeKey);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await expect(key).toHaveValue("");
-  await expect(page.getByRole("checkbox")).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: /我了解/ }),
+  ).not.toBeChecked();
   await page.reload();
   await page.getByLabel("生成模式").selectOption("openai");
   await expect(page.getByLabel("OpenAI API key")).toHaveValue("");
@@ -246,7 +250,7 @@ test("provider errors are sanitized and are not automatically retried", async ({
   await page.goto("./");
   await page.getByLabel("生成模式").selectOption("openai");
   await page.getByLabel("OpenAI API key").fill(fakeKey);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.getByRole("button", { name: "生成片段" }).first().click();
   await expect(page.getByRole("alert")).toContainText("API key 无效或已过期");
   expect(await page.getByRole("alert").innerText()).not.toContain(fakeKey);
@@ -267,7 +271,7 @@ test("unsupported audio capture fails before any paid request", async ({
   await page.goto("./");
   await page.getByLabel("生成模式").selectOption("openai");
   await page.getByLabel("OpenAI API key").fill(fakeKey);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.getByRole("button", { name: "生成片段" }).first().click();
   await expect(page.getByRole("alert")).toContainText(
     "此浏览器不支持实时音频采集",
@@ -313,7 +317,7 @@ test("cancel during audio startup never sends an OpenAI request", async ({
   await page.goto("./");
   await page.getByLabel("生成模式").selectOption("openai");
   await page.getByLabel("OpenAI API key").fill(fakeKey);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.getByRole("button", { name: "生成片段" }).first().click();
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(
@@ -372,7 +376,7 @@ test("a blocked media sink stops before requesting speech", async ({
   await page.goto("./");
   await page.getByLabel("生成模式").selectOption("openai");
   await page.getByLabel("OpenAI API key").fill(fakeKey);
-  await page.getByRole("checkbox").check();
+  await page.getByRole("checkbox", { name: /我了解/ }).check();
   await page.getByRole("button", { name: "生成片段" }).first().click();
   await expect(page.getByRole("alert")).toContainText("浏览器无法启动远端音频");
   expect(

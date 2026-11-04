@@ -10,6 +10,7 @@ export function createBackup(p: Project): Blob {
         audioFor: __,
         voice: ___,
         instructions: ____,
+        audioVerified: _verified,
         ...segment
       }) => segment,
     ),
