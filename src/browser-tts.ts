@@ -1,5 +1,9 @@
-import type { Voice } from "./model";
+import type { AudioProvenance, Voice } from "./model";
 import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
+
+export const REALTIME_MODEL = "gpt-realtime-2.1-mini";
+export const composeInstructions = (instructions: string) =>
+  `Read the user's text exactly as written, without introduction, commentary, omissions, or added words. ${instructions}`;
 
 /** Direct browser use exposes a user-supplied key to the page runtime. */
 export async function generateBrowserSpeech(
@@ -8,7 +12,7 @@ export async function generateBrowserSpeech(
   voice: Voice,
   instructions: string,
   signal: AbortSignal,
-): Promise<Blob> {
+): Promise<{ audio: Blob; provenance: AudioProvenance }> {
   if (
     !key.trim() ||
     !text.trim() ||
@@ -36,6 +40,8 @@ export async function generateBrowserSpeech(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let finishTimer: ReturnType<typeof setTimeout> | undefined;
   let onAbort = () => {};
+  let effectiveModel: string | undefined;
+  let effectiveVoice: string | undefined;
   try {
     // Prepare the capture graph before opening any potentially billable session.
     context = new AudioContext();
@@ -181,7 +187,14 @@ export async function generateBrowserSpeech(
         }
       };
       events.onmessage = (message) => {
-        let e: { type?: string; response?: { status?: string } };
+        let e: {
+          type?: string;
+          response?: { status?: string };
+          session?: {
+            model?: unknown;
+            audio?: { output?: { voice?: unknown } };
+          };
+        };
         try {
           e = JSON.parse(String(message.data));
         } catch {
@@ -189,6 +202,15 @@ export async function generateBrowserSpeech(
           return;
         }
         if (e.type === "session.created") {
+          const model = e.session?.model;
+          const voice = e.session?.audio?.output?.voice;
+          if (
+            typeof model === "string" &&
+            /^gpt-realtime-[a-z0-9.-]{1,64}$/.test(model)
+          )
+            effectiveModel = model;
+          if (typeof voice === "string" && /^[a-z]{1,32}$/.test(voice))
+            effectiveVoice = voice;
           sessionReady = true;
           start();
         }
@@ -257,9 +279,9 @@ export async function generateBrowserSpeech(
       "session",
       JSON.stringify({
         type: "realtime",
-        model: "gpt-realtime-2.1-mini",
+        model: REALTIME_MODEL,
         output_modalities: ["audio"],
-        instructions: `Read the user's text exactly as written, without introduction, commentary, omissions, or added words. ${instructions}`,
+        instructions: composeInstructions(instructions),
         audio: { output: { voice } },
       }),
     );
@@ -285,7 +307,16 @@ export async function generateBrowserSpeech(
     if (!answer || answer.length > 200_000)
       throw new Error("OpenAI 返回了无效的连接信息。");
     await connection.setRemoteDescription({ type: "answer", sdp: answer });
-    return pcmToWav(await output, audioContext.sampleRate);
+    const audio = pcmToWav(await output, audioContext.sampleRate);
+    return {
+      audio,
+      provenance: {
+        requestedModel: REALTIME_MODEL,
+        requestedInstructions: composeInstructions(instructions),
+        effectiveModel,
+        effectiveVoice,
+      },
+    };
   } finally {
     if (timer) clearTimeout(timer);
     if (finishTimer) clearTimeout(finishTimer);

@@ -161,7 +161,7 @@ those WAVs or make paid OpenAI calls.
     origins without logging secrets; audit and threat documentation clearly
     state residual browser and extension exposure.
 
-- [ ] **T11 — Record truthful audio provenance and batch snapshots** (impact:
+- [x] **T11 — Record truthful audio provenance and batch snapshots** (impact:
   high; effort: M; risk: medium). Assets record requested voice/instructions
   and text, but not a verified effective provider configuration or model/version.
   Editing during a running batch can produce audio for an older snapshot.
@@ -171,6 +171,11 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: edits during a run cannot silently make charged output appear
     current; mocked missing/mismatched confirmation is handled honestly and
     exports contain no keys. Do not infer that OpenAI ignored a requested voice.
+  - Implemented: each run displays immutable inputs; generated OpenAI takes
+    retain requested inputs and bounded model/voice fields reported by the
+    provider session. Missing values remain unknown and discrepancies are flagged
+    without asserting their cause. Mocked browser tests cover edits during a
+    batch, missing/mismatched metadata, reload and credential-free backup.
 
 - [ ] **T12 — Protect updates across tabs** (impact: high; effort: L; risk:
   high). The update guard checks the current tab, while activation claims

@@ -11,7 +11,11 @@ import {
 } from "./model";
 import { demoAudio, download, joinDemoWavs } from "./audio";
 import { createBackup, readBackup } from "./backup";
-import { generateBrowserSpeech } from "./browser-tts";
+import {
+  composeInstructions,
+  generateBrowserSpeech,
+  REALTIME_MODEL,
+} from "./browser-tts";
 import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
 import packageInfo from "../package.json";
 
@@ -121,6 +125,13 @@ export default function App() {
     [mode, setMode] = useState<"demo" | "openai">("demo"),
     [keyPresent, setKeyPresent] = useState(false),
     [consent, setConsent] = useState(false),
+    [runSnapshot, setRunSnapshot] = useState<{
+      projectId: string;
+      mode: "demo" | "openai";
+      voice: Voice;
+      instructions: string;
+      targets: Array<{ index: number; text: string }>;
+    } | null>(null),
     [previewStart, setPreviewStart] = useState(""),
     [preview, setPreview] = useState<{
       projectId: string;
@@ -476,10 +487,14 @@ export default function App() {
       setError("请输入你的 API key，并确认计费及浏览器密钥风险。");
       return;
     }
-    const targets = p.segments.filter(
-      (s) =>
-        (!id || s.id === id) && s.text.trim() && (!!id || !current(s, p, mode)),
-    );
+    const targets = p.segments
+      .filter(
+        (s) =>
+          (!id || s.id === id) &&
+          s.text.trim() &&
+          (!!id || !current(s, p, mode)),
+      )
+      .map((segment) => ({ ...segment }));
     if (!targets.length) {
       setError("没有需要生成的非空片段。");
       return;
@@ -491,7 +506,10 @@ export default function App() {
     const rerecord = !!id && current(targets[0], p, mode);
     if (mode === "openai") {
       const tooLong = targets
-        .map((segment) => ({ segment, index: p.segments.indexOf(segment) + 1 }))
+        .map((segment) => ({
+          segment,
+          index: p.segments.findIndex((item) => item.id === segment.id) + 1,
+        }))
         .filter(({ segment }) => segment.text.length > MAX_SEGMENT_LENGTH);
       const problems: string[] = [];
       if (tooLong.length) {
@@ -511,6 +529,16 @@ export default function App() {
       }
     }
     setError("");
+    setRunSnapshot({
+      projectId: p.id,
+      mode,
+      voice: p.voice,
+      instructions: p.instructions,
+      targets: targets.map((segment) => ({
+        index: p.segments.findIndex((item) => item.id === segment.id) + 1,
+        text: segment.text,
+      })),
+    });
     const ctrl = new AbortController();
     operationEpoch.current++;
     abort.current = ctrl;
@@ -528,7 +556,7 @@ export default function App() {
         setBusy(
           `${mode === "openai" ? "正在生成" : "正在模拟"} ${i + 1} / ${targets.length}`,
         );
-        const blob =
+        const result =
           mode === "openai"
             ? await generateBrowserSpeech(
                 key,
@@ -537,7 +565,11 @@ export default function App() {
                 p.instructions,
                 ctrl.signal,
               )
-            : await demoAudio(target.text, ctrl.signal);
+            : {
+                audio: await demoAudio(target.text, ctrl.signal),
+                provenance: undefined,
+              };
+        const { audio: blob, provenance } = result;
         const now = projectRef.current;
         if (now && now.id === p.id) {
           const saved = await commit({
@@ -555,6 +587,7 @@ export default function App() {
                         voice: p.voice,
                         instructions: p.instructions,
                         audioVerified: false,
+                        provenance,
                       },
                     }
                   : {
@@ -565,6 +598,7 @@ export default function App() {
                       voice: p.voice,
                       instructions: p.instructions,
                       audioVerified: false,
+                      provenance,
                     }
                 : s,
             ),
@@ -1336,6 +1370,40 @@ export default function App() {
                         )}
                       </>
                     )}
+                    {s.audio &&
+                      s.audioKind === "openai" &&
+                      ((s.provenance?.effectiveModel &&
+                        s.provenance.effectiveModel !==
+                          s.provenance.requestedModel) ||
+                        (s.provenance?.effectiveVoice &&
+                          s.provenance.effectiveVoice !== s.voice)) && (
+                        <p className="hint">
+                          服务端会话报告与请求不同；请核实录音，不能仅凭此判断原因。
+                        </p>
+                      )}
+                    {s.audio && s.audioKind === "openai" && (
+                      <details className="run-details">
+                        <summary>录音来源与生成输入</summary>
+                        <p>
+                          请求模型：
+                          {s.provenance?.requestedModel ?? "未知（旧录音）"}
+                        </p>
+                        <p>
+                          服务端会话报告的模型：
+                          {s.provenance?.effectiveModel ?? "未知"}
+                        </p>
+                        <p>
+                          请求声音：{s.voice ?? "未知"}；服务端会话报告的声音：
+                          {s.provenance?.effectiveVoice ?? "未知"}
+                        </p>
+                        <p>
+                          请求的完整指令：
+                          {s.provenance?.requestedInstructions ??
+                            "未知（旧录音）"}
+                        </p>
+                        <p>生成时脚本：{s.audioFor ?? "未知"}</p>
+                      </details>
+                    )}
                     {s.alternative && (
                       <div className="notice">
                         <strong>备选录音</strong>
@@ -1370,6 +1438,7 @@ export default function App() {
                                 voice: s.voice,
                                 instructions: s.instructions,
                                 audioVerified: s.audioVerified,
+                                provenance: s.provenance,
                               },
                             });
                           }}
@@ -1545,6 +1614,33 @@ export default function App() {
                         清除 key
                       </button>
                     </div>
+                  )}
+                  {runSnapshot?.projectId === active.id && (
+                    <details className="run-details" open>
+                      <summary>本次生成输入快照</summary>
+                      <p>
+                        生成模式：
+                        {runSnapshot.mode === "openai" ? "OpenAI" : "演示"}
+                        ；请求声音：{runSnapshot.voice}
+                      </p>
+                      {runSnapshot.mode === "openai" && (
+                        <p>请求模型：{REALTIME_MODEL}</p>
+                      )}
+                      <p>
+                        请求的完整指令：
+                        {runSnapshot.mode === "openai"
+                          ? composeInstructions(runSnapshot.instructions)
+                          : runSnapshot.instructions}
+                      </p>
+                      {runSnapshot.targets.map((target) => (
+                        <p key={target.index}>
+                          片段 {target.index}：{target.text}
+                        </p>
+                      ))}
+                      <p className="hint">
+                        生成期间编辑不会改变本次输入；结果与当前内容不一致时会标记为过期。
+                      </p>
+                    </details>
                   )}
                   <p>
                     {" "}

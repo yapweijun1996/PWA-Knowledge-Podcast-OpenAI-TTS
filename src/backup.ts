@@ -12,6 +12,7 @@ export function createBackup(p: Project): Blob {
         instructions: ____,
         audioVerified: _verified,
         alternative: _alternative,
+        provenance: _provenance,
         ...segment
       }) => segment,
     ),
