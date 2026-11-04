@@ -429,6 +429,28 @@ export default function App() {
         segments: p.segments.map((s) => (s.id === id ? { ...s, ...patch } : s)),
       });
   };
+  const moveSegment = (id: string, direction: -1 | 1) => {
+    const p = projectRef.current;
+    if (!p || busy || abort.current || deleteLock.current || updateLock.current)
+      return;
+    const index = p.segments.findIndex((segment) => segment.id === id);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= p.segments.length) return;
+    const segments = [...p.segments];
+    [segments[index], segments[next]] = [segments[next], segments[index]];
+    change({ segments });
+    const focusDirection =
+      next === 0
+        ? "down"
+        : next === segments.length - 1
+          ? "up"
+          : direction < 0
+            ? "up"
+            : "down";
+    requestAnimationFrame(() =>
+      document.getElementById(`move-${focusDirection}-${id}`)?.focus(),
+    );
+  };
   async function generate(id?: string) {
     const p = projectRef.current;
     if (!p || busy || abort.current || deleteLock.current || updateLock.current)
@@ -1121,6 +1143,26 @@ export default function App() {
                         }
                       >
                         删除
+                      </button>
+                    </div>
+                    <div className="segment-actions">
+                      <button
+                        id={`move-up-${s.id}`}
+                        className="text-button"
+                        aria-label={`上移片段 ${i + 1}`}
+                        disabled={!!busy || i === 0}
+                        onClick={() => moveSegment(s.id, -1)}
+                      >
+                        ↑ 上移
+                      </button>
+                      <button
+                        id={`move-down-${s.id}`}
+                        className="text-button"
+                        aria-label={`下移片段 ${i + 1}`}
+                        disabled={!!busy || i === active.segments.length - 1}
+                        onClick={() => moveSegment(s.id, 1)}
+                      >
+                        ↓ 下移
                       </button>
                     </div>
                     <label className="sr-only" htmlFor={"segment-" + s.id}>

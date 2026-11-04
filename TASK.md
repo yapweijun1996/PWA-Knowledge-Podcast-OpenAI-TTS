@@ -26,8 +26,8 @@ those WAVs or make paid OpenAI calls.
 ## P0 — Protect paid work and output integrity
 
 - [x] **T01 — Stop a batch when audio cannot be saved** (impact: high; effort: M;
-  risk: high). `src/App.tsx` queues `commit` asynchronously and continues the
-  generation loop. A reviewer reproduced all five free demo segments continuing
+  risk: high). At review, `src/App.tsx` queued `commit` asynchronously and
+  continued the generation loop. A reviewer reproduced all five free demo segments continuing
   after an injected IndexedDB quota failure; the equivalent paid-path risk is
   inferred from the shared loop, not tested with OpenAI.
   - First change: make each segment's persistence outcome observable to the
@@ -67,7 +67,7 @@ those WAVs or make paid OpenAI calls.
 ## P1 — Reliable production and narration continuity
 
 - [x] **T03 — Preflight the entire paid batch** (impact: high; effort: S;
-  risk: medium). Current per-segment validation can discover a later 4,000-character
+  risk: medium). Previously, per-segment validation could discover a later 4,000-character
   limit only after earlier requests; backup import accepts larger fields.
   - First change: validate every selected segment and instructions before any
     provider connection; show the offending segments and applicable limits.
@@ -80,8 +80,8 @@ those WAVs or make paid OpenAI calls.
     successful progression to the provider after correction; no paid call made.
 
 - [x] **T04 — Allow safe re-recording and comparison** (impact: high; effort: M;
-  risk: medium). The per-segment button is visible for current audio, but
-  `generate` excludes current audio. This was reproduced in the free demo.
+  risk: medium). At review, the per-segment button was visible for current audio,
+  but `generate` excluded current audio. This was reproduced in the free demo.
   - First change: add an explicit re-record action with clear potential cost;
     retain the previous version until replacement succeeds.
   - Acceptance: one explicit action causes at most one provider request;
@@ -181,8 +181,8 @@ those WAVs or make paid OpenAI calls.
 ## P2 — Usability, portability and knowledge workflow
 
 - [x] **T13 — Align style selection with actual instructions** (impact: medium;
-  effort: S; risk: low). The preset selector uses a default value rather than
-  deriving its label from the project's instructions.
+  effort: S; risk: low). At review, the preset selector used a default value
+  rather than deriving its label from the project's instructions.
   - First change: use one authoritative state and show Custom when text differs.
   - Acceptance: edit, reload, backup restore and project switching show the
     true selection without overwriting custom instructions; choosing a preset
@@ -192,8 +192,8 @@ those WAVs or make paid OpenAI calls.
     selection, backup restore and switching projects without provider calls.
 
 - [x] **T14 — Improve offline demo and export edge cases** (impact: medium;
-  effort: S; risk: low). All generation is currently disabled offline,
-  including local demo tones; empty segments can block full WAV export.
+  effort: S; risk: low). At review, all generation was disabled offline,
+  including local demo tones; empty segments could block full WAV export.
   - First change: define whether offline keyless demo is supported and how
     empty sections are treated; use accurate UI copy for the chosen behavior.
   - Acceptance: offline local flows and full export follow that contract with
@@ -213,8 +213,8 @@ those WAVs or make paid OpenAI calls.
     untested device/provider path is labeled NOT VERIFIED, with steps and
     explicit owner approval required for any paid test.
 
-- [ ] **T16 — Add editing and script-source workflow** (impact: medium; effort:
-  L; risk: low). The studio has add/delete, but no segment reordering,
+- [x] **T16 — Add editing and script-source workflow** (impact: medium; effort:
+  L; risk: low). At review, the studio had add/delete but no segment reordering,
   user-defined presets or structured claim/source review.
   - First change: implement accessible reorder with stable segment identities;
     plan user presets and source/claim review as independent follow-ups.
@@ -222,11 +222,14 @@ those WAVs or make paid OpenAI calls.
     right order without unnecessarily invalidating unchanged audio; factual
     assertions remain linked to sources and unverified rain measurements stay
     explicitly unverified.
+  - Implemented: accessible up/down controls reorder stable segment records,
+    retaining audio; browser tests cover keyboard, mobile, reload and transcript
+    order. [Independent follow-up designs](docs/CONTENT-ROADMAP.md) describe
+    user presets and structured claim review; those features are not implemented.
 
 ## Suggested sequence
 
-Quick wins: T03, the explicitly labeled re-record control in T04 after its
-failure-preservation contract, T13, and the offline/export decisions in T14.
-First protect paid output with T01–T02. Run T05 before committing to T06 or
-audio post-processing. Larger investments are T06, T09 and T12. Dependencies,
-cost authorization and actual verification take precedence over the sequence.
+T01–T04, T13, T14 and T16 have been implemented as described above. Run T05
+before committing to T06 or audio post-processing. Larger remaining investments
+include T06, T09 and T12. Dependencies, cost authorization and actual
+verification take precedence over the sequence.
