@@ -298,7 +298,7 @@ async function prepareAudio(context: AudioContext, signal: AbortSignal) {
   });
 }
 
-function pcmToWav(chunks: Float32Array[], sampleRate: number): Blob {
+export function pcmToWav(chunks: Float32Array[], sampleRate: number): Blob {
   const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
   let first = length,
     last = -1,
