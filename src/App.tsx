@@ -1367,6 +1367,17 @@ export default function App() {
                         )}
                       </>
                     )}
+                    {s.audio &&
+                      s.audioKind === "openai" &&
+                      ((s.provenance?.effectiveModel &&
+                        s.provenance.effectiveModel !==
+                          s.provenance.requestedModel) ||
+                        (s.provenance?.effectiveVoice &&
+                          s.provenance.effectiveVoice !== s.voice)) && (
+                        <p className="hint">
+                          服务端会话报告与请求不同；请核实录音，不能仅凭此判断原因。
+                        </p>
+                      )}
                     {s.audio && s.audioKind === "openai" && (
                       <details className="run-details">
                         <summary>录音来源与生成输入</summary>
@@ -1382,15 +1393,6 @@ export default function App() {
                           请求声音：{s.voice ?? "未知"}；服务端会话报告的声音：
                           {s.provenance?.effectiveVoice ?? "未知"}
                         </p>
-                        {((s.provenance?.effectiveModel &&
-                          s.provenance.effectiveModel !==
-                            s.provenance.requestedModel) ||
-                          (s.provenance?.effectiveVoice &&
-                            s.provenance.effectiveVoice !== s.voice)) && (
-                          <p>
-                            服务端会话报告与请求不同；请核实录音，不能仅凭此判断原因。
-                          </p>
-                        )}
                         <p>
                           请求的完整指令：
                           {s.provenance?.requestedInstructions ??

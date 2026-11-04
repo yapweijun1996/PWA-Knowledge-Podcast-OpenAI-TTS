@@ -148,7 +148,10 @@ for (const { label, session } of [
     await expect(detail).toContainText(
       `服务端会话报告的声音：${session?.audio.output.voice ?? "未知"}`,
     );
-    if (session) await expect(detail).toContainText("服务端会话报告与请求不同");
+    if (session)
+      await expect(
+        page.getByText("服务端会话报告与请求不同", { exact: false }),
+      ).toHaveCount(2);
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "备份脚本与设置" }).click();
     const backup = await readFile((await (await download).path())!, "utf8");
