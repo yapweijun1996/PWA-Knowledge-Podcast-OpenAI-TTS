@@ -140,7 +140,7 @@ those WAVs or make paid OpenAI calls.
     segments invalidate the preview. Browser tests verify order, controls and
     stale handling without provider requests; this does not smooth transitions.
 
-- [ ] **T09 — Preserve paid audio in optional project backups** (impact: high;
+- [x] **T09 — Preserve paid audio in optional project backups** (impact: high;
   effort: L; risk: medium). Current JSON backup deliberately excludes audio.
   - First change: design an explicit, size-aware audio-inclusive export/import
     with script, audio and provenance, while retaining the existing lightweight
@@ -149,6 +149,10 @@ those WAVs or make paid OpenAI calls.
     and stale status; old backups still import and no key, session token or
     provider credential appears in either format.
   - Dependencies: T01 and T11; test quota and corrupted/oversized archives.
+  - Implemented: opt-in bounded JSON backup restores main and alternative WAVs,
+    provenance and stale state as a separate project; SHA-256 detects accidental
+    corruption, not malicious alteration. Browser tests cover a synthetic paid
+    metadata fixture, legacy import, size and quota failures, retry and no key.
 
 - [ ] **T10 — Make key exposure and release hardening explicit** (impact: high;
   effort: M; risk: high). Browser BYOK is an owner-selected trade-off; a CSP

@@ -41,6 +41,8 @@ Re-record an existing segment to keep a separate alternate take for listening an
 
 Each generation shows its fixed input snapshot. OpenAI takes retain their requested model, voice, instructions and script, plus any model or voice reported by the provider session; absent or unsupported values are shown as unknown, and a reported mismatch is flagged for review. Session metadata does not prove what a listener heard. Older audio may lack provenance. Script-only backups omit audio and provenance.
 
+The optional audio backup is an unencrypted JSON file containing script, both WAV takes and provenance. Audio is limited to 16 MiB total; the file limit is 24 MiB. Treat it as private. Each WAV has a SHA-256 checksum for accidental corruption, not proof of authenticity: import only trusted files. Import creates a separate project, and a failed local save can be retried without changing the source backup. Older script-only backups remain supported. API keys are not included.
+
 Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible, and the preview does not automatically smooth boundaries.
 
 ## Important gaps

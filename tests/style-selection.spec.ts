@@ -28,9 +28,7 @@ test("style selection follows actual project instructions", async ({
   const backup = await download;
   await page.getByRole("button", { name: "新建项目" }).first().click();
   await expect(style).toHaveValue("Documentary");
-  await page
-    .locator('input[type="file"]')
-    .setInputFiles((await backup.path())!);
+  await page.getByLabel("导入脚本备份").setInputFiles((await backup.path())!);
   await expect(style).toHaveValue("Curious");
   await expect(instructions).toHaveValue(
     "Speak with warmth and curiosity, with natural pauses.",

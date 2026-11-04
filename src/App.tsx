@@ -11,6 +11,7 @@ import {
 } from "./model";
 import { demoAudio, download, joinDemoWavs } from "./audio";
 import { createBackup, readBackup } from "./backup";
+import { createAudioBackup, readAudioBackup } from "./audio-backup";
 import {
   composeInstructions,
   generateBrowserSpeech,
@@ -737,9 +738,10 @@ export default function App() {
       setDeleting(false);
     }
   }
-  async function restore(file: File | undefined) {
+  async function restore(file: File | undefined, withAudio = false) {
     if (
       !file ||
+      busy ||
       abort.current ||
       updating ||
       deleteLock.current ||
@@ -748,7 +750,9 @@ export default function App() {
       return;
     const epoch = operationEpoch.current;
     try {
-      const p = await readBackup(file);
+      const p = withAudio
+        ? await readAudioBackup(file)
+        : await readBackup(file);
       if (
         epoch !== operationEpoch.current ||
         abort.current ||
@@ -758,10 +762,52 @@ export default function App() {
         setError("导入期间项目状态已变化，请重新导入备份。");
         return;
       }
-      commit(p);
-      setStatus("脚本备份已导入；音频需要重新生成");
+      if (await commit(p)) {
+        setError("");
+        setStatus(
+          withAudio
+            ? "音频备份已导入并保存"
+            : "脚本备份已导入；音频需要重新生成",
+        );
+      } else {
+        setError(
+          "导入内容尚未保存，请释放空间并重试保存；原备份文件仍可使用。",
+        );
+      }
     } catch {
-      setError("无法导入此备份：文件无效或过大。");
+      setError("无法导入此备份：文件无效、损坏或过大。");
+    }
+  }
+  async function retryProjectSave() {
+    const p = projectRef.current;
+    if (!p || busy || abort.current || deleteLock.current || updateLock.current)
+      return;
+    setBusy("正在重试保存…");
+    try {
+      if (await commit({ ...p, updated: Date.now() })) setError("");
+    } finally {
+      setBusy("");
+    }
+  }
+  async function exportAudioBackup() {
+    const p = projectRef.current;
+    if (!p || busy || abort.current || deleteLock.current || updateLock.current)
+      return;
+    if (
+      !window.confirm(
+        "此备份包含脚本和录音，请妥善保管。导出时音频总大小上限为 16 MiB。继续吗？",
+      )
+    )
+      return;
+    setBusy("正在准备音频备份…");
+    try {
+      const blob = await createAudioBackup(p);
+      download(blob, "podcast-audio-backup.json");
+      setError("");
+    } catch {
+      setError("无法导出音频备份：音频过大、格式无效或缺少必要信息。");
+    } finally {
+      setBusy("");
     }
   }
   function speak(text: string) {
@@ -1167,6 +1213,14 @@ export default function App() {
               {error}{" "}
               <button onClick={() => setError("")} aria-label="关闭提示">
                 ×
+              </button>
+            </div>
+          )}
+          {failedProjects.current.has(active.id) && !recovery && (
+            <div className="notice" aria-label="未保存项目恢复">
+              <span>当前项目仍在页面内存中，请释放空间并重试保存。</span>
+              <button disabled={!!busy} onClick={() => void retryProjectSave()}>
+                重试保存项目
               </button>
             </div>
           )}
@@ -1746,6 +1800,25 @@ export default function App() {
                     >
                       备份脚本与设置
                     </button>
+                    <button
+                      className="outline full"
+                      onClick={() => void exportAudioBackup()}
+                      disabled={!!busy}
+                    >
+                      备份脚本与音频
+                    </button>
+                    <label className="outline full import">
+                      导入音频备份
+                      <input
+                        type="file"
+                        disabled={!!busy || updating || deleting}
+                        accept="application/json,.json"
+                        onChange={(e) => {
+                          void restore(e.target.files?.[0], true);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
                     <label className="outline full import">
                       导入脚本备份
                       <input
@@ -1760,7 +1833,9 @@ export default function App() {
                     </label>
                   </div>
                   <p className="hint">
-                    备份包含脚本和设置，不包含音频。本机朗读由浏览器提供，声音因设备而异，不能导出。OpenAI
+                    脚本备份不包含音频；音频备份包含录音和来源信息（最多 16
+                    MiB），不包含 API
+                    key。本机朗读由浏览器提供，声音因设备而异，不能导出。OpenAI
                     语音生成使用你的账户；目前不支持 MP3。
                   </p>
                 </section>

@@ -199,13 +199,13 @@ test("a pending backup import cannot replace a project during generation", async
       segments: [{ text: "script" }],
     },
   };
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.getByLabel("导入脚本备份").setInputFiles({
     name: "backup.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(backup)),
   });
   await page.getByRole("button", { name: "生成模拟提示音" }).click();
-  await expect(page.locator('input[type="file"]')).toBeDisabled();
+  await expect(page.getByLabel("导入脚本备份")).toBeDisabled();
   await expect(page.getByRole("alert")).toContainText("导入期间项目状态已变化");
   await expect(page.getByLabel("项目标题")).toHaveValue(originalTitle);
   await page.getByRole("button", { name: "取消", exact: true }).click();
@@ -257,7 +257,7 @@ test("deleting a project locks editing and project switches until deletion compl
     page.getByRole("button", { name: "新建项目" }).last(),
   ).toBeDisabled();
   await expect(page.getByRole("button", { name: "Project A" })).toBeDisabled();
-  await expect(page.locator('input[type="file"]')).toBeDisabled();
+  await expect(page.getByLabel("导入脚本备份")).toBeDisabled();
   await expect(page.getByLabel("项目标题")).toHaveValue("Project A");
   await expect(page.getByLabel("项目标题")).toBeEnabled();
   await page.reload();
