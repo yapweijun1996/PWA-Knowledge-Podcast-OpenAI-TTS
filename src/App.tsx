@@ -447,12 +447,18 @@ export default function App() {
       return;
     }
     const targets = p.segments.filter(
-      (s) => (!id || s.id === id) && s.text.trim() && !current(s, p, mode),
+      (s) =>
+        (!id || s.id === id) && s.text.trim() && (!!id || !current(s, p, mode)),
     );
     if (!targets.length) {
       setError("没有需要生成的非空片段。");
       return;
     }
+    if (targets.some((segment) => segment.alternative)) {
+      setError("请先处理已有的备选录音，再重新生成。");
+      return;
+    }
+    const rerecord = !!id && current(targets[0], p, mode);
     if (mode === "openai") {
       const tooLong = targets
         .map((segment) => ({ segment, index: p.segments.indexOf(segment) + 1 }))
@@ -509,15 +515,27 @@ export default function App() {
             updated: Date.now(),
             segments: now.segments.map((s) =>
               s.id === target.id
-                ? {
-                    ...s,
-                    audio: blob,
-                    audioKind: mode,
-                    audioFor: target.text,
-                    voice: p.voice,
-                    instructions: p.instructions,
-                    audioVerified: false,
-                  }
+                ? rerecord
+                  ? {
+                      ...s,
+                      alternative: {
+                        audio: blob,
+                        audioKind: mode,
+                        audioFor: target.text,
+                        voice: p.voice,
+                        instructions: p.instructions,
+                        audioVerified: false,
+                      },
+                    }
+                  : {
+                      ...s,
+                      audio: blob,
+                      audioKind: mode,
+                      audioFor: target.text,
+                      voice: p.voice,
+                      instructions: p.instructions,
+                      audioVerified: false,
+                    }
                 : s,
             ),
           });
@@ -539,9 +557,11 @@ export default function App() {
       setStatus(
         failedProjects.current.size
           ? "部分项目保存失败"
-          : mode === "openai"
-            ? "已保存在此设备 · 语音待试听核验"
-            : "已保存在此设备 · 模拟完成：音频为提示音，非人声",
+          : rerecord
+            ? "备选录音已保存在此设备，请试听比较"
+            : mode === "openai"
+              ? "已保存在此设备 · 语音待试听核验"
+              : "已保存在此设备 · 模拟完成：音频为提示音，非人声",
       );
     } catch (e) {
       if ((e as Error).name === "AbortError")
@@ -571,7 +591,10 @@ export default function App() {
     if (
       p.id !== recovery.projectId ||
       !p.segments.some(
-        (s) => s.id === recovery.segmentId && s.audio === recovery.audio,
+        (s) =>
+          s.id === recovery.segmentId &&
+          (s.audio === recovery.audio ||
+            s.alternative?.audio === recovery.audio),
       )
     ) {
       setError("请打开对应项目；如片段已改变，请先下载未保存音频。");
@@ -1109,11 +1132,28 @@ export default function App() {
                       </button>
                       <button
                         className="text-button"
-                        aria-label={`${mode === "openai" ? "生成片段" : "模拟片段"} ${i + 1}`}
-                        onClick={() => generate(s.id)}
-                        disabled={!!busy || !s.text.trim() || !online}
+                        aria-label={`${current(s, active, mode) ? "重录片段" : mode === "openai" ? "生成片段" : "模拟片段"} ${i + 1}`}
+                        onClick={() => {
+                          if (
+                            current(s, active, mode) &&
+                            mode === "openai" &&
+                            !window.confirm(
+                              "重新生成可能产生费用。保留当前录音并生成一个备选录音吗？",
+                            )
+                          )
+                            return;
+                          void generate(s.id);
+                        }}
+                        disabled={
+                          !!busy || !!s.alternative || !s.text.trim() || !online
+                        }
                       >
-                        ↻ {mode === "openai" ? "生成片段" : "模拟片段"}
+                        ↻{" "}
+                        {current(s, active, mode)
+                          ? "重录片段"
+                          : mode === "openai"
+                            ? "生成片段"
+                            : "模拟片段"}
                       </button>
                       <span>{s.text.length} 字符</span>
                     </div>
@@ -1158,6 +1198,62 @@ export default function App() {
                           </>
                         )}
                       </>
+                    )}
+                    {s.alternative && (
+                      <div className="notice">
+                        <strong>备选录音</strong>
+                        <span>
+                          {current({ ...s, ...s.alternative }, active, mode)
+                            ? "可试听后选择保留的录音。"
+                            : "此录音基于其他脚本或设置，切回对应设置后可采用。"}
+                        </span>
+                        <Player blob={s.alternative.audio} />
+                        <button
+                          aria-label={`采用备选录音 ${i + 1}`}
+                          disabled={
+                            !!busy ||
+                            !!recovery ||
+                            !current({ ...s, ...s.alternative }, active, mode)
+                          }
+                          onClick={() => {
+                            if (
+                              !s.alternative ||
+                              !s.audio ||
+                              !s.audioFor ||
+                              !s.voice ||
+                              s.instructions === undefined
+                            )
+                              return;
+                            edit(s.id, {
+                              ...s.alternative,
+                              alternative: {
+                                audio: s.audio,
+                                audioKind: s.audioKind ?? "demo",
+                                audioFor: s.audioFor,
+                                voice: s.voice,
+                                instructions: s.instructions,
+                                audioVerified: s.audioVerified,
+                              },
+                            });
+                          }}
+                        >
+                          采用备选录音
+                        </button>
+                        <button
+                          aria-label={`移除备选录音 ${i + 1}`}
+                          disabled={!!busy || !!recovery}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "移除备选录音后无法恢复，确定继续吗？",
+                              )
+                            )
+                              edit(s.id, { alternative: undefined });
+                          }}
+                        >
+                          移除备选录音
+                        </button>
+                      </div>
                     )}
                   </article>
                 ))}

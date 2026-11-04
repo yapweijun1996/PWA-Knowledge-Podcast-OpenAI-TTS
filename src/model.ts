@@ -1,4 +1,12 @@
 export type Voice = "marin" | "cedar" | "coral";
+export type AudioTake = {
+  audio: Blob;
+  audioKind: "demo" | "openai";
+  audioFor: string;
+  voice: Voice;
+  instructions: string;
+  audioVerified?: boolean;
+};
 export type Segment = {
   id: string;
   text: string;
@@ -8,6 +16,7 @@ export type Segment = {
   voice?: Voice;
   instructions?: string;
   audioVerified?: boolean;
+  alternative?: AudioTake;
 };
 export type Project = {
   id: string;
