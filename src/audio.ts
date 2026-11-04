@@ -54,8 +54,12 @@ export function download(blob: Blob, name: string) {
 }
 
 /** Concatenate compatible PCM mono WAV segments without changing their format. */
-export async function joinDemoWavs(blobs: Blob[]): Promise<Blob> {
+export async function joinDemoWavs(blobs: Blob[], pauseMs = 0): Promise<Blob> {
   if (!blobs.length) throw new Error("No audio to export");
+  if (blobs.reduce((sum, blob) => sum + blob.size, 0) > 256 * 1024 * 1024)
+    throw new Error("Joined audio too large");
+  if (!Number.isInteger(pauseMs) || pauseMs < 0 || pauseMs > 1000)
+    throw new Error("Invalid pause duration");
   const arrays = await Promise.all(
     blobs.map(async (blob) => new Uint8Array(await blob.arrayBuffer())),
   );
@@ -69,6 +73,8 @@ export async function joinDemoWavs(blobs: Blob[]): Promise<Blob> {
       new TextDecoder().decode(a.slice(12, 16)) !== "fmt " ||
       new TextDecoder().decode(a.slice(36, 40)) !== "data" ||
       view.getUint32(16, true) !== 16 ||
+      view.getUint32(24, true) < 8000 ||
+      view.getUint32(24, true) > 192000 ||
       view.getUint16(20, true) !== 1 ||
       view.getUint16(22, true) !== 1 ||
       view.getUint16(34, true) !== 16 ||
@@ -79,11 +85,16 @@ export async function joinDemoWavs(blobs: Blob[]): Promise<Blob> {
       throw new Error("Invalid or incompatible WAV audio");
     sampleRate = view.getUint32(24, true);
   }
-  const bytes = arrays.reduce((sum, a) => sum + a.length - 44, 0);
+  const pauseBytes = Math.round((sampleRate! * pauseMs) / 1000) * 2;
+  const bytes =
+    arrays.reduce((sum, a) => sum + a.length - 44, 0) +
+    pauseBytes * (arrays.length - 1);
+  if (bytes > 256 * 1024 * 1024) throw new Error("Joined audio too large");
   const result = new Uint8Array(44 + bytes);
   result.set(arrays[0].slice(0, 44));
   let offset = 44;
-  for (const a of arrays) {
+  for (const [index, a] of arrays.entries()) {
+    if (index) offset += pauseBytes;
     result.set(a.slice(44), offset);
     offset += a.length - 44;
   }
