@@ -31,8 +31,10 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
       onclose: (() => void) | null = null;
       onerror: (() => void) | null = null;
       onmessage: ((e: { data: string }) => void) | null = null;
+      onGenerate: () => void = () => {};
       send(data: string) {
-        if (JSON.parse(data).type === "response.create")
+        if (JSON.parse(data).type === "response.create") {
+          this.onGenerate();
           setTimeout(() => {
             this.onmessage?.({
               data: JSON.stringify({
@@ -44,6 +46,7 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
               data: JSON.stringify({ type: "output_audio_buffer.stopped" }),
             });
           }, 500);
+        }
       }
       close() {
         this.onclose?.();
@@ -60,6 +63,8 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
       constructor() {
         this.oscillator.connect(this.destination);
         this.oscillator.start();
+        this.channel.onGenerate = () =>
+          this.oscillator.stop(this.context.currentTime + 0.5);
         void this.context.resume();
       }
       addTransceiver() {}
@@ -78,7 +83,6 @@ test("browser BYOK uses a user gesture and never stores the key", async ({
         });
       }
       close() {
-        this.oscillator.stop();
         void this.context.close();
         this.connectionState = "closed";
         this.onconnectionstatechange?.();
