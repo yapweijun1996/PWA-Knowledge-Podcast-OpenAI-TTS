@@ -106,9 +106,11 @@ those WAVs or make paid OpenAI calls.
     a listening rubric covers emotion, pacing, boundary pauses and exact wording.
     Real-provider trials require separate owner cost approval and report actual
     results without automatic repetition.
-  - Partial preparation: [fixture, rubric and bounded comparison protocol](docs/NARRATION-EVALUATION.md)
-    are documented. A shared-session runner, real-provider trials, actual cost
-    and listener scores remain outstanding; no paid call has been made.
+  - Partial implementation: the experimental browser runner executes the
+    [bounded fixture and comparison protocol](docs/NARRATION-EVALUATION.md),
+    with mocked tests for ordering, reference-only context, save failures and
+    incomplete responses. Real-provider trials, actual cost and listener scores
+    remain outstanding; no paid call has been made.
 
 - [ ] **T06 — Implement the chosen continuity workflow** (impact: high; effort:
   L; risk: high). Select a solution only after T05 evidence; longer requests

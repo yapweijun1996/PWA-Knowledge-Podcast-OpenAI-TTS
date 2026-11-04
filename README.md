@@ -39,6 +39,8 @@ OpenAI clips are marked **awaiting listening verification**, including clips sav
 
 Re-record an existing segment to keep a separate alternate take for listening and comparison. OpenAI re-recording asks for confirmation because it may incur a charge. The current take is retained on failure or cancellation; choosing the alternate swaps the takes. Resolve or explicitly remove an existing alternate before creating another. Script-only backups do not include either take.
 
+The experimental continuity comparison prepares one single-response, one shared-session and three context-reference sessions after explicit consent, with a per-response output limit and no automatic retry. It saves each result before continuing, but the limit is not a dollar cap. Real provider audio and listener results remain unverified; see the [comparison protocol](docs/NARRATION-EVALUATION.md).
+
 Each generation shows its fixed input snapshot. OpenAI takes retain their requested model, voice, instructions and script, plus any model or voice reported by the provider session; absent or unsupported values are shown as unknown, and a reported mismatch is flagged for review. Session metadata does not prove what a listener heard. Older audio may lack provenance. Script-only backups omit audio and provenance.
 
 The optional audio backup is an unencrypted JSON file containing script, both WAV takes and provenance. Audio is limited to 16 MiB total; the file limit is 24 MiB. Treat it as private. Each WAV has a SHA-256 checksum for accidental corruption, not proof of authenticity: import only trusted files. Import creates a separate project, and a failed local save can be retried without changing the source backup. Older script-only backups remain supported. API keys are not included.

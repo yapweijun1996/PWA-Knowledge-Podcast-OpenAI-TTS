@@ -4,6 +4,7 @@ export type AudioProvenance = {
   requestedInstructions?: string;
   effectiveModel?: string;
   effectiveVoice?: string;
+  responseStatus?: "completed" | "incomplete";
 };
 export type AudioTake = {
   audio: Blob;
