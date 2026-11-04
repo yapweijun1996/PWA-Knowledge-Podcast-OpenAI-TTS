@@ -28,7 +28,9 @@ test("save, simulate, mark stale and recover offline", async ({
   await expect(editor).toHaveValue("修改后需要重新生成。");
   await expect(
     page.getByRole("button", { name: "生成模拟提示音" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "生成模拟提示音" }).click();
+  await expect(page.getByText("已模拟").first()).toBeVisible();
 });
 for (const width of [360, 390, 768, 1280, 1440])
   test(`responsive ${width}px`, async ({ page }) => {

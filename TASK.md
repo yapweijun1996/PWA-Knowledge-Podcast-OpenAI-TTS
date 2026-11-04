@@ -191,13 +191,17 @@ those WAVs or make paid OpenAI calls.
     unmatched text shows Custom. Browser coverage checks edits, reload, preset
     selection, backup restore and switching projects without provider calls.
 
-- [ ] **T14 — Improve offline demo and export edge cases** (impact: medium;
+- [x] **T14 — Improve offline demo and export edge cases** (impact: medium;
   effort: S; risk: low). All generation is currently disabled offline,
   including local demo tones; empty segments can block full WAV export.
   - First change: define whether offline keyless demo is supported and how
     empty sections are treated; use accurate UI copy for the chosen behavior.
   - Acceptance: offline local flows and full export follow that contract with
     explicit tests; real BYOK remains disabled offline and never sends a request.
+  - Implemented: keyless tones can be generated offline after the PWA is cached;
+    BYOK remains unavailable offline, and full WAV export skips blank segments.
+    Browser tests verify offline operation, valid WAV output and zero provider
+    requests. Blank-only projects still require at least one nonempty segment.
 
 - [ ] **T15 — Expand device, browser and lifecycle evidence** (impact: medium;
   effort: M; risk: medium). CI uses Chromium, while paid provider output,
