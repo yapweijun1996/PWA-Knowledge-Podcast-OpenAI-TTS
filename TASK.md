@@ -44,7 +44,7 @@ those WAVs or make paid OpenAI calls.
     keyless tests cover no second request, download and successful save retry;
     real provider behavior was not tested.
 
-- [ ] **T02 — Prevent false-complete, truncated narration** (impact: high;
+- [x] **T02 — Prevent false-complete, truncated narration** (impact: high;
   effort: L; risk: high). `src/browser-tts.ts` treats a two-second quiet tail
   after the server stop event as completion. A synthetic browser audio test
   reproduced a late second burst omitted from a WAV marked generated; the
@@ -57,6 +57,12 @@ those WAVs or make paid OpenAI calls.
     automatic retry or unqualified complete status for an uncertain result.
   - Dependencies: provider event semantics and T03; a silence threshold or
     timeout alone cannot prove future audio will not arrive.
+  - Implemented: received OpenAI audio is explicitly unverified until the user
+    listens and confirms it against the script; full WAV export requires that
+    confirmation. Existing audio without a confirmation remains unverified.
+    Real local WebRTC tests cover delayed first audio, long gaps, low endings,
+    event order, disconnect and cancellation. The quiet-tail heuristic can
+    still truncate audio; manual confirmation is not proof supplied by OpenAI.
 
 ## P1 — Reliable production and narration continuity
 

@@ -7,6 +7,7 @@ export type Segment = {
   audioFor?: string;
   voice?: Voice;
   instructions?: string;
+  audioVerified?: boolean;
 };
 export type Project = {
   id: string;

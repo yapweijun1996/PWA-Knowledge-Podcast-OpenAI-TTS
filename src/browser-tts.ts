@@ -205,6 +205,10 @@ export async function generateBrowserSpeech(
           }
           completed = true;
         }
+        if (e.type === "output_audio_buffer.stopped" && !completed) {
+          fail("音频结束事件顺序异常，无法确认结果；可能已经产生费用。");
+          return;
+        }
         if (
           e.type === "output_audio_buffer.stopped" &&
           completed &&
