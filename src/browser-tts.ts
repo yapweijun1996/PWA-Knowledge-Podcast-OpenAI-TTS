@@ -62,6 +62,7 @@ export async function generateBrowserSpeech(
       let completed = false;
       let finishing = false;
       let totalSamples = 0;
+      let lastSoundAt = 0;
       const chunks: Float32Array[] = [];
       const fail = (message: string | DOMException) => {
         if (settled) return;
@@ -146,6 +147,10 @@ export async function generateBrowserSpeech(
                 return;
               }
               chunks.push(message.data.samples);
+              if (
+                message.data.samples.some((sample) => Math.abs(sample) > 0.001)
+              )
+                lastSoundAt = performance.now();
             } else if (message.data.type === "done") {
               if (!completed || !totalSamples) {
                 fail("未收到完整音频；可能已经产生费用。");
@@ -196,10 +201,26 @@ export async function generateBrowserSpeech(
           !finishing
         ) {
           finishing = true;
-          // Give the browser media jitter buffer time to render the final frames.
-          finishTimer = setTimeout(() => {
-            if (!settled) capture?.port.postMessage("stop");
-          }, 700);
+          // The server's drained event does not mean the browser has rendered
+          // every frame. Wait for audible samples and a quiet tail, with limits.
+          const stoppedAt = performance.now();
+          const drain = () => {
+            if (settled) return;
+            const now = performance.now();
+            if (!lastSoundAt && now - stoppedAt >= 8_000) {
+              fail("未收到可听见的音频，请检查连接。可能已经产生费用。");
+            } else if (
+              lastSoundAt &&
+              now - Math.max(stoppedAt, lastSoundAt) >= 2_000
+            ) {
+              capture?.port.postMessage("stop");
+            } else if (now - stoppedAt >= 15_000) {
+              fail("无法确认音频已完整接收；可能已经产生费用。");
+            } else {
+              finishTimer = setTimeout(drain, 200);
+            }
+          };
+          finishTimer = setTimeout(drain, 200);
         }
       };
       connection.onconnectionstatechange = () => {
