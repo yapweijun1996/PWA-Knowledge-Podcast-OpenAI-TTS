@@ -28,6 +28,7 @@ export async function generateBrowserSpeech(
   let channel: RTCDataChannel | undefined;
   let capture: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
+  let audioSink: HTMLAudioElement | undefined;
   let track: MediaStreamTrack | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let finishTimer: ReturnType<typeof setTimeout> | undefined;
@@ -102,9 +103,16 @@ export async function generateBrowserSpeech(
         if (trackReady || settled || event.track.kind !== "audio") return;
         track = event.track;
         try {
-          source = audioContext.createMediaStreamSource(
-            new MediaStream([event.track]),
-          );
+          const stream = new MediaStream([event.track]);
+          // Chrome may not render a remote WebRTC track into a Web Audio graph
+          // unless the track also has a media-element playback sink.
+          audioSink = new Audio();
+          audioSink.muted = true;
+          audioSink.srcObject = stream;
+          void audioSink
+            .play()
+            .catch(() => fail("浏览器无法启动远端音频；可能已经产生费用。"));
+          source = audioContext.createMediaStreamSource(stream);
           capture = new AudioWorkletNode(audioContext, "podcast-pcm-capture", {
             numberOfInputs: 1,
             numberOfOutputs: 1,
@@ -278,6 +286,8 @@ export async function generateBrowserSpeech(
     source?.disconnect();
     capture?.disconnect();
     capture?.port.close();
+    audioSink?.pause();
+    if (audioSink) audioSink.srcObject = null;
     track?.stop();
     channel?.close();
     peer?.close();

@@ -321,3 +321,65 @@ test("cancel during audio startup never sends an OpenAI request", async ({
   ).toBeEnabled();
   expect(calls).toBe(0);
 });
+
+test("a blocked media sink stops before requesting speech", async ({
+  page,
+}) => {
+  await page.route("https://api.openai.com/**", (route) =>
+    route.fulfill({ status: 200, body: "mock-answer" }),
+  );
+  await page.addInitScript(() => {
+    HTMLMediaElement.prototype.play = async () => {
+      throw new DOMException("Playback blocked", "NotAllowedError");
+    };
+    const state = { responses: 0 };
+    (window as unknown as { testSinkState: typeof state }).testSinkState =
+      state;
+    class Channel {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      send(data: string) {
+        if (JSON.parse(data).type === "response.create") state.responses++;
+      }
+      close() {}
+    }
+    class Peer {
+      channel = new Channel();
+      context = new AudioContext();
+      destination = this.context.createMediaStreamDestination();
+      ontrack: ((event: unknown) => void) | null = null;
+      addTransceiver() {}
+      createDataChannel() {
+        return this.channel;
+      }
+      async createOffer() {
+        return { sdp: "offer" };
+      }
+      async setLocalDescription() {}
+      async setRemoteDescription() {
+        this.ontrack?.({ track: this.destination.stream.getAudioTracks()[0] });
+        this.channel.onopen?.();
+        this.channel.onmessage?.({
+          data: JSON.stringify({ type: "session.created" }),
+        });
+      }
+      close() {
+        void this.context.close();
+      }
+    }
+    Object.defineProperty(window, "RTCPeerConnection", { value: Peer });
+  });
+  await page.goto("./");
+  await page.getByLabel("生成模式").selectOption("openai");
+  await page.getByLabel("OpenAI API key").fill(fakeKey);
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "生成片段" }).first().click();
+  await expect(page.getByRole("alert")).toContainText("浏览器无法启动远端音频");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { testSinkState: { responses: number } })
+          .testSinkState.responses,
+    ),
+  ).toBe(0);
+});
