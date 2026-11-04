@@ -164,6 +164,10 @@ those WAVs or make paid OpenAI calls.
   - Acceptance: deployed-policy tests exercise those paths and reject unintended
     origins without logging secrets; audit and threat documentation clearly
     state residual browser and extension exposure.
+  - Implementation in review: built Pages HTML has a restrictive CSP, Actions
+    are pinned to verified commit IDs, and Pages job permissions are scoped.
+    Local mocked provider, WebRTC, offline and policy tests pass. Deployed-policy
+    and deployment-permission verification are still required before completion.
 
 - [x] **T11 — Record truthful audio provenance and batch snapshots** (impact:
   high; effort: M; risk: medium). Assets record requested voice/instructions

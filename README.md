@@ -45,6 +45,8 @@ The optional audio backup is an unencrypted JSON file containing script, both WA
 
 Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible, and the preview does not automatically smooth boundaries.
 
+Release hardening and browser-key limitations are described in [the security notes](docs/SECURITY.md).
+
 ## Important gaps
 
 - The owner reports successful live BYOK speech generation; independent verification of the provider session, completeness, narration continuity and Chinese pronunciation remains outstanding. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
