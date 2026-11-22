@@ -288,6 +288,88 @@ test("autonomous worker hands off audio and research, then offline editing and b
   ).toHaveCount(0);
 });
 
+test("manual Studio creation shows all five saved stages and opens the same result in Library", async ({
+  page,
+}) => {
+  const topic = "新加坡的组屋为何能容纳不同族群？";
+  const providerRequests: string[] = [];
+  await page.route("https://api.openai.com/**", async (route) => {
+    providerRequests.push(route.request().url());
+    await route.abort();
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?studio=factory&view=settings");
+  const key = page.getByLabel("OpenAI API 密钥");
+  await expect(key).toBeVisible();
+  const clearKey = page.getByRole("button", { name: "清除会话密钥" });
+  if (await clearKey.isVisible()) await clearKey.click();
+  await expect(page.getByText(/尚无密钥/)).toBeVisible();
+
+  const nav = page.getByRole("navigation", { name: "播客工作区导航" });
+  await nav.getByRole("link", { name: "制作台" }).click();
+  const studio = page.getByRole("main", { name: "播客制作台" });
+  const submit = studio.getByRole("button", { name: "制作整集播客" });
+  const topicInput = studio.getByRole("textbox", { name: "播客主题" });
+  const consent = studio.getByRole("checkbox", { name: /同意本次 OpenAI/ });
+  await topicInput.fill(topic);
+  await expect(studio.getByText("需要 OpenAI 密钥")).toBeVisible();
+  await expect(consent).toBeDisabled();
+  await expect(submit).toBeDisabled();
+  await studio.getByRole("link", { name: "前往设置" }).click();
+  await key.fill("sk-fixture-browser-only");
+  await page.getByRole("button", { name: "设置密钥", exact: true }).click();
+  await expect(page.getByText(/已接收密钥/)).toBeVisible();
+  await nav.getByRole("link", { name: "制作台" }).click();
+  await expect(studio.getByText("可以开始制作")).toBeVisible();
+  await expect(topicInput).toHaveValue(topic);
+  await expect(submit).toBeDisabled();
+  await consent.check();
+  await expect(submit).toBeEnabled();
+  await submit.click();
+
+  const episode = studio.getByRole("region", { name: "Fixture episode" });
+  const stages = episode.getByRole("list", { name: "制作阶段" });
+  await expect(stages.getByText("已保存", { exact: true })).toHaveCount(5, {
+    timeout: 10_000,
+  });
+  for (const name of [
+    "网页研究",
+    "节目大纲",
+    "节目脚本",
+    "节目配音",
+    "音频转录",
+  ]) {
+    await expect(stages.getByText(name)).toBeVisible();
+  }
+  await expect(episode.getByText(topic, { exact: true })).toBeVisible();
+  await expect(
+    studio.getByRole("heading", { name: "音频转录与脚本对照" }),
+  ).toBeVisible();
+  await expect(studio.getByRole("button", { name: "下载 WAV" })).toBeEnabled();
+  const episodeId = new URL(page.url()).searchParams.get("episode");
+  expect(episodeId).toBeTruthy();
+
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(stages).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      `Studio result at ${width}px`,
+    ).toBeLessThanOrEqual(width);
+  }
+
+  await nav.getByRole("link", { name: "资料库" }).click();
+  const library = page.getByRole("complementary", { name: "浏览器节目" });
+  await expect(
+    library.getByRole("button", { name: "Fixture episode", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "音频转录与脚本对照" }),
+  ).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("episode")).toBe(episodeId);
+  expect(providerRequests).toEqual([]);
+});
+
 test("all four destinations reflow across shell breakpoints and at 200% text size", async ({
   page,
 }) => {

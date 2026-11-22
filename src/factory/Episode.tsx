@@ -22,6 +22,7 @@ import {
 import type { Playback } from "./playback";
 import { useCheckedWav } from "./useLibraryAudio";
 import { playbackTrack } from "./usePlayback";
+import "./episode.css";
 
 export type Kind = "draft" | "audio" | "transcript";
 
@@ -144,14 +145,14 @@ export function EpisodeWorkspace({
   }, [draft]);
 
   return (
-    <div className="factory-work">
+    <div className="factory-work episode-workspace">
       <section
         className="factory-panel factory-episode"
         aria-labelledby="episode-title"
       >
-        <div className="factory-row">
+        <div className="factory-row episode-heading">
           <div>
-            <small>
+            <small className="episode-metadata">
               {languages[episode.language]} · {hosts.length} 位主持
               {episode.plan
                 ? ` · 目标 ${clock(episode.plan.targetSeconds)}`
@@ -180,7 +181,14 @@ export function EpisodeWorkspace({
           </button>
         </div>
         {episode.plan && <p className="muted">{episode.plan.rationale}</p>}
-        <ol className="factory-stage" aria-label="制作阶段">
+        {savedAudio && (
+          <div className="factory-actions episode-audio-jump">
+            <a className="outline" href="#audio-title">
+              {currentAudio ? "前往成品音频" : "前往上一版成品音频"}
+            </a>
+          </div>
+        )}
+        <ol className="factory-stage episode-stage" aria-label="制作阶段">
           {stages.map((stage, index) => (
             <li
               key={stage}
@@ -192,7 +200,7 @@ export function EpisodeWorkspace({
                     : "waiting"
               }
             >
-              {stageNames[stage]}
+              <span>{stageNames[stage]}</span>
               <small>
                 {stageDone[index]
                   ? "已保存"
@@ -212,13 +220,6 @@ export function EpisodeWorkspace({
           >
             {episode.job.message ??
               `${checkpoint ? "上次保存的进度" : states[episode.job.status]} · ${stageNames[episode.job.stage]}${episode.job.stage === "audio" ? `（${clipCount}/${script?.turns.length ?? 0} 段已保存）` : ""}`}
-          </p>
-        )}
-        {savedAudio && (
-          <p>
-            <a href="#audio-title">
-              {currentAudio ? "前往成品音频" : "前往上一版成品音频"}
-            </a>
           </p>
         )}
         {running && (
@@ -264,6 +265,116 @@ export function EpisodeWorkspace({
           </div>
         )}
       </section>
+      {finished && (
+        <section
+          className="factory-panel episode-result"
+          aria-labelledby="audio-title"
+        >
+          <div className="factory-row episode-result-heading">
+            <h3 id="audio-title" tabIndex={-1}>
+              {currentAudio ? "成品音频" : "上一版成品音频"}
+            </h3>
+            {savedAudio && finishedTrack && (
+              <p className="muted">
+                AI 生成的主持声音 · {clock(savedAudio.duration)} · WAV
+              </p>
+            )}
+          </div>
+          {savedAudio && finishedTrack ? (
+            <>
+              <div className="factory-actions episode-play">
+                <EpisodePlayButton
+                  engine={playback}
+                  track={finishedTrack}
+                  blob={savedAudio.blob}
+                />
+              </div>
+              <div className="factory-chapters">
+                {finishedTrack.chapters.map((chapter) => (
+                  <button
+                    className="outline"
+                    key={chapter.start}
+                    onClick={() =>
+                      playback.select(
+                        finishedTrack,
+                        savedAudio.blob,
+                        chapter.start,
+                      )
+                    }
+                  >
+                    {clock(chapter.start)} · {chapter.title}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="muted">
+              {savedAudio === undefined
+                ? "正在检查已保存的 WAV…"
+                : "此浏览器没有可用的成品 WAV。"}
+            </p>
+          )}
+          <div className="factory-actions">
+            {savedAudio && (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() =>
+                  download(savedAudio.blob, `podcast-${episode.id}.wav`)
+                }
+              >
+                下载 WAV
+              </button>
+            )}
+            {mp3 instanceof Blob && (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => download(mp3, `podcast-${episode.id}.mp3`)}
+              >
+                下载 MP3
+              </button>
+            )}
+          </div>
+          <div className="episode-review" data-status={finished.qa?.status}>
+            <p>
+              {finished.qa?.status === "matched"
+                ? savedAudio
+                  ? "自动转录比对通过。请试听语音与出处。"
+                  : "已保存自动转录比对结果。"
+                : finished.transcript
+                  ? "已转录 · 待试听核对"
+                  : "待转录核对"}
+            </p>
+            {!!finished.qa?.reasons.length && (
+              <ul>
+                {finished.qa.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {finished.transcript && (
+            <div className="factory-transcript">
+              <h4>音频转录与脚本对照</h4>
+              <p className="muted">
+                字面相似度 {finished.transcript.similarity}
+                %。口音、同音字和数字写法都可能影响分数；请试听核对。
+              </p>
+              <div className="factory-voices episode-transcript-compare">
+                <div>
+                  <strong>预定脚本</strong>
+                  <p>{finished.intendedText}</p>
+                </div>
+                <div>
+                  <strong>从成品音频转录</strong>
+                  <p>{finished.transcript.text}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
       <Evidence episode={episode} />
       {script && planned && (
         <section className="factory-panel" aria-labelledby="dialogue-title">
@@ -452,102 +563,7 @@ export function EpisodeWorkspace({
           )}
         </section>
       )}
-      {finished && (
-        <section className="factory-panel" aria-labelledby="audio-title">
-          <h3 id="audio-title" tabIndex={-1}>
-            {currentAudio ? "成品音频" : "上一版成品音频"}
-          </h3>
-          {savedAudio && finishedTrack ? (
-            <>
-              <p className="muted">
-                AI 生成的主持声音 · {clock(savedAudio.duration)} · WAV
-              </p>
-              <EpisodePlayButton
-                engine={playback}
-                track={finishedTrack}
-                blob={savedAudio.blob}
-              />
-              <div className="factory-chapters">
-                {finishedTrack.chapters.map((chapter) => (
-                  <button
-                    className="outline"
-                    key={chapter.start}
-                    onClick={() =>
-                      playback.select(finishedTrack, savedAudio.blob, chapter.start)
-                    }
-                  >
-                    {clock(chapter.start)} · {chapter.title}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="muted">
-              {savedAudio === undefined
-                ? "正在检查已保存的 WAV…"
-                : "此浏览器没有可用的成品 WAV。"}
-            </p>
-          )}
-          <div className="factory-actions">
-            {savedAudio && (
-              <button
-                className="text-button"
-                type="button"
-                onClick={() =>
-                  download(savedAudio.blob, `podcast-${episode.id}.wav`)
-                }
-              >
-                下载 WAV
-              </button>
-            )}
-            {mp3 instanceof Blob && (
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => download(mp3, `podcast-${episode.id}.mp3`)}
-              >
-                下载 MP3
-              </button>
-            )}
-          </div>
-          <p className="muted">
-            {finished.qa?.status === "matched"
-              ? savedAudio
-                ? "自动转录比对通过。请试听语音与出处。"
-                : "已保存自动转录比对结果。"
-              : finished.transcript
-                ? "已转录 · 待试听核对"
-                : "待转录核对"}
-          </p>
-          {!!finished.qa?.reasons.length && (
-            <ul>
-              {finished.qa.reasons.map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
-          )}
-          {finished.transcript && (
-            <div className="factory-transcript">
-              <h4>音频转录与脚本对照</h4>
-              <p className="muted">
-                字面相似度 {finished.transcript.similarity}
-                %。口音、同音字和数字写法都可能影响分数；请试听核对。
-              </p>
-              <div className="factory-voices">
-                <div>
-                  <strong>预定脚本</strong>
-                  <p>{finished.intendedText}</p>
-                </div>
-                <div>
-                  <strong>从成品音频转录</strong>
-                  <p>{finished.transcript.text}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-      <div className="factory-actions">
+      <div className="factory-actions episode-exports">
         <button
           className="outline"
           disabled={working || !!draft}
@@ -555,31 +571,31 @@ export function EpisodeWorkspace({
         >
           备份本期节目
         </button>
+        {script && (
+          <>
+            <button
+              className="outline"
+              onClick={() =>
+                download(
+                  new Blob([JSON.stringify(episode, null, 2)], {
+                    type: "application/json",
+                  }),
+                  "podcast-record.json",
+                )
+              }
+            >
+              导出制作记录
+            </button>
+            <button
+              className="outline"
+              disabled={working || !!draft}
+              onClick={onCopy}
+            >
+              复制脚本到本地编辑器
+            </button>
+          </>
+        )}
       </div>
-      {script && (
-        <div className="factory-actions">
-          <button
-            className="outline"
-            onClick={() =>
-              download(
-                new Blob([JSON.stringify(episode, null, 2)], {
-                  type: "application/json",
-                }),
-                "podcast-record.json",
-              )
-            }
-          >
-            导出制作记录
-          </button>
-          <button
-            className="outline"
-            disabled={working || !!draft}
-            onClick={onCopy}
-          >
-            复制脚本到本地编辑器
-          </button>
-        </div>
-      )}
     </div>
   );
 }

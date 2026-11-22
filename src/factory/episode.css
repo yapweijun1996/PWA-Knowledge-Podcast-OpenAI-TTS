@@ -1,0 +1,136 @@
+.factory-shell .episode-workspace {
+  container-type: inline-size;
+
+  .episode-heading {
+    align-items: start;
+  }
+
+  .episode-heading h2 {
+    font-size: clamp(var(--type-section), 4cqi, calc(var(--type-title) * 1.25));
+    margin-block: var(--space-1) var(--space-2);
+  }
+
+  .episode-metadata {
+    font-weight: var(--weight-strong);
+  }
+
+  .episode-stage {
+    grid-template-columns: minmax(0, 1fr);
+    margin-block: var(--space-4);
+  }
+
+  .episode-stage li {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .episode-stage li > span {
+    font-weight: 650;
+  }
+
+  .episode-stage small {
+    text-align: end;
+  }
+
+  .episode-stage [data-state="done"] {
+    color: var(--accent-text);
+  }
+
+  .episode-stage [data-state="done"] small {
+    color: inherit;
+  }
+
+  .episode-audio-jump a {
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+
+  .episode-result {
+    border-block-start: 3px solid var(--accent);
+  }
+
+  .episode-result-heading {
+    justify-content: start;
+    column-gap: var(--space-3);
+  }
+
+  .episode-result-heading > :is(h3, p) {
+    margin: 0;
+  }
+
+  .episode-play,
+  .episode-review {
+    margin-block-start: var(--space-4);
+  }
+
+  .episode-review {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--notice-border);
+    border-radius: var(--radius-control);
+    background: var(--notice);
+  }
+
+  .episode-review[data-status="matched"] {
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  .episode-review > p {
+    margin: 0;
+    font-weight: var(--weight-strong);
+  }
+
+  .episode-review > ul {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+  }
+
+  .episode-transcript-compare {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .episode-transcript-compare > div {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    padding: var(--space-3);
+    background: var(--surface-soft);
+  }
+
+  .episode-transcript-compare p {
+    margin-block: var(--space-2) 0;
+  }
+
+  .episode-exports {
+    gap: var(--space-2);
+  }
+
+  :is(#episode-title, #audio-title) {
+    scroll-margin-block-start: var(--space-4);
+  }
+
+  @container (min-width: 34rem) {
+    .episode-transcript-compare {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @container (min-width: 40rem) {
+    .episode-stage {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .episode-stage li {
+      grid-template-columns: minmax(0, 1fr);
+      align-content: start;
+    }
+
+    .episode-stage small {
+      text-align: start;
+    }
+  }
+}

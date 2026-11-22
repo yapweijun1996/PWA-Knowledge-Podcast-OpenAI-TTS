@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   defaultPreferences,
-  limits,
   type Edit,
   type Episode,
   type EpisodeSummary,
@@ -39,6 +38,7 @@ import type { FactoryPage, WorkspaceNavigation } from "./navigation";
 import { PlaybackBar } from "./PlaybackBar";
 import { ProductionCredentials, ProductionSettings } from "./Preferences";
 import { backupRecord, restoreRecord } from "./record-backup";
+import { StudioIntake, type StudioAvailability } from "./StudioIntake";
 import { useLibraryAudio } from "./useLibraryAudio";
 import { usePlayback } from "./usePlayback";
 import "./factory.css";
@@ -139,6 +139,15 @@ export function Factory({
     runtime.configured &&
     runtime.localProduction;
   const busy = pending || updating;
+  const availability: StudioAvailability = (() => {
+    if (!online) return "offline";
+    if (!connected || !runtime) return "no-worker";
+    if (!runtime.authenticated) return "locked";
+    if (!runtime.localProduction) return "no-worker";
+    if (!runtime.configured) return "no-key";
+    if (running || schedule?.running) return "working";
+    return "ready";
+  })();
   const workerRow = remote.find((item) => item.id === selected);
   const workspaceVisible = page === "library" || page === "studio";
   const savedSelection = row?.episode.id;
@@ -729,69 +738,33 @@ export function Factory({
               onBackup={backup}
               onDirty={setDirty}
             />
-          ) : (
+          ) : selected ? (
             <section className="factory-panel">
-              <h2>{selected ? "接收节目" : "从主题制作"}</h2>
-              {selected ? (
-                <p role="status" className="muted">
-                  {libraryState === "loading"
-                    ? "正在读取这一期的本地记录…"
-                    : (connected && workerRow) ||
-                        awaitingCreated.current === selected
-                      ? "等待本机进程同步节目。"
-                      : "尚未在此浏览器找到这一期。可恢复备份，或等待本机同步。"}
-                </p>
-              ) : (
-                <form className="factory-create" onSubmit={create}>
-                  <label className="field">
-                    播客主题
-                    <textarea
-                      required
-                      rows={3}
-                      maxLength={limits.topic}
-                      value={topic}
-                      placeholder="例如：新加坡的组屋为何能容纳不同族群？"
-                      onChange={(event) => {
-                        setTopic(event.target.value);
-                        setConsent(false);
-                        creationId.current = null;
-                      }}
-                    />
-                  </label>
-                  <p className="muted">
-                    交叉检索后，AI
-                    按偏好选择语言、主持人数和时长。整集会自动配音并转录，请试听待核对的节目。
-                  </p>
-                  {!canProduce && (
-                    <p className="muted">
-                      自动制作需要连接本机进程并设置密钥。本地编辑器可离线写稿，也可使用设备提供的声音。
-                    </p>
-                  )}
-                  <label className="factory-check">
-                    <input
-                      type="checkbox"
-                      disabled={!canProduce || busy}
-                      checked={consent}
-                      onChange={(event) => setConsent(event.target.checked)}
-                    />
-                    同意本次 OpenAI 研究、写稿、配音和转录请求可能计费。
-                  </label>
-                  <button
-                    className="primary"
-                    disabled={
-                      busy ||
-                      !canProduce ||
-                      !!running ||
-                      !!schedule?.running ||
-                      !consent ||
-                      !topic.trim()
-                    }
-                  >
-                    制作整集播客
-                  </button>
-                </form>
-              )}
+              <h2>接收节目</h2>
+              <p role="status" className="muted">
+                {libraryState === "loading"
+                  ? "正在读取这一期的本地记录…"
+                  : (connected && workerRow) ||
+                      awaitingCreated.current === selected
+                    ? "等待本机进程同步节目。"
+                    : "尚未在此浏览器找到这一期。可恢复备份，或等待本机同步。"}
+              </p>
             </section>
+          ) : (
+            <StudioIntake
+              availability={availability}
+              navigation={navigation}
+              topic={topic}
+              consent={consent}
+              busy={busy}
+              onChange={(value) => {
+                setTopic(value);
+                setConsent(false);
+                creationId.current = null;
+              }}
+              onConsent={setConsent}
+              onSubmit={create}
+            />
           )}
         </div>
       </div>
