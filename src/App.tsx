@@ -589,6 +589,30 @@ export default function App() {
       document.getElementById(`move-${focusDirection}-${id}`)?.focus(),
     );
   };
+  function isProtectedFromDemo(segment: Segment) {
+    return (
+      mode === "demo" &&
+      ((!!segment.audio && segment.audioKind === "openai") ||
+        segment.alternative?.audioKind === "openai")
+    );
+  }
+  function protectedDemoMessage(
+    project: Project,
+    action: "导出完整提示音" | "连续试听",
+    startIndex = 0,
+  ) {
+    if (startIndex < 0 || mode !== "demo") return;
+    const blocked = project.segments.flatMap((segment, index) =>
+      index >= startIndex &&
+      segment.text.trim() &&
+      isProtectedFromDemo(segment) &&
+      !current(segment, project, mode)
+        ? [`片段 ${index + 1}`]
+        : [],
+    );
+    if (blocked.length)
+      return `${blocked.join("、")} 受 OpenAI 录音保护，无法${action}。可按段下载已生成的提示音。`;
+  }
   async function generate(id?: string) {
     const p = projectRef.current;
     if (!p || busy || abort.current || deleteLock.current || updateLock.current)
@@ -611,6 +635,7 @@ export default function App() {
         (s) =>
           (!id || s.id === id) &&
           s.text.trim() &&
+          !isProtectedFromDemo(s) &&
           (!!id || !current(s, p, mode)),
       )
       .map((segment) => ({ ...segment }));
@@ -1160,7 +1185,10 @@ export default function App() {
     const nonempty = p.segments.filter((s) => s.text.trim());
     const valid = nonempty.filter((s) => current(s, p, mode));
     if (valid.length !== nonempty.length || !valid.length) {
-      setError("请先生成全部非空片段，再导出音频。");
+      setError(
+        protectedDemoMessage(p, "导出完整提示音") ??
+          "请先生成全部非空片段，再导出音频。",
+      );
       return;
     }
     if (
@@ -1200,7 +1228,10 @@ export default function App() {
       segments.some((segment) => !current(segment, p, mode))
     ) {
       setPreview(null);
-      setError("所选范围有片段需要重新生成，无法连续试听。");
+      setError(
+        protectedDemoMessage(p, "连续试听", index) ??
+          "所选范围有片段需要重新生成，无法连续试听。",
+      );
       return;
     }
     const epoch = operationEpoch.current;
@@ -1401,7 +1432,7 @@ export default function App() {
       ([, instructions]) => instructions === active.instructions,
     )?.[0] ?? "Custom";
   const stale = active.segments.filter(
-    (s) => s.audio && !current(s, active, mode),
+    (s) => s.audio && !isProtectedFromDemo(s) && !current(s, active, mode),
   ).length;
   const unverified =
     mode === "openai"
@@ -1790,17 +1821,19 @@ export default function App() {
                       </span>
                       <b>片段 {i + 1}</b>
                       <span className="segment-status">
-                        {s.audio
-                          ? current(s, active, mode)
-                            ? mode === "openai"
-                              ? s.provenance?.responseStatus === "incomplete"
-                                ? "服务端报告不完整"
-                                : s.audioVerified
-                                  ? "已核验"
-                                  : "待试听核验"
-                              : "已模拟"
-                            : "需重新生成"
-                          : "未生成"}
+                        {isProtectedFromDemo(s)
+                          ? "已保留 OpenAI 录音"
+                          : s.audio
+                            ? current(s, active, mode)
+                              ? mode === "openai"
+                                ? s.provenance?.responseStatus === "incomplete"
+                                  ? "服务端报告不完整"
+                                  : s.audioVerified
+                                    ? "已核验"
+                                    : "待试听核验"
+                                : "已模拟"
+                              : "需重新生成"
+                            : "未生成"}
                       </span>
                       <button
                         className="text-button"
@@ -1871,6 +1904,7 @@ export default function App() {
                         }}
                         disabled={
                           !!busy ||
+                          isProtectedFromDemo(s) ||
                           !!s.alternative ||
                           !s.text.trim() ||
                           (!online && mode === "openai")
