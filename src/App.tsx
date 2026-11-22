@@ -465,6 +465,11 @@ export default function App() {
         projectVersions.current.set(p.id, p.revision);
         failedProjects.current.delete(p.id);
         conflictedProjects.current.delete(p.id);
+        if (
+          recovery?.projectId === p.id &&
+          !p.segments.some((segment) => segment.id === recovery.segmentId)
+        )
+          setRecovery((current) => (current === recovery ? null : current));
         if (version === saveVersion.current) {
           setStatus(
             failedProjects.current.size ? "部分项目保存失败" : "已保存在此设备",
@@ -567,6 +572,28 @@ export default function App() {
         segments: p.segments.map((s) => (s.id === id ? { ...s, ...patch } : s)),
       });
   };
+  function removeSegment(id: string) {
+    const p = projectRef.current;
+    if (
+      !p ||
+      p.segments.length < 2 ||
+      busy ||
+      abort.current ||
+      deleteLock.current ||
+      updateLock.current
+    )
+      return;
+    if (recovery?.projectId === p.id && recovery.segmentId === id) {
+      if (
+        !window.confirm(
+          "片段删除保存后，待恢复音频将被清除。请先下载 WAV，再确认删除。",
+        )
+      )
+        return;
+      setError("");
+    }
+    change({ segments: p.segments.filter((segment) => segment.id !== id) });
+  }
   const moveSegment = (id: string, direction: -1 | 1) => {
     const p = projectRef.current;
     if (!p || busy || abort.current || deleteLock.current || updateLock.current)
@@ -944,14 +971,12 @@ export default function App() {
       updateLock.current
     )
       return;
+    const segment = p.segments.find((s) => s.id === recovery.segmentId);
     if (
       p.id !== recovery.projectId ||
-      !p.segments.some(
-        (s) =>
-          s.id === recovery.segmentId &&
-          (s.audio === recovery.audio ||
-            s.alternative?.audio === recovery.audio),
-      )
+      (segment &&
+        segment.audio !== recovery.audio &&
+        segment.alternative?.audio !== recovery.audio)
     ) {
       setError("请打开对应项目；如片段已改变，请先下载未保存音频。");
       return;
@@ -1420,6 +1445,9 @@ export default function App() {
       </main>,
     );
   if (!visitedLocal) return display(null);
+  const pendingRecoveryDeletion =
+    recovery?.projectId === active.id &&
+    !active.segments.some((segment) => segment.id === recovery.segmentId);
   const readyCount = active.segments.filter(
     (s) =>
       current(s, active, mode) &&
@@ -1770,7 +1798,7 @@ export default function App() {
                 onClick={() => void retryRecovery()}
                 disabled={!!busy || deleting || updating}
               >
-                重试保存音频
+                {pendingRecoveryDeletion ? "重试保存片段删除" : "重试保存音频"}
               </button>
             </div>
           )}
@@ -1839,13 +1867,7 @@ export default function App() {
                         className="text-button"
                         aria-label={`删除片段 ${i + 1}`}
                         disabled={active.segments.length === 1 || !!busy}
-                        onClick={() =>
-                          change({
-                            segments: active.segments.filter(
-                              (x) => x.id !== s.id,
-                            ),
-                          })
-                        }
+                        onClick={() => removeSegment(s.id)}
                       >
                         删除
                       </button>

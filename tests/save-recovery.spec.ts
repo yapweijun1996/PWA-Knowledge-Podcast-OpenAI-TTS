@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 test("stops a batch when a generated segment cannot be saved and recovers it", async ({
   page,
@@ -48,6 +49,94 @@ test("stops a batch when a generated segment cannot be saved and recovers it", a
   });
   expect(providerRequests).toBe(0);
 });
+
+for (const deletionFails of [false, true]) {
+  test(`continues in another project after deleting the recovery segment${deletionFails ? " and retrying its save" : ""}`, async ({
+    page,
+  }) => {
+    let requests = 0;
+    await page.route("https://api.openai.com/**", async (route) => {
+      requests++;
+      await route.abort();
+    });
+    await page.addInitScript((failDeletion) => {
+      const put = IDBObjectStore.prototype.put;
+      let deletionRejected = false;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (
+          this.name === "projects" &&
+          ((value?.segments?.length === 5 &&
+            value.segments.some(
+              (segment: { audio?: Blob }) => segment.audio,
+            )) ||
+            (failDeletion &&
+              !deletionRejected &&
+              value?.segments?.length === 4))
+        ) {
+          if (value.segments.length === 4) deletionRejected = true;
+          throw new DOMException(
+            "Injected quota failure",
+            "QuotaExceededError",
+          );
+        }
+        return key === undefined
+          ? put.call(this, value)
+          : put.call(this, value, key);
+      };
+    }, deletionFails);
+    await page.goto("./");
+    const status = page.getByRole("status").first();
+    await expect(status).toContainText("已保存在此设备");
+    const title = page.getByLabel("项目标题");
+    const originalTitle = await title.inputValue();
+    await page.getByRole("button", { name: "新建项目" }).last().click();
+    await title.fill("另一个项目");
+    await page.getByLabel("片段 1 脚本").fill("可以继续模拟。");
+    await expect(status).toContainText("已保存在此设备");
+    await page
+      .getByRole("button", { name: originalTitle, exact: true })
+      .click();
+    await page.getByRole("button", { name: "模拟片段 1", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("已停止生成");
+
+    const download = page.waitForEvent("download");
+    const recoveryDownload = page.getByRole("button", {
+      name: "下载未保存音频",
+    });
+    await recoveryDownload.click();
+    const downloaded = await download;
+    expect(downloaded.suggestedFilename()).toBe("unsaved-segment.wav");
+    const bytes = await readFile((await downloaded.path())!);
+    expect(bytes.subarray(0, 4).toString()).toBe("RIFF");
+    await expect(recoveryDownload).toBeVisible();
+
+    const remove = page.getByRole("button", {
+      name: "删除片段 1",
+      exact: true,
+    });
+    if (!deletionFails) {
+      page.once("dialog", (dialog) => dialog.dismiss());
+      await remove.click();
+      await expect(page.getByLabel("片段 5 脚本")).toBeVisible();
+      await expect(recoveryDownload).toBeVisible();
+    }
+    page.once("dialog", (dialog) => dialog.accept());
+    await remove.click();
+    await expect(page.getByLabel("片段 5 脚本")).toHaveCount(0);
+    if (deletionFails) {
+      await expect(page.getByRole("alert")).toContainText("保存失败");
+      await expect(recoveryDownload).toBeVisible();
+      await page.getByRole("button", { name: "重试保存片段删除" }).click();
+    }
+    await expect(status).toContainText("已保存在此设备");
+    await page.getByRole("button", { name: "另一个项目", exact: true }).click();
+    await expect(title).toHaveValue("另一个项目");
+    await page.getByRole("button", { name: "生成模拟提示音" }).click();
+    await expect(status).toContainText("模拟完成");
+    await expect(recoveryDownload).toHaveCount(0);
+    expect(requests).toBe(0);
+  });
+}
 
 test("does not send the next BYOK request after a save failure", async ({
   page,
