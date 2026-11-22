@@ -18,6 +18,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run build:private
       - run: npx playwright install --with-deps chromium firefox
       - run: npm run e2e
+      - run: npm run e2e:factory
       - run: npx playwright test --config playwright.firefox.config.ts

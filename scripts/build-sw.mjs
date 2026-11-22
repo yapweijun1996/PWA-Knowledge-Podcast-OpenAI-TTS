@@ -12,14 +12,15 @@ async function files(dir) {
   return result;
 }
 const digest = (data) => createHash("sha256").update(data).digest("hex");
-const paths = (await files("dist")).sort();
+const dist = process.argv[2] ?? "dist";
+const paths = (await files(dist)).sort();
 const hash = createHash("sha256");
 hash.update(await readFile("scripts/build-sw.mjs"));
 const assets = [];
 for (const path of paths) {
   const data = await readFile(path);
   hash.update(data);
-  assets.push({ path: "./" + relative("dist", path), sha256: digest(data) });
+  assets.push({ path: "./" + relative(dist, path), sha256: digest(data) });
 }
 const index = assets.find((asset) => asset.path === "./index.html");
 if (!index) throw new Error("Missing built index.html");
@@ -66,18 +67,23 @@ self.addEventListener('message', event => {
 });
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+  if(url.pathname.startsWith("/api/")) return;
   if(event.request.method !== 'GET' || url.origin !== location.origin || !url.pathname.startsWith(self.registration.scope.replace(location.origin, ''))) return;
   event.respondWith((async () => {
-    const hit = await (await caches.open(CACHE)).match(event.request, {ignoreVary:true});
+    const scope = new URL(self.registration.scope);
+    const shell = event.request.mode === 'navigate' &&
+      (url.pathname === scope.pathname || url.pathname === scope.pathname + 'index.html');
+    const key = shell ? scope : event.request;
+    const hit = await (await caches.open(CACHE)).match(key, {ignoreVary:true});
     if(hit) return hit;
     // Retain prior versioned assets for tabs that were already open at activation.
     for(const name of await caches.keys()) {
       if(name.startsWith('podcast-') && name !== CACHE) {
-        const old = await (await caches.open(name)).match(event.request, {ignoreVary:true});
+        const old = await (await caches.open(name)).match(key, {ignoreVary:true});
         if(old) return old;
       }
     }
     return fetch(event.request);
   })());
 });`;
-await writeFile("dist/sw.js", sw);
+await writeFile(join(dist, "sw.js"), sw);

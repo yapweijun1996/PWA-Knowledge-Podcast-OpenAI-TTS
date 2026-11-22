@@ -181,7 +181,7 @@ textarea:focus-visible {
 .layout.sidebar-collapsed {
   --sidebar-width: 64px;
 }
-aside {
+#app-navigation {
   position: sticky;
   top: calc(68px + env(safe-area-inset-top));
   align-self: start;
@@ -300,7 +300,7 @@ aside {
   color: var(--sidebar-muted);
   margin-top: 3px;
 }
-.sidebar-collapsed aside {
+.sidebar-collapsed #app-navigation {
   padding-inline: 8px;
 }
 .sidebar-collapsed .sidebar-heading,
@@ -602,7 +602,7 @@ textarea {
   font-weight: 700;
   min-height: 48px;
 }
-:root[data-theme="dark"] .primary {
+:root[data-theme="dark"] .local-studio .primary {
   color: #10271a;
 }
 .primary:hover {
@@ -776,8 +776,8 @@ footer {
   .layout.sidebar-collapsed {
     display: block;
   }
-  aside,
-  .sidebar-collapsed aside {
+  #app-navigation,
+  .sidebar-collapsed #app-navigation {
     position: fixed;
     z-index: 40;
     top: 0;
@@ -792,7 +792,7 @@ footer {
       transform 0.18s ease,
       visibility 0.18s;
   }
-  aside.drawer-open {
+  #app-navigation.drawer-open {
     transform: translateX(0);
     visibility: visible;
   }

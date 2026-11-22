@@ -1,6 +1,6 @@
 # Future content workflow
 
-These are independent follow-up designs, not implemented features. Reordering
+These are follow-up designs for the local editor and the private factory. Reordering
 segments preserves their IDs and associated audio; the sample episode still
 does not claim measured rainfall differences.
 
@@ -14,7 +14,7 @@ instructions must mark affected audio stale rather than presenting it as current
 
 ## Claims and sources
 
-Give each claim an explicit source URL, date, review status and classification
+V2 stores native search citations, model-extracted publication dates and claim uncertainty. A follow-up should give each claim a human review status and a classification
 such as verified, analysis, hypothetical or unknown. A human review must approve
 factual assertions; an AI suggestion cannot silently promote a claim to fact.
 Preserve provenance in backups and exports, validate links safely, and provide

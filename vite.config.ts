@@ -1,26 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { studioBase } from "./shared/factory.ts";
 
 // GitHub Pages cannot set response headers. Enforce this policy in built HTML;
 // Vite's development server needs its own injected styles and HMR connection.
-const contentSecurityPolicy = [
-  "default-src 'none'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-src 'none'",
-  "form-action 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  "connect-src 'self' https://api.openai.com blob:",
-  "media-src 'self' blob: mediastream:",
-  "worker-src 'self'",
-  "manifest-src 'self'",
-].join("; ");
+const contentSecurityPolicy = (privateBuild: boolean) =>
+  [
+    "default-src 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-src 'none'",
+    "form-action 'none'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    privateBuild
+      ? "connect-src 'self' blob:"
+      : "connect-src 'self' https://api.openai.com blob:",
+    "media-src 'self' blob: mediastream:",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+  ].join("; ");
 
-export default defineConfig({
-  base: "/PWA-Knowledge-Podcast-OpenAI-TTS/",
+export default defineConfig(({ mode }) => ({
+  base: studioBase,
+  build: { outDir: mode === "private" ? "dist-private" : "dist" },
   plugins: [
     react(),
     {
@@ -33,7 +38,7 @@ export default defineConfig({
             tag: "meta",
             attrs: {
               "http-equiv": "Content-Security-Policy",
-              content: contentSecurityPolicy,
+              content: contentSecurityPolicy(mode === "private"),
             },
             injectTo: "head-prepend",
           },
@@ -41,4 +46,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));

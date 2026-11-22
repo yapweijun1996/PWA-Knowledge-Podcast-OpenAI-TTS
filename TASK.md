@@ -275,3 +275,7 @@ T01–T04 and T07–T16 are implemented as described above. T05 remains open:
 complete the bounded three-way real-provider comparison and listener assessment
 before selecting and implementing T06. Do not treat simulated audio or inserted
 silence as proof of improved narration continuity.
+
+## V2 browser-local production follow-up
+
+The V2 workflow runs topic discovery, independent evidence search, adaptive narration and audio comparison in a trusted worker, then hands the episode to the browser Library. See the [V2 runbook](docs/V2-FACTORY.md) for setup, verification limits and independent QA.

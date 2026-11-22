@@ -1,5 +1,7 @@
 # Browser BYOK and release security
 
+These notes cover the legacy V1 Pages build. V2 uses the trusted local worker for paid requests and provides browser-local playback, editing and backups without a key. The [V2 runbook](V2-FACTORY.md) describes the worker boundary and optional owner session.
+
 The owner chose direct browser BYOK. The key is entered by the user, held in the
 page runtime and sent directly to the OpenAI API; the application does not
 intentionally put it in source code, local storage, IndexedDB or project backups.

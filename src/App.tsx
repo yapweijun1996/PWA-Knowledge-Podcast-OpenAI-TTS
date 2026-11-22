@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   allProjects,
@@ -27,6 +33,13 @@ import {
 import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "./limits.ts";
 import { continuityFixture, continuityPlan } from "./continuity-plan";
 import packageInfo from "../package.json";
+import { Factory } from "./factory/Factory";
+import {
+  privateBuild,
+  useWorkspaceNavigation,
+  WorkspaceLink,
+} from "./factory/navigation";
+import type { Episode } from "../shared/factory";
 
 type Theme = "light" | "dark" | "system";
 const navItems = [
@@ -122,6 +135,13 @@ function Player({ blob, label = "播放音频" }: { blob: Blob; label?: string }
   return <audio controls preload="metadata" src={url} aria-label={label} />;
 }
 export default function App() {
+  const navigation = useWorkspaceNavigation();
+  const { page, visitedFactory, visitedLocal } = navigation;
+  const localPage = page === "local";
+  const localView = useRef<HTMLDivElement>(null);
+  const pauseFactoryPlayback = useRef<(() => void) | null>(null);
+  const previousPage = useRef(page);
+  const [factoryUpdateBlocked, setFactoryUpdateBlocked] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]),
     [active, setActive] = useState<Project | null>(null),
     [error, setError] = useState(""),
@@ -187,6 +207,24 @@ export default function App() {
   const releaseTab = useRef<(() => void) | null>(null);
   const tabLockTask = useRef<Promise<void> | null>(null);
   const acquireTab = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (previousPage.current === page) return;
+    if (previousPage.current === "local") {
+      localView.current
+        ?.querySelectorAll("audio")
+        .forEach((audio) => audio.pause());
+      window.speechSynthesis?.cancel();
+    }
+    previousPage.current = page;
+    const heading = document.getElementById(
+      localPage ? "top" : "factory-page-title",
+    );
+    heading?.focus({ preventScroll: true });
+    const id = location.hash.slice(1);
+    const target = id && document.getElementById(id);
+    if (target && !target.closest("[hidden]")) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+  }, [page, localPage]);
   useEffect(() => {
     let disposed = false;
     if (!navigator.locks) {
@@ -276,7 +314,7 @@ export default function App() {
     syncSection();
     window.addEventListener("hashchange", syncSection);
     return () => window.removeEventListener("hashchange", syncSection);
-  }, []);
+  }, [localPage]);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 760px)");
     const changed = () => {
@@ -297,14 +335,23 @@ export default function App() {
       document.documentElement.dataset.theme = isDark ? "dark" : "light";
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", isDark ? "#101e1a" : "#f4f6f3");
+        ?.setAttribute(
+          "content",
+          localPage
+            ? isDark
+              ? "#101e1a"
+              : "#f4f6f3"
+            : isDark
+              ? "#171324"
+              : "#f8f7fc",
+        );
     };
     apply();
     query.addEventListener("change", apply);
     return () => query.removeEventListener("change", apply);
-  }, [theme]);
+  }, [theme, localPage]);
   useEffect(() => {
-    if (!drawerOpen || !mobile) return;
+    if (!localPage || !drawerOpen || !mobile) return;
     const old = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const focusDrawer = () => {
@@ -324,7 +371,13 @@ export default function App() {
       clearTimeout(afterTransition);
       document.body.style.overflow = old;
     };
-  }, [drawerOpen, mobile]);
+  }, [drawerOpen, mobile, localPage]);
+  useEffect(() => {
+    if (!localPage) {
+      setDrawerOpen(false);
+      setHint(null);
+    }
+  }, [localPage]);
   const drawerKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!mobile || !drawerOpen) return;
     if (e.key === "Escape") {
@@ -1095,6 +1148,7 @@ export default function App() {
       setError("此浏览器不支持本机朗读。");
       return;
     }
+    pauseFactoryPlayback.current?.();
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = active?.language || "zh-CN";
@@ -1181,6 +1235,7 @@ export default function App() {
   async function update() {
     if (
       !waiting ||
+      factoryUpdateBlocked ||
       busy ||
       updating ||
       abort.current ||
@@ -1251,16 +1306,89 @@ export default function App() {
       acquireTab.current?.();
     }
   }
-  if (!active || tabGuard === "waiting")
+  async function copyFromFactory(episode: Episode) {
+    if (
+      !episode.script ||
+      busy ||
+      abort.current ||
+      deleteLock.current ||
+      updateLock.current
+    )
+      return false;
+    const project = makeProject();
+    const notes =
+      episode.research?.sources
+        .map(
+          (source) =>
+            `${source.title} (${source.published ?? "unknown date"}) · ${source.url}`,
+        )
+        .join("\n")
+        .slice(0, 5000) ?? "";
+    const locale = { en: "en", zh: "zh-CN", ms: "ms", sg: "en-SG" }[
+      episode.language
+    ];
+    return commit({
+      ...project,
+      title: episode.script.title,
+      language: locale,
+      notes,
+      segments: episode.script.turns.map(({ text }) => ({
+        id: crypto.randomUUID(),
+        text,
+      })),
+    });
+  }
+  function display(local: ReactNode) {
     return (
+      <>
+        {visitedFactory && tabGuard !== "waiting" && (
+          <Factory
+            page={localPage ? navigation.returnPage : page}
+            visible={!localPage}
+            navigation={navigation}
+            theme={theme}
+            setTheme={setTheme}
+            online={online}
+            updateReady={!!waiting}
+            updating={updating}
+            updateBlocked={
+              !!busy ||
+              deleting ||
+              !!recovery ||
+              status === "正在保存…" ||
+              failedProjects.current.size > 0
+            }
+            updateError={waiting && error ? error : ""}
+            onUpdate={() => void update()}
+            onUpdateBlockedChange={setFactoryUpdateBlocked}
+            pausePlayback={pauseFactoryPlayback}
+            onCopy={copyFromFactory}
+          />
+        )}
+        {(visitedLocal || tabGuard === "waiting") && (
+          <div
+            ref={localView}
+            className="local-studio"
+            hidden={!localPage && tabGuard !== "waiting"}
+            onPlayCapture={() => pauseFactoryPlayback.current?.()}
+          >
+            {local}
+          </div>
+        )}
+      </>
+    );
+  }
+  if (!active || tabGuard === "waiting")
+    return display(
       <main className="loading">
         <h1>Knowledge Podcast Studio</h1>
         <p>
           {tabGuard === "waiting" ? "正在等待安全更新完成…" : error || status}
         </p>
         {tabGuard !== "waiting" && <button onClick={create}>新建项目</button>}
-      </main>
+      </main>,
     );
+  if (!visitedLocal) return display(null);
   const readyCount = active.segments.filter(
     (s) =>
       current(s, active, mode) &&
@@ -1313,7 +1441,7 @@ export default function App() {
         segment.id === preview.segments[index].id &&
         segment.audio === preview.segments[index].audio,
     );
-  return (
+  return display(
     <>
       <header className="top">
         <div className="top-left">
@@ -1350,6 +1478,7 @@ export default function App() {
       </header>
       <main
         id="top"
+        tabIndex={-1}
         className={"layout " + (collapsed ? "sidebar-collapsed" : "")}
       >
         {mobile && drawerOpen && (
@@ -1472,7 +1601,15 @@ export default function App() {
                 工作空间 <span> / </span> 工作台
               </div>
               <h1>把好奇，讲成故事。</h1>
-              <p>从一段脚本开始，制作属于你的知识播客。</p>
+              <p>
+                从一段脚本开始，制作属于你的知识播客。{" "}
+                <WorkspaceLink
+                  page={navigation.returnPage}
+                  navigation={navigation}
+                >
+                  打开播客制作台
+                </WorkspaceLink>
+              </p>
             </div>
             <button
               className="outline"
@@ -1526,21 +1663,24 @@ export default function App() {
               {mode === "demo"
                 ? "无需密钥。生成的是提示音，不是语音或 OpenAI 声音；可使用本机朗读试听脚本。"
                 : "浏览器直接连接 OpenAI，不经过本项目服务器。密钥仅保留在本页面内存；扩展程序、恶意脚本或共享设备可能读取它。仅在可信设备使用。"}{" "}
-              <a href="#generate">设置浏览器 BYOK</a>
+              {!privateBuild && <a href="#generate">设置浏览器 BYOK</a>}
             </span>
           </div>
           {waiting && (
             <div className="notice update">
               <span>
-                {failedProjects.current.size || recovery
-                  ? "有项目尚未保存，请先解决保存问题。"
-                  : "新版本已准备好。项目保存在本地。"}
+                {factoryUpdateBlocked
+                  ? "播客制作台有尚未保存的修改或正在处理的操作。"
+                  : failedProjects.current.size || recovery
+                    ? "有项目尚未保存，请先解决保存问题。"
+                    : "新版本已准备好。项目保存在本地。"}
               </span>
               <button
                 onClick={update}
                 disabled={
                   updating ||
                   deleting ||
+                  factoryUpdateBlocked ||
                   !!busy ||
                   status === "正在保存…" ||
                   failedProjects.current.size > 0 ||
@@ -1995,7 +2135,9 @@ export default function App() {
                       }}
                     >
                       <option value="demo">演示提示音（免费）</option>
-                      <option value="openai">OpenAI · 浏览器 BYOK</option>
+                      {!privateBuild && (
+                        <option value="openai">OpenAI · 浏览器 BYOK</option>
+                      )}
                     </select>
                   </label>
                   {mode === "openai" && (
@@ -2357,7 +2499,8 @@ export default function App() {
           </footer>
         </div>
       </main>
-      {hint &&
+      {localPage &&
+        hint &&
         createPortal(
           <div
             id="sidebar-hint"
@@ -2369,6 +2512,6 @@ export default function App() {
           </div>,
           document.body,
         )}
-    </>
+    </>,
   );
 }

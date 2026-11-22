@@ -1,0 +1,237 @@
+.factory-shell:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
+.factory-shell .factory-shell-layout {
+  flex: 1 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "header" "navigation" "content";
+  grid-template-rows: auto auto 1fr;
+}
+
+.factory-shell {
+  --gutter: var(--space-3);
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--type-body) / var(--line-body) var(--type-family);
+  overflow-wrap: anywhere;
+}
+
+.factory-shell [hidden] {
+  display: none;
+}
+
+.factory-shell .factory-skip {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: max(var(--space-3), env(safe-area-inset-top));
+  inset-inline-start: max(var(--space-3), env(safe-area-inset-left));
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--on-accent);
+  background: var(--accent);
+  max-inline-size: calc(100% - var(--space-5));
+}
+
+.factory-shell .factory-skip:not(:focus) {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.factory-shell .factory-bar,
+.factory-shell .factory-nav {
+  background: var(--surface);
+  border-block-end: var(--border-size) solid var(--border);
+  padding-inline: max(var(--gutter), env(safe-area-inset-left))
+    max(var(--gutter), env(safe-area-inset-right));
+}
+
+.factory-shell .factory-bar {
+  grid-area: header;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  padding-block: max(var(--space-3), env(safe-area-inset-top)) var(--space-3);
+}
+
+.factory-shell .factory-brand,
+.factory-shell .factory-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.factory-shell .factory-brand {
+  min-block-size: var(--target-size);
+  color: var(--text);
+  font-weight: var(--weight-strong);
+  text-decoration: none;
+}
+
+.factory-shell .factory-brand span {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 2.125rem;
+  block-size: 2.125rem;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--type-section);
+}
+
+.factory-shell .factory-bar-actions {
+  flex-wrap: wrap;
+  font-size: var(--type-small);
+}
+
+.factory-shell .factory-bar-actions a {
+  display: grid;
+  align-items: center;
+  min-block-size: var(--target-size);
+  text-underline-offset: 0.2em;
+  font-weight: var(--weight-strong);
+}
+
+.factory-shell .factory-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.factory-shell .factory-status::before {
+  content: "";
+  inline-size: 0.4em;
+  block-size: 0.4em;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.factory-shell .factory-nav {
+  grid-area: navigation;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 4rem), 1fr));
+  align-content: start;
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+}
+
+.factory-shell .factory-nav a {
+  display: grid;
+  place-items: center;
+  min-block-size: var(--target-size);
+  padding: var(--space-1) var(--space-2);
+  border-block-end: 0.1875rem solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-weight: var(--weight-strong);
+  text-align: center;
+  text-decoration: none;
+  transition: background-color var(--motion-fast);
+}
+
+.factory-shell .factory-nav a:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.factory-shell .factory-nav a[aria-current="page"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.factory-shell .factory-main {
+  grid-area: content;
+  min-inline-size: 0;
+  inline-size: min(100%, 86rem);
+  margin-inline: auto;
+  padding: var(--space-5) max(var(--gutter), env(safe-area-inset-right))
+    max(var(--space-5), env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
+}
+
+.factory-shell .factory-intro {
+  margin-block-end: var(--space-5);
+}
+
+.factory-shell .factory-intro h1 {
+  margin: 0;
+  font-size: var(--type-title);
+  line-height: var(--line-title);
+  letter-spacing: -0.035em;
+}
+
+.factory-shell .factory-intro p {
+  color: var(--muted);
+  margin: var(--space-2) 0 0;
+}
+
+.factory-shell :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .factory-shell {
+    --gutter: var(--space-5);
+    --type-title: 2.125rem;
+  }
+
+  .factory-shell .factory-nav {
+    grid-template-columns: repeat(4, minmax(0, 8rem));
+    gap: var(--space-2);
+  }
+
+  .factory-shell .factory-main {
+    padding-block-start: var(--space-6);
+  }
+}
+
+@media (min-width: 1200px) {
+  .factory-shell {
+    --type-title: 2.75rem;
+  }
+
+  .factory-shell .factory-shell-layout {
+    grid-template-areas: "header header" "navigation content";
+    grid-template-columns: minmax(11rem, 16%) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .factory-shell .factory-nav {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: var(--space-6);
+    border-block-end: none;
+    border-inline-end: var(--border-size) solid var(--border);
+  }
+
+  .factory-shell .factory-nav a {
+    justify-items: start;
+    text-align: start;
+    padding-inline: var(--space-4);
+    border-block-end: none;
+    border-inline-start: 0.1875rem solid transparent;
+  }
+
+  .factory-shell .factory-main {
+    --gutter: var(--space-7);
+    padding-block-start: var(--space-7);
+  }
+}

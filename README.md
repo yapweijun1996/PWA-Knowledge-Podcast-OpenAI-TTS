@@ -1,8 +1,22 @@
-# Knowledge Podcast Studio — work in progress
+# Knowledge Podcast Studio
 
-A Mandarin-first podcast script workspace for GitHub Pages with keyless simulation and experimental browser-only BYOK. This is an **incomplete prototype**, not a production release. The included weather script describes a research question; it contains no claimed five-kilometre rainfall measurements.
+V2 is a browser-local Podcast Library with an optional trusted production worker. The worker can discover topics, cross-check citations, plan one to three hosts and an adaptive runtime, generate audio, and compare a separate audio transcript to the script. The browser stores the resulting episodes, research, scripts and playable audio for offline use.
 
-## Run locally
+## Start the V2 local studio
+
+Use Node.js 24 LTS.
+
+```sh
+npm ci
+npm run build:private
+npm run start:private
+```
+
+Open [the loopback workspace](http://127.0.0.1:8787/) to see the Library (**资料库**). Set the worker's OpenAI API key under Settings (**设置**), enter a topic in Studio (**制作台**), or save interests and scheduling preferences in Automation (**自动化**). The worker must stay awake and running.
+
+The **本地编辑器** link opens V1. The Pages build also offers the Library from its workspace link. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
+
+## Run the V1 local editor and Pages demo
 
 Use Node.js 24 LTS or newer (CI uses Node 24), then:
 
@@ -51,7 +65,7 @@ Updates wait until other app tabs are closed. If Web Locks are unavailable, clos
 
 Release hardening and browser-key limitations are described in [the security notes](docs/SECURITY.md).
 
-## Important gaps
+## V1 prototype gaps
 
 - The owner reports successful live BYOK speech generation; independent verification of the provider session, completeness, narration continuity and Chinese pronunciation remains outstanding. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
 - Individual clips use separate sessions and are joined without transition processing; the owner reports inconsistent emotion and pacing between clips. A controlled listening comparison and improvements are planned, not yet implemented.
@@ -60,7 +74,7 @@ Release hardening and browser-key limitations are described in [the security not
 
 The [prioritized task backlog](TASK.md) and [six-persona review](docs/REVIEW-2026-11-04.md) describe current risks, evidence and proposed next steps.
 
-## Provider migration
+## V1 provider migration
 
 OpenAI's [text-to-speech guide](https://developers.openai.com/api/docs/guides/text-to-speech) states that `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts` are scheduled to shut down on 2027-01-06. OpenAI recommends `gpt-realtime-2.1-mini` with the [Realtime API](https://developers.openai.com/api/docs/guides/realtime); it is not a drop-in model for `/v1/audio/speech`. Voice availability must be checked against the model and provider. The team has not independently made a paid provider call as part of its verification.
 
