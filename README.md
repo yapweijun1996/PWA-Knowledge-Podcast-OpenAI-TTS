@@ -25,7 +25,9 @@ Open [the loopback workspace](http://127.0.0.1:8787/) to see the Library (**资�
 
 The **本地编辑器** link opens V1. The Pages build also offers the Library from its workspace link. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
 
-Before sharing a finished episode, use the [V2 production checklist](docs/V2-PRODUCTION-CHECKLIST.md) to review the narration, verify the exports, reconcile costs and test the backup.
+For the current release decision, tested environments, open gates and rollback steps, see the [project production readiness checklist](docs/PRODUCTION-READINESS.md).
+
+Before sharing a finished episode, use the [V2 episode production checklist](docs/V2-PRODUCTION-CHECKLIST.md) to review the narration, verify the exports, reconcile costs and test the backup.
 
 ## V2 release status and player (2026-11-22)
 
@@ -68,7 +70,7 @@ See the [V1 recording protection and recovery verification](docs/TEST-MATRIX.md#
 
 Before a BYOK batch, the app checks all selected segments against its 4,000-unit per-segment limit and the 2,000-unit instruction limit. Lengths use JavaScript UTF-16 code units, so some characters, including many emoji, count as two. An invalid batch is not sent to OpenAI and the text remains editable.
 
-The owner reports that browser BYOK produced WAV speech; the implementation team has not independently verified that provider session or its audio quality. Remote audio is captured as PCM with an AudioWorklet and encoded as WAV, avoiding a second browser container-decoding step. A muted media-element sink keeps the remote WebRTC audio track active in Chromium while the worklet records it; the sink is detached after the session. After the server reports that its audio buffer is drained, capture waits for audible samples and a two-second quiet tail, with a bounded timeout; this is a heuristic and cannot guarantee that delayed audio is complete. The app checks that capture can start before opening a potentially billable session; browsers without AudioWorklet cannot use this path. A successful preflight or mocked test does not prove provider access, output completeness or narration quality. The API may change. Users must listen to generated audio and verify narration matches the script. Browser speech synthesis is separate and cannot be exported. The current WAV assembly requires compatible sample formats; MP3 is not supported. JSON backup contains scripts and settings but no audio.
+The owner reports that browser BYOK produced WAV speech; the implementation team has not independently verified that provider session or its audio quality. Remote audio is captured as PCM with an AudioWorklet and encoded as WAV, avoiding a second browser container-decoding step. A muted media-element sink keeps the remote WebRTC audio track active in Chromium while the worklet records it; the sink is detached after the session. After the server reports that its audio buffer is drained, capture waits for audible samples and a two-second quiet tail, with a bounded timeout; this is a heuristic and cannot guarantee that delayed audio is complete. The app checks that capture can start before opening a potentially billable session; browsers without AudioWorklet cannot use this path. A successful preflight or mocked test does not prove provider access, output completeness or narration quality. The API may change. Users must listen to generated audio and verify narration matches the script. Browser speech synthesis is separate and cannot be exported. The current WAV assembly requires compatible sample formats; MP3 is not supported. The script-only JSON backup contains scripts and settings. Choose the audio-inclusive backup to preserve recorded takes.
 
 OpenAI clips are marked **awaiting listening verification**, including clips saved by older versions. Listen to each clip and compare it with the script before confirming it; the full WAV export requires confirmations. Individual clips remain downloadable before confirmation. This is a human check, not proof that the transport captured all audio, and a truncated clip may need an explicitly initiated, potentially chargeable replacement.
 
@@ -89,9 +91,9 @@ Release hardening and browser-key limitations are described in [the security not
 ## V1 prototype gaps
 
 - The owner reports successful live BYOK speech generation; independent verification of the provider session, completeness, narration continuity and Chinese pronunciation remains outstanding. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
-- Individual clips use separate sessions and are joined without transition processing; the owner reports inconsistent emotion and pacing between clips. A controlled listening comparison and improvements are planned, not yet implemented.
-- Cross-voice comparison, reusable user presets, audio-inclusive backup, full chunk planning, and provider retry/error behavior remain incomplete. There is no automatic retry after an ambiguous paid request.
-- Firefox, iOS Safari, real-device installation and multi-tab update behavior remain unverified. Quota-failure injection exposed a batch-continuation issue; single-tab deployed updates were checked separately.
+- Individual clips use separate sessions and are joined without transition processing; the owner reports inconsistent emotion and pacing between clips. The comparison workflow is available. The controlled listening evaluation and selection of a production approach remain open.
+- Cross-voice comparison, reusable user presets, full chunk planning, and live provider retry/error evaluation remain incomplete. There is no automatic retry after an ambiguous paid request.
+- Selected V1 Firefox and Chromium multi-tab update cases pass in CI. Physical-device installation, mobile multi-tab behavior and Firefox with a live provider still need verification. See the [browser and device matrix](docs/TEST-MATRIX.md).
 
 The [prioritized task backlog](TASK.md) and [six-persona review](docs/REVIEW-2026-11-04.md) describe current risks, evidence and proposed next steps.
 

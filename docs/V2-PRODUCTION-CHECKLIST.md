@@ -27,6 +27,8 @@ As of 2026-11-22, the corrected Mandarin cut of 《新加坡组屋怎样住出�
 
 ## When the studio changes
 
+Use the [project production readiness checklist](PRODUCTION-READINESS.md) for deployment, worker operations and rollback. Repeat the checks below for the cut you intend to distribute.
+
 - [ ] Record the app commit and CI run covering type checking, both builds, unit tests and browser E2E. Include the WebKit episode sync regression when checking Library handoff. [V2 verification commands](V2-FACTORY.md#independent-qa)
 - [ ] In the target Chrome profile, carry a sample from Studio to the Library. Refresh, select the saved cut and verify that it plays. Use fixtures to exercise worker interruption, failed local saves and repeated handoff. Check that completed work survives and paid retries can be accounted for.
 - [ ] Verify the deployed assets and the version seen after a PWA update. Use a synthetic credential when checking logs, backups and cached responses for accidental key exposure. Record the last known working version and how to restore it. [V2 worker and storage runbook](V2-FACTORY.md)
