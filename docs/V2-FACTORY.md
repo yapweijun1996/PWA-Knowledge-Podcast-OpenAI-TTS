@@ -9,7 +9,7 @@
 
 ## Storage and recovery
 
-- IndexedDB keeps the episode and available blobs in one transaction. The browser downloads each changed checkpoint. When a completed episode with a transcript is committed locally, the browser acknowledges the exact worker revision and the worker releases the spool files. Pending, interrupted, failed and unreceived episodes stay on the worker for recovery. Wait for the browser Library to show the audio before switching machines.
+- IndexedDB keeps the episode and available audio in one transaction. If WebKit rejects Blob storage, the Library saves the audio bytes and MIME type in the same transaction and restores them as playable Blobs on read. Previously saved Blob records still open as before. The browser downloads each changed checkpoint. When a completed episode with a transcript is committed locally, the browser acknowledges the exact worker revision and the worker releases the spool files. Pending, interrupted, failed and unreceived episodes stay on the worker for recovery. Wait for the browser Library to show the audio before switching machines.
 - The Library works offline after the PWA shell has been cached, including playback, script edits, WAV/MP3 downloads, and backup/restore. Export **备份本期节目** for each episode you want to keep. The `.kps` file contains research, script snapshots, transcript and available media, with SHA-256 checks for accidental audio damage. Import creates a separate copy and never submits a paid request. Keep backups private. The existing V1 editor retains its own database and backup formats.
 - The browser reports its storage estimate, quota failures and persistent-storage permission. Browser eviction, clearing site data and profile/origin changes can remove or hide episodes even with persistent storage. Tabs on the same origin see changes through IndexedDB and broadcasts; editing checks the revision. Devices and origins do not sync. A second browser can miss a worker item that the first browser has already accepted. Transfer with a backup.
 - Keep the worker's data folder private and run one worker per folder. `PODCAST_DATA_DIR` defaults to `~/Library/Application Support/Knowledge Podcast Studio`; it contains pending work, worker schedule settings, and attempt/topic history. The 30-episode spool cap protects disk space. Open the Library to receive finished work and remove unwanted stalled work. Legacy candidate episodes in the folder are also downloaded to the Library; completed episodes without transcripts remain on the worker until verified or removed.
@@ -31,9 +31,10 @@ npm run typecheck
 npm test
 npm run build
 npm run build:private
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run e2e
 npm run e2e:factory
+PLAYWRIGHT_FACTORY_BROWSER=webkit npm run e2e:factory
 ```
 
 The Node fixture exercises scheduling without a browser, host selection, cross-checks, retry/cancel, transfers, offline-edit rules and backup validation. The Chromium spec exercises the full Library handoff and offline workflow. In this sandbox both browser runs stopped before navigation with `listen EPERM`; run them on a host that can listen on loopback. No live OpenAI requests or real FFmpeg encoding were performed. Verify one short live episode per language, fail/retry behavior with the account in use, real MP3 seek/playback, mobile PWA installation and low-storage recovery on target browsers.

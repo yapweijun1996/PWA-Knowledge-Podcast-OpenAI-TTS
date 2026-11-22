@@ -290,6 +290,7 @@ test("autonomous worker hands off audio and research, then offline editing and b
 
 test("manual Studio creation shows all five saved stages and opens the same result in Library", async ({
   page,
+  context,
 }) => {
   const topic = "新加坡的组屋为何能容纳不同族群？";
   const providerRequests: string[] = [];
@@ -367,6 +368,22 @@ test("manual Studio creation shows all five saved stages and opens the same resu
     page.getByRole("heading", { name: "音频转录与脚本对照" }),
   ).toBeVisible();
   expect(new URL(page.url()).searchParams.get("episode")).toBe(episodeId);
+  await expect
+    .poll(async () => {
+      const response = await page.request.get("/api/studio/episodes");
+      const { episodes } = (await response.json()) as {
+        episodes: EpisodeSummary[];
+      };
+      return episodes.some(({ id }) => id === episodeId);
+    })
+    .toBe(false);
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "音频转录与脚本对照" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "下载 WAV" })).toBeEnabled();
   expect(providerRequests).toEqual([]);
 });
 

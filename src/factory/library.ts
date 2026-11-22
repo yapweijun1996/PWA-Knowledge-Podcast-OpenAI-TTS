@@ -20,11 +20,17 @@ export type Record = {
   deleted?: boolean;
 };
 
+type StoredAudio = Blob | { bytes: ArrayBuffer; type: string };
+type StoredRecord = Omit<Record, "assets"> & {
+  assets: { [asset: string]: StoredAudio };
+};
+
 interface LibraryDB extends DBSchema {
-  episodes: { key: string; value: Record };
+  episodes: { key: string; value: StoredRecord };
   settings: { key: string; value: Preferences };
 }
 
+let useBinaryAssets = false;
 let connection: ReturnType<typeof openDB<LibraryDB>> | undefined;
 function db() {
   return (connection ??= openDB<LibraryDB>("knowledge-podcast-library", 1, {
@@ -38,11 +44,36 @@ function db() {
   }));
 }
 
+function readRecord(row: StoredRecord): Record {
+  return {
+    ...row,
+    assets: Object.fromEntries(
+      Object.entries(row.assets).map(([asset, value]) => [
+        asset,
+        value instanceof Blob
+          ? value
+          : new Blob([value.bytes], { type: value.type }),
+      ]),
+    ),
+  };
+}
+
+async function encodeAssets(row: Record): Promise<StoredRecord> {
+  const assets = await Promise.all(
+    Object.entries(row.assets).map(
+      async ([asset, blob]) =>
+        [asset, { bytes: await blob.arrayBuffer(), type: blob.type }] as const,
+    ),
+  );
+  return { ...row, assets: Object.fromEntries(assets) };
+}
+
 export const episodePath = (id: string) =>
   "/episodes/" + encodeURIComponent(id);
 export const listRecords = async () =>
   (await (await db()).getAll("episodes"))
     .filter((row) => !row.deleted)
+    .map(readRecord)
     .sort((a, b) => b.episode.updated.localeCompare(a.episode.updated));
 export const loadPrefs = async () =>
   (await (await db()).get("settings", "preferences")) ?? defaultPreferences;
@@ -66,10 +97,10 @@ export function subscribe(listener: () => void) {
   };
 }
 
-async function commit(
+async function writeRecord(
   id: string,
   expected: string | undefined,
-  row: Record | null,
+  row: StoredRecord | null,
 ) {
   const tx = (await db()).transaction("episodes", "readwrite", {
     durability: "strict",
@@ -81,6 +112,37 @@ async function commit(
     return true;
   });
   const [changed] = await Promise.all([write, tx.done]);
+  return changed;
+}
+
+async function commit(
+  id: string,
+  expected: string | undefined,
+  row: Record | null,
+) {
+  const triedBinaryAssets = useBinaryAssets;
+  let changed: boolean;
+  try {
+    changed = await writeRecord(
+      id,
+      expected,
+      row && triedBinaryAssets ? await encodeAssets(row) : row,
+    );
+  } catch (error) {
+    if (
+      !row ||
+      triedBinaryAssets ||
+      !(error instanceof DOMException) ||
+      error.name !== "UnknownError" ||
+      error.message !==
+        "Error preparing Blob/File data to be stored in object store"
+    )
+      throw error;
+    // WebKit can reject Blob storage even when it supports ArrayBuffer values.
+    // Retry the same revision check after converting media outside the transaction.
+    changed = await writeRecord(id, expected, await encodeAssets(row));
+    useBinaryAssets = true;
+  }
   if (changed) {
     changes.dispatchEvent(new Event("change"));
     channel?.postMessage(id);
@@ -208,7 +270,8 @@ export async function syncLibrary(
           await studio(episodePath(item.id), "GET", undefined, signal),
         );
         if (submitted && copy.localStamp !== row?.stamp) continue;
-        if (!(await receive(copy, signal, row, submitted))) continue;
+        if (!(await receive(copy, signal, row && readRecord(row), submitted)))
+          continue;
         stagedJob = copy.job;
       }
       if (

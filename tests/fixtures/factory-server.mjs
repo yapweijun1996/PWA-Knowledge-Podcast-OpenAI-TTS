@@ -39,7 +39,7 @@ const server = podcastHTTP({
   models: defaults,
   production,
 });
-server.listen(8797, "127.0.0.1");
+server.listen(Number(process.env.PLAYWRIGHT_FACTORY_PORT ?? 8797), "127.0.0.1");
 const timer = setInterval(() => production.start(), 250);
 timer.unref();
 process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
