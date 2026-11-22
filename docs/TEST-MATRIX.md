@@ -27,6 +27,25 @@ listening results without saving credentials or private audio to documentation.
 The owner has authorized up to US$5 for the planned small continuity comparison;
 that authorization is not proof that a call or charge occurred.
 
+## V1 recording protection and recovery (2026-11-22)
+
+- At `f08d2a5`, the public build and all five cases in
+  [demo-protection.spec.ts](../tests/demo-protection.spec.ts) passed on local
+  Chromium. Single and batch demo generation preserve saved OpenAI takes,
+  including stale and alternate takes. An all-protected batch makes zero
+  project writes, and a stale tab cannot overwrite a take saved by another
+  tab. The mixed-project test also checks the protected segment numbers in
+  export and preview messages and downloads a demo WAV by segment.
+- At `a3e6c60`, the public build and both targeted cases in
+  [save-recovery.spec.ts](../tests/save-recovery.spec.ts) passed on local
+  Chromium. After downloading the pending WAV, confirming segment deletion
+  and saving it, another project can generate without a reload. The cases
+  cover a successful save and an injected IndexedDB failure followed by a
+  successful retry. The pending WAV remains downloadable during the failure.
+
+These checks used synthetic audio and intercepted OpenAI requests. They
+establish local Chromium behavior for the tested revisions.
+
 ## Deployed upgrade evidence (2026-11-04)
 
 For the [T12 Pages deployment](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/41815020765),
