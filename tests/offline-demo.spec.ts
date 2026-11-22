@@ -6,9 +6,9 @@ test("offline demo works and export skips blank segments without provider calls"
   context,
 }) => {
   let requests = 0;
-  await page.route("https://api.openai.com/**", async (route) => {
-    requests++;
-    await route.abort();
+  // Firefox needs native service-worker navigation for an offline reload.
+  context.on("request", (request) => {
+    if (new URL(request.url()).hostname === "api.openai.com") requests++;
   });
   await page.goto("./");
   await page.getByRole("button", { name: "新建项目" }).first().click();
