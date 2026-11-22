@@ -28,6 +28,7 @@ jobs:
       - run: npm run build:private
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run e2e
+      - run: npx playwright test tests/offline-demo.spec.ts --browser=webkit
       - run: npm run e2e:factory
       - run: npm run e2e:factory
         env:

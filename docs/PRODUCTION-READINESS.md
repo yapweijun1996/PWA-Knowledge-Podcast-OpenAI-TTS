@@ -13,7 +13,7 @@ Use this checklist to decide which parts of Knowledge Podcast Studio to release.
 
 **Prior release evidence.** Application revision `359501f` passed Node 24 type checking, both builds, 45 Node tests and the dependency audit. GitHub CI passed 62 V1 Chromium, 11 V2 Chromium, one V2 WebKit manual Studio case and seven selected V1 Firefox cases. A local Node 24 build matched the live `sw.js` SHA-256 (`6f4c13ceb5f2e4af047a51b5c669c6fc40fc1775edd6c0d881ea40216be7c318`). The subsequent documentation revision `15f94d8` added the sample review. These counts describe the linked runs. [CI run](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45031108288) · [Pages deployment](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45031108286)
 
-The 2026-11-22 release candidate passed 50 Node tests, 63 public Chromium cases, 13 private Chromium cases, one private WebKit case and seven public Firefox cases locally. A clean extracted worker answered the keyless session and served the private app. The release workflow repeats these checks before publishing. [CI workflow](../.github/workflows/ci.yml)
+The 2026-11-22 release candidate passed 50 Node tests, 63 public Chromium cases, 13 private Chromium cases, a public offline WAV case and a private Studio case in WebKit, and seven public Firefox cases locally. A clean extracted worker answered the keyless session and served the private app. The release workflow repeats these checks before publishing. [CI workflow](../.github/workflows/ci.yml)
 
 The recovery tests exercise original-WAV transcription after backup import, repeated and outdated paid requests, recovery after a worker loses a checkpoint, a slow audio download, and exclusive ownership of the spool after a crash. Release automation also extracts and starts the private worker as a standalone distribution. [Worker tests](../tests/factory.test.mjs) · [Browser recovery](../tests/factory.browser.ts) · [Process recovery](../tests/worker-lock.test.mjs) · [Packaged runtime check](../scripts/verify-worker.mjs)
 
@@ -30,6 +30,7 @@ npm run build
 npm run build:private
 npx playwright install --with-deps chromium firefox webkit
 npm run e2e
+npx playwright test tests/offline-demo.spec.ts --browser=webkit
 npm run e2e:factory
 PLAYWRIGHT_FACTORY_BROWSER=webkit npm run e2e:factory
 npx playwright test --config playwright.firefox.config.ts

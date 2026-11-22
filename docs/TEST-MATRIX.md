@@ -8,7 +8,7 @@ prove provider voice quality or coverage outside the listed cases.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Playwright Chromium in GitHub CI                    | Full free suite: local editing, persistence, demo audio, simulated provider errors, real WebRTC loopback with a mock provider, responsive widths, offline and local update scenarios. |
 | Playwright Firefox in GitHub CI                     | Selected free cases: save/reload and stale handling, offline demo and WAV export, and 360/390/768/1280/1440px layout. See the CI result for the specific commit.                      |
-| Playwright WebKit in GitHub CI | The V2 manual Studio creation case follows a fixture episode through Library persistence. The WebKit run selects this single case. [Factory browser config](../playwright.factory.config.ts) |
+| Playwright WebKit in GitHub CI | V1 saves generated audio, reloads offline and exports a WAV. V2 follows a manual Studio fixture through Library persistence and restore. [Factory browser config](../playwright.factory.config.ts) |
 | macOS Playwright Firefox in this workspace          | All seven selected V1 Firefox cases passed locally on 2026-11-22, including offline WAV export and responsive layouts.                                                          |
 | Deployed GitHub Pages in Chromium                   | Previous releases have been smoke tested for demo flows, mocked provider flows and update/draft preservation; see project status and release history for the exact release.           |
 | OpenAI real provider and listening                  | Owner reports speech works, but an independent real-provider completeness and continuity comparison is NOT VERIFIED. Mock responses are not evidence of audible quality.              |
@@ -30,7 +30,7 @@ listening results without saving credentials or private audio to documentation.
 The owner has authorized up to US$5 for the planned small continuity comparison;
 that authorization is not proof that a call or charge occurred.
 
-The deployed two-tab upgrade preserved both drafts offline. A live export check also caught a click during active generation. The full WAV download stays disabled until the operation finishes. [Offline export regression](../tests/offline-demo.spec.ts)
+The deployed two-tab upgrade preserved both drafts offline. A live export check also caught a click during active generation. The full WAV download stays disabled until the operation finishes. The editor reads existing Blob recordings and stores WAV bytes with their media type when WebKit rejects Blob storage. [Offline export regression](../tests/offline-demo.spec.ts)
 
 ## V1 recording protection and recovery (2026-11-22)
 

@@ -1,5 +1,11 @@
 import { openDB, type DBSchema } from "idb";
 import {
+  blobStorageFailed,
+  encodeStoredAudio,
+  readStoredAudio,
+  type StoredAudio,
+} from "../stored-audio";
+import {
   defaultPreferences,
   type Edit,
   type Episode,
@@ -20,7 +26,6 @@ export type Record = {
   deleted?: boolean;
 };
 
-type StoredAudio = Blob | { bytes: ArrayBuffer; type: string };
 type StoredRecord = Omit<Record, "assets"> & {
   assets: { [asset: string]: StoredAudio };
 };
@@ -50,9 +55,7 @@ function readRecord(row: StoredRecord): Record {
     assets: Object.fromEntries(
       Object.entries(row.assets).map(([asset, value]) => [
         asset,
-        value instanceof Blob
-          ? value
-          : new Blob([value.bytes], { type: value.type }),
+        readStoredAudio(value),
       ]),
     ),
   };
@@ -61,8 +64,7 @@ function readRecord(row: StoredRecord): Record {
 async function encodeAssets(row: Record): Promise<StoredRecord> {
   const assets = await Promise.all(
     Object.entries(row.assets).map(
-      async ([asset, blob]) =>
-        [asset, { bytes: await blob.arrayBuffer(), type: blob.type }] as const,
+      async ([asset, blob]) => [asset, await encodeStoredAudio(blob)] as const,
     ),
   );
   return { ...row, assets: Object.fromEntries(assets) };
@@ -129,15 +131,7 @@ async function commit(
       row && triedBinaryAssets ? await encodeAssets(row) : row,
     );
   } catch (error) {
-    if (
-      !row ||
-      triedBinaryAssets ||
-      !(error instanceof DOMException) ||
-      error.name !== "UnknownError" ||
-      error.message !==
-        "Error preparing Blob/File data to be stored in object store"
-    )
-      throw error;
+    if (!row || triedBinaryAssets || !blobStorageFailed(error)) throw error;
     // WebKit can reject Blob storage even when it supports ArrayBuffer values.
     // Retry the same revision check after converting media outside the transaction.
     changed = await writeRecord(id, expected, await encodeAssets(row));

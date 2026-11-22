@@ -26,6 +26,8 @@ test("offline demo works and export skips blank segments without provider calls"
   await expect(fullExport).toBeDisabled();
   await expect(fullExport).toBeEnabled();
   await expect(page.getByText("已模拟", { exact: true })).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByText("已模拟", { exact: true })).toHaveCount(1);
   const download = page.waitForEvent("download");
   await fullExport.click();
   const bytes = await readFile((await (await download).path())!);
