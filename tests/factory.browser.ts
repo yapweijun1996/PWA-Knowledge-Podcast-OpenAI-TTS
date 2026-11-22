@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
+import { backupRecord, restoreRecord } from "../shared/episode-backup";
 import { episodeAssets } from "../shared/episode-record";
 import type { Episode, EpisodeSummary } from "../shared/factory";
 
@@ -448,6 +449,40 @@ test("manual Studio creation saves an exact two-speaker episode and recovers it 
     await expect
       .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
       .toBeGreaterThan(0);
+
+    const unfinished = await restoreRecord(new Blob([new Uint8Array(backup)]));
+    delete unfinished.episode.finished!.transcript;
+    unfinished.episode.job = { stage: "transcript", status: "failed" };
+    const incompleteBackup = await backupRecord(unfinished);
+    await copy.getByLabel("节目备份文件").setInputFiles({
+      name: "transcription-pending.kps",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from(await incompleteBackup.arrayBuffer()),
+    });
+    const retry = copy.getByRole("button", { name: "重试音频转录" });
+    await expect(retry).toBeDisabled();
+    await recovery.setOffline(false);
+    const consent = copy.getByRole("checkbox", { name: /我同意本次 OpenAI/ });
+    await expect(consent).toBeEnabled();
+    await expect(retry).toBeDisabled();
+    await consent.check();
+    const upload = copy.waitForResponse((res) =>
+      res.url().endsWith("/transcribe-local"),
+    );
+    await retry.click();
+    expect((await upload).status()).toBe(202);
+    const recoveredId = new URL(copy.url()).searchParams.get("episode")!;
+    await expect
+      .poll(
+        async () =>
+          (await readCommittedEpisode(copy, recoveredId))?.episode.finished
+            ?.transcript?.text,
+        { timeout: 15000 },
+      )
+      .toBe(saved!.finished!.transcript!.text);
+    expect((await downloadBytes(copy, "下载 WAV")).equals(originalWav)).toBe(
+      true,
+    );
   } finally {
     await recovery.close();
   }

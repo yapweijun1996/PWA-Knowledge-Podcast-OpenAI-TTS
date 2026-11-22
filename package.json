@@ -5,6 +5,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build && node scripts/build-sw.mjs",
     "build:private": "tsc -b && vite build --mode private && node scripts/build-sw.mjs dist-private",
+    "package:worker": "npm run build:private && node scripts/package-worker.mjs && node scripts/verify-worker.mjs dist-worker/knowledge-podcast-worker.tar.gz",
     "start:private": "node --env-file-if-exists=.env.podcast server/main.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -44,6 +45,15 @@ export function createStore(dataDir) {
     return join(folder(id), asset);
   };
   return {
+    cleanInterruptedImports() {
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (
+          entry.isDirectory() &&
+          /^\.podcast-import-[a-zA-Z0-9]{6}$/.test(entry.name)
+        )
+          rmSync(join(root, entry.name), { recursive: true });
+      }
+    },
     get(id) {
       const file = state(id);
       if (!existsSync(file)) throw new PublicError("找不到这期节目。", 404);
@@ -60,15 +70,28 @@ export function createStore(dataDir) {
         .map((entry) => this.get(entry.name))
         .sort((a, b) => b.updated.localeCompare(a.updated));
     },
-    save(episode) {
+    save(episode, importedMedia) {
       episode.updated = new Date().toISOString();
       episode.syncToken = randomUUID();
+      if (importedMedia) {
+        // Publish metadata and media together so recovery cannot see half an import.
+        const staging = mkdtempSync(join(root, ".podcast-import-"));
+        try {
+          for (const [asset, bytes] of importedMedia) {
+            if (!audioFile.test(asset))
+              throw new PublicError("音频文件名无效。", 400);
+            writeAtomic(join(staging, asset), bytes);
+          }
+          writeAtomic(join(staging, "episode.json"), JSON.stringify(episode));
+          renameSync(staging, folder(episode.id));
+          return episode;
+        } finally {
+          rmSync(staging, { recursive: true, force: true });
+        }
+      }
       mkdirSync(folder(episode.id), { recursive: true, mode: 0o700 });
       writeAtomic(state(episode.id), JSON.stringify(episode));
       return episode;
-    },
-    delete(id) {
-      rmSync(folder(id), { recursive: true });
     },
     receipt(id) {
       try {
@@ -77,14 +100,28 @@ export function createStore(dataDir) {
         if (error.code !== "ENOENT") throw error;
       }
     },
-    release(episode) {
-      mkdirSync(receipts, { recursive: true, mode: 0o700 });
-      // Keep a small receipt so delayed create requests cannot charge again.
-      writeAtomic(
-        receiptPath(episode.id),
-        JSON.stringify({ localStamp: episode.localStamp }),
+    accepted(id, stamp) {
+      const receipt = this.receipt(id);
+      return (
+        receipt?.localStamp === stamp || receipt?.localStamps?.includes(stamp)
       );
-      this.delete(episode.id);
+    },
+    remember(id, stamp) {
+      const receipt = this.receipt(id);
+      const stamps = new Set(receipt?.localStamps ?? []);
+      // Older workers recorded only their last handed-off browser stamp.
+      if (receipt?.localStamp) stamps.add(receipt.localStamp);
+      if (receipt && (!stamp || stamps.has(stamp))) return;
+      if (stamp) stamps.add(stamp);
+      mkdirSync(receipts, { recursive: true, mode: 0o700 });
+      writeAtomic(
+        receiptPath(id),
+        JSON.stringify({ localStamps: [...stamps] }),
+      );
+    },
+    release(episode) {
+      this.remember(episode.id, episode.localStamp);
+      rmSync(folder(episode.id), { recursive: true });
     },
     assetPath,
     readAsset(id, asset) {

@@ -47,7 +47,7 @@ export function createJobs({
       throw new PublicError("另一个标签页已更新脚本。请刷新后再试。", 409);
   }
 
-  function start(episode, kind, consent, autoAudio = false) {
+  function start(episode, kind, consent, autoAudio = false, importedMedia) {
     if (!["draft", "audio", "transcript"].includes(kind))
       throw new PublicError("未知的制作任务。", 400);
     const stage = {
@@ -77,7 +77,7 @@ export function createJobs({
       status: "running",
       ...(kind === "draft" && autoAudio === true ? { autoAudio: true } : {}),
     };
-    store.save(episode);
+    store.save(episode, importedMedia);
     const controller = new AbortController();
     const task = Promise.resolve()
       .then(() => run(episode, kind, controller.signal))
@@ -312,9 +312,14 @@ export function createJobs({
         autoAudio,
       );
     },
-    start(id, { revision, kind, consent, autoAudio }) {
+    start(id, { revision, kind, consent, autoAudio, syncToken, asset }) {
       const episode = store.get(id);
       requireRevision(episode, revision);
+      if (
+        (syncToken !== undefined && syncToken !== episode.syncToken) ||
+        (asset !== undefined && asset !== episode.finished?.asset)
+      )
+        throw new PublicError("成品或制作检查点已变化，请先同步。", 409);
       return start(
         episode,
         kind,
@@ -338,6 +343,29 @@ export function createJobs({
       }
       return store.save(updated);
     },
+    transcribeLocal(id, localStamp, episode, media) {
+      if (
+        episode.id !== id ||
+        !episode.script ||
+        !episode.finished ||
+        episode.finished.revision !== episode.revision ||
+        episode.finished.transcript
+      )
+        throw new PublicError("需要当前脚本版本的成品音频。", 400);
+      const episodes = store.list();
+      const existing = episodes.find((item) => item.id === id);
+      if (
+        existing?.localStamp === localStamp &&
+        existing.finished?.asset === episode.finished.asset
+      )
+        return existing;
+      if (existing || store.accepted(id, localStamp))
+        throw new PublicError("制作检查点已变化，请同步后再试。", 409);
+      if (episodes.length >= limits.projects)
+        throw new PublicError("本机暂存已满。请先同步节目。", 409);
+      episode.localStamp = localStamp;
+      return start(episode, "transcript", true, false, media);
+    },
     resumeLocal(
       id,
       { snapshot, expected, consent, localStamp, kind },
@@ -358,7 +386,8 @@ export function createJobs({
       )
         throw new PublicError("本地脚本尚未准备好。", 400);
       const existing = store.list().find((episode) => episode.id === id);
-      if (!existing && store.receipt(id)?.localStamp === localStamp)
+      if (existing?.localStamp === localStamp) return existing;
+      if (store.accepted(id, localStamp))
         throw new PublicError(
           "这一制作请求已完成交接，请查看浏览器资料库。",
           409,
@@ -378,6 +407,7 @@ export function createJobs({
         outline,
         script,
       } = source;
+      if (existing?.localStamp) store.remember(id, existing.localStamp);
       if (source.production?.exactHosts === 2)
         production = { ...production, maxHosts: 2, exactHosts: 2 };
       return start(
@@ -415,7 +445,7 @@ export function createJobs({
     delete(id) {
       const episode = store.get(id);
       requireIdle(episode);
-      store.delete(id);
+      store.release(episode);
     },
     clip(episode, id, asset) {
       const clip = episode.render?.clips[id];

@@ -15,14 +15,14 @@ import { createCredential, createProduction } from "../server/production.mjs";
 import { makeScript } from "../server/script.mjs";
 import { createStore } from "../server/store.mjs";
 import { validateAudio } from "../shared/audio-record.ts";
-import { readEpisode } from "../shared/episode-record.ts";
+import { episodeAssets, readEpisode } from "../shared/episode-record.ts";
 import {
   defaultPreferences,
   studioAPI,
   studioBase,
 } from "../shared/factory.ts";
 import { editEpisode } from "../shared/edit.ts";
-import { backupRecord, restoreRecord } from "../src/factory/record-backup.ts";
+import { backupRecord, restoreRecord } from "../shared/episode-backup.ts";
 import {
   fakeOpenAI,
   firstText,
@@ -79,11 +79,11 @@ function harness(t, options = {}) {
   // Exercise the application request listener without opening a network socket.
   function request(
     path,
-    { method = "GET", payload, headers = {}, base = studioAPI } = {},
+    { method = "GET", payload, binary, headers = {}, base = studioAPI } = {},
   ) {
     const origin = options.publicMode ? publicOrigin : local;
     const bytes =
-      payload === undefined ? null : Buffer.from(JSON.stringify(payload));
+      binary ?? (payload === undefined ? null : Buffer.from(JSON.stringify(payload)));
     const req = Readable.from(bytes ? [bytes] : []);
     req.method = method;
     req.url = base + path;
@@ -267,6 +267,11 @@ test("HTTP flow checkpoints research, retries one clip, serves WAV ranges, and k
     (await request(asset, { headers: { range: "bytes=999999999-" } })).status,
     416,
   );
+  for (const stale of [{ syncToken: randomUUID() }, { asset: "another-cut.wav" }]) {
+    assert.equal((await request(`/episodes/${id}/jobs`, {
+      method:"POST", payload:{ kind:"transcript", revision:1, consent:true, ...stale }
+    })).status,409);
+  }
   assert.equal((await action(request, id, "transcript")).status, 202);
   episode = await settled(store, id);
   assert.equal(episode.finished.transcript.text, heard);
@@ -988,6 +993,82 @@ test("browser backup round-trips a complete WAV with evidence and rejects corrup
     stamp: "browser-only",
   });
   await assert.rejects(restoreRecord(unsafe), /格式无效/);
+});
+
+test("a restored cut retries transcription once with its original media and survives response loss", async (t) => {
+  const { store, request, calls } = harness(t, { dynamic: true });
+  await request("/key", keyPayload);
+  const id = randomUUID();
+  await create(request, { id, topic: "Archival cut", consent: true });
+  const source = await settled(store, id);
+  const restored = structuredClone(source);
+  restored.id = randomUUID();
+  delete restored.finished.transcript;
+  restored.job = { stage: "transcript", status: "failed" };
+  const assets = {};
+  for (const { asset, type, route } of episodeAssets(source)) {
+    const result = await request(`/episodes/${id}/${route}?asset=${asset}`);
+    assert.equal(result.status, 200);
+    assets[asset] = new Blob([result.bytes], { type });
+  }
+  const archive = await backupRecord({ episode: restored, assets });
+  const localStamp = randomUUID();
+  const binary = Buffer.from(await archive.arrayBuffer());
+  const path = `/episodes/${restored.id}/transcribe-local`;
+  const headers = {
+    "content-type": "application/octet-stream",
+    "x-local-stamp": localStamp,
+  };
+  const submit = (extra = {}, bytes = binary) =>
+    request(path, {
+      method: "POST",
+      binary: bytes,
+      headers: { ...headers, ...extra },
+    });
+  const before = calls.length;
+  assert.equal((await submit()).status, 400);
+  const consent = { "x-podcast-consent": "true" };
+  const damaged = Buffer.from(binary);
+  damaged[damaged.length - 1] ^= 1;
+  assert.equal((await submit(consent, damaged)).status, 400);
+  assert.equal(calls.length, before);
+  assert.equal((await submit(consent)).status, 202);
+  const result = await settled(store, restored.id);
+  assert.equal(result.finished.transcript.text, heard);
+  assert.equal(result.finished.asset, restored.finished.asset);
+  assert.deepEqual(result.render, restored.render);
+  assert.deepEqual(
+    store.readAsset(restored.id, result.finished.asset),
+    store.readAsset(id, result.finished.asset),
+  );
+  assert.equal((await submit(consent)).status, 202);
+  assert.equal(
+    (
+      await request(`/episodes/${restored.id}/handoff`, {
+        method: "POST",
+        payload: { syncToken: result.syncToken },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await submit(consent)).status, 409);
+  assert.deepEqual(calls.slice(before), ["transcript"]);
+  const nextStamp = randomUUID();
+  assert.equal(
+    (await submit({ ...consent, "x-local-stamp": nextStamp })).status,
+    202,
+  );
+  await settled(store, restored.id);
+  assert.equal(
+    (await request(`/episodes/${restored.id}`, { method: "DELETE" })).status,
+    200,
+  );
+  assert.equal((await submit(consent)).status, 409);
+  assert.equal(
+    (await submit({ ...consent, "x-local-stamp": nextStamp })).status,
+    409,
+  );
+  assert.deepEqual(calls.slice(before), ["transcript", "transcript"]);
 });
 
 test("adaptive outline keeps a longer target only with sufficient independent evidence", async () => {

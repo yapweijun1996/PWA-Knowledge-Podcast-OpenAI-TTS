@@ -13,7 +13,9 @@ async function files(dir) {
 }
 const digest = (data) => createHash("sha256").update(data).digest("hex");
 const dist = process.argv[2] ?? "dist";
-const paths = (await files(dist)).sort();
+const paths = (await files(dist))
+  .filter((path) => path !== join(dist, "sw.js"))
+  .sort();
 const hash = createHash("sha256");
 hash.update(await readFile("scripts/build-sw.mjs"));
 const assets = [];
@@ -27,10 +29,14 @@ if (!index) throw new Error("Missing built index.html");
 assets.push({ path: "./", sha256: index.sha256 });
 const version = hash.digest("hex").slice(0, 16);
 const sw = `
-const CACHE = 'podcast-${version}';
+const SCOPE = self.registration.scope;
+const PREFIX = 'podcast-shell:' + SCOPE + ':';
+const CACHE = PREFIX + 'podcast-${version}';
+const STATE = 'knowledge-podcast-release:' + SCOPE;
 const VERSION = '${version}';
 const ASSETS = ${JSON.stringify(assets)};
 async function precache() {
+  const existed = await caches.has(CACHE);
   const cache = await caches.open(CACHE);
   try {
     for (const asset of ASSETS) {
@@ -45,12 +51,31 @@ async function precache() {
       await cache.put(key, response);
     }
   } catch (error) {
-    await caches.delete(CACHE);
+    if (!existed) await caches.delete(CACHE);
     throw error;
   }
 }
 self.addEventListener('install', event => event.waitUntil(precache()));
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+async function activateRelease() {
+  const state = await caches.open(STATE);
+  const record = await state.match(SCOPE);
+  const last = record && await record.json();
+  const owned = [];
+  for (const name of await caches.keys()) {
+    if (name.startsWith(PREFIX)) owned.push(name);
+    else if (/^podcast-[0-9a-f]{16}$/.test(name)) {
+      // Earlier builds used origin-wide names. Clean only a cache wholly owned by this app.
+      const cache = await caches.open(name);
+      if (await cache.match(SCOPE) && (await cache.keys()).every(key => key.url.startsWith(SCOPE))) owned.push(name);
+    }
+  }
+  const previous = last?.active === CACHE ? last.previous : last?.active;
+  const keep = owned.includes(previous) ? previous : owned.filter(name => name !== CACHE).at(-1);
+  await state.put(SCOPE, new Response(JSON.stringify({active:CACHE, previous:keep})));
+  await Promise.all(owned.filter(name => name !== CACHE && name !== keep).map(name => caches.delete(name)));
+  await self.clients.claim();
+}
+self.addEventListener('activate', event => event.waitUntil(activateRelease()));
 self.addEventListener('message', event => {
   if(event.data !== 'SKIP_WAITING' && event.data !== 'SKIP_WAITING_IF_SINGLE') return;
   event.waitUntil((async () => {
@@ -76,12 +101,12 @@ self.addEventListener('fetch', event => {
     const key = shell ? scope : event.request;
     const hit = await (await caches.open(CACHE)).match(key, {ignoreVary:true});
     if(hit) return hit;
-    // Retain prior versioned assets for tabs that were already open at activation.
-    for(const name of await caches.keys()) {
-      if(name.startsWith('podcast-') && name !== CACHE) {
-        const old = await (await caches.open(name)).match(key, {ignoreVary:true});
-        if(old) return old;
-      }
+    // A tab opened before activation can still request the previous build's assets.
+    const state = await (await caches.open(STATE)).match(SCOPE);
+    const previous = state && (await state.json()).previous;
+    if (previous) {
+      const old = await caches.match(key, {cacheName:previous, ignoreVary:true});
+      if (old) return old;
     }
     return fetch(event.request);
   })());

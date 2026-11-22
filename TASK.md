@@ -208,7 +208,7 @@ those WAVs or make paid OpenAI calls.
     pending save, offline recovery and no secret sharing; neither tab silently
     loses work or restarts paid generation.
   - Implemented: tabs hold shared Web Locks while open; a forced update requires
-    exclusive access and a second service-worker client check. Old caches remain
+    exclusive access and a second service-worker client check. The current and immediately previous app shells remain
     available for offline assets. Project writes use transactional revisions;
     conflicts retain local work and offer a separate copy. Browser tests cover
     pending saves, interrupted mocked generation, legacy update messages, offline

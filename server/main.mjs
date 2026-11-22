@@ -8,6 +8,7 @@ import { createOpenAI, defaults } from "./openai.mjs";
 import { createCredential, createProduction } from "./production.mjs";
 import { mp3Encoder } from "./mp3.mjs";
 import { createStore } from "./store.mjs";
+import { lockWorkerDirectory } from "./worker-lock.mjs";
 
 const env = process.env;
 const key = env.OPENAI_API_KEY?.trim();
@@ -41,6 +42,13 @@ try {
       "Knowledge Podcast Studio",
     );
   const store = createStore(root);
+  const lock = lockWorkerDirectory(root);
+  if (!lock) {
+    console.error("Another podcast worker owns this data directory.");
+    process.exit(1);
+  }
+  process.once("exit", () => lock.close());
+  store.cleanInterruptedImports();
   const credential = createCredential(key);
   const openai = (...args) => createOpenAI(credential.get())(...args);
   const narrator = (...args) => createNarrator(credential.get())(...args);

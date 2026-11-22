@@ -761,3 +761,79 @@ test("Now Playing fits desktop and mobile at 200% text size and supports keyboar
   await expect.poll(() => paused(page)).toBe(false);
   expect(unexpected).toEqual([]);
 });
+
+test("a missing worker checkpoint unlocks the saved script only after the worker confirms its absence", async ({
+  page,
+  context,
+}) => {
+  const unexpected = await watchPaidRequests(context);
+  const item = episode(20, "Interrupted transfer", {
+    ...script("Recovered script"),
+    syncToken: "previous-checkpoint",
+    job: { stage: "audio", status: "running" },
+  });
+  let status = 503;
+  await context.route("**/api/studio/episodes/" + item.id, (route) =>
+    route.fulfill({
+      status,
+      json: { error: "Fixture checkpoint unavailable" },
+    }),
+  );
+  await page.goto(origin);
+  await expect(libraryFor(page).getByText("此浏览器尚无节目。")).toBeVisible();
+  await saveFixtures(page, [{ episode: item }]);
+  await libraryFor(page)
+    .getByRole("button", { name: "Recovered script", exact: true })
+    .click();
+  const detail = page.locator("#factory-selection");
+  await expect(
+    detail.getByRole("button", { name: "删除", exact: true }),
+  ).toBeDisabled();
+  status = 404;
+  await page.reload();
+  await expect(
+    detail.getByRole("button", { name: "编辑脚本与声音" }),
+  ).toBeEnabled({ timeout: 9000 });
+  await expect(
+    detail.getByRole("button", { name: "删除", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    detail.getByText("Saved opening", { exact: true }),
+  ).toBeVisible();
+  await expect(detail.getByRole("button", { name: "取消任务" })).toHaveCount(0);
+  expect(unexpected).toEqual([]);
+});
+
+test("an interrupted creation keeps its ID and draft across refresh and needs fresh consent", async ({
+  page,
+  context,
+}) => {
+  const unexpected = await watchPaidRequests(context);
+  const ids: string[] = [];
+  await context.route("**/api/studio/episodes", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    ids.push(route.request().postDataJSON().id);
+    await route.abort("connectionreset");
+  });
+  await page.goto("/?studio=factory&view=studio");
+  const topic = page.getByLabel("播客主题");
+  const studio = page.getByRole("main", { name: "播客制作台" });
+  const hosts = studio.getByRole("combobox", { name: "主持人数" });
+  const consent = page.getByRole("checkbox", { name: /同意本次 OpenAI/ });
+  const submit = page.getByRole("button", { name: "制作整集播客" });
+  await topic.fill("Reusable request");
+  await hosts.selectOption("2");
+  await consent.check();
+  await submit.click();
+  await expect.poll(() => ids.length).toBe(1);
+  await page.reload();
+  await expect(topic).toHaveValue("Reusable request");
+  await expect(hosts).toHaveValue("2");
+  await expect(consent).not.toBeChecked();
+  await expect(submit).toBeDisabled();
+  await consent.check();
+  await submit.click();
+  await expect.poll(() => ids.length).toBe(2);
+  expect(ids[1]).toBe(ids[0]);
+  expect(unexpected).toEqual([]);
+});

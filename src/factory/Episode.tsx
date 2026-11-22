@@ -49,7 +49,6 @@ export function EpisodeWorkspace({
   anotherRunning,
   unavailable,
   disconnected,
-  canResumeTranscript,
   onStart,
   onCancel,
   onEdit,
@@ -67,7 +66,6 @@ export function EpisodeWorkspace({
   anotherRunning: boolean;
   unavailable: boolean;
   disconnected: boolean;
-  canResumeTranscript: boolean;
   onStart: (kind: Kind) => void;
   onCancel: () => void;
   onEdit: (revision: number, edit: Edit) => Promise<boolean>;
@@ -103,9 +101,7 @@ export function EpisodeWorkspace({
     : !currentAudio
       ? "audio"
       : !finished?.transcript
-        ? canResumeTranscript
-          ? "transcript"
-          : "audio"
+        ? "transcript"
         : null;
   const retrying = kind && episode.job && !running;
   const consentKey = `${kind}:${episode.revision}:${episode.job?.stage}:${episode.job?.status}`;

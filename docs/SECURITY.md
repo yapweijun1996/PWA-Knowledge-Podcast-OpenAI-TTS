@@ -24,9 +24,8 @@ other header-only controls; assets fetched before a meta policy is parsed are no
 covered by it. See the [W3C CSP specification](https://www.w3.org/TR/CSP3/) for
 these delivery limitations. It also does not authenticate imported backups.
 
-Workflows pin top-level GitHub Actions to exact commits. The build job has read
-access to repository content and Pages configuration; only the deployment job
-has Pages and OIDC write permissions. The [GitHub Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+Workflows pin top-level GitHub Actions to exact commits. The verification job reads repository content and uploads the tested public build.
+The deployment job alone receives Pages and OIDC write permissions. The [GitHub Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
 describes those deployment permissions. Pinning a top-level action does not
 independently pin every transitive dependency; update pins deliberately after
 review and rerun the release checks.

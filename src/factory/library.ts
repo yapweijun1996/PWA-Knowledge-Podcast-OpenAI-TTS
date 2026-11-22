@@ -6,7 +6,7 @@ import {
   type EpisodeSummary,
   type Preferences,
 } from "../../shared/factory";
-import { validateAudio } from "../../shared/audio-record";
+import { downloadCheckpointAudio } from "./media-transfer";
 import { editEpisode } from "../../shared/edit";
 import { episodeAssets, readEpisode } from "../../shared/episode-record";
 import { media, studio, StudioError } from "./api";
@@ -191,21 +191,7 @@ async function retrieve(
   item: ReturnType<typeof episodeAssets>[number],
   signal: AbortSignal,
 ) {
-  const response = await fetch(media(id, item.route, item.asset), {
-    cache: "no-store",
-    signal,
-  });
-  if (!response.ok)
-    throw new StudioError("音频检查点已变化或无法下载。", response.status);
-  const bytes = Number(response.headers.get("Content-Length"));
-  if (
-    !(bytes > 0 && bytes <= 24_000_044) ||
-    response.headers.get("Content-Type") !== item.type
-  )
-    throw new Error("本机进程返回的音频格式或大小无效。");
-  const blob = await response.blob();
-  await validateAudio(blob, item.type);
-  return blob;
+  return downloadCheckpointAudio(media(id, item.route, item.asset), item.type, signal);
 }
 
 export async function receive(
@@ -239,9 +225,33 @@ export async function syncLibrary(
   const remoteIds = new Set(remote.map(({ id }) => id));
   let issue: unknown;
   for (const row of await hardware.getAll("episodes")) {
-    if (!row.deleted) continue;
     signal.throwIfAborted();
     const id = row.episode.id;
+    if (!row.deleted) {
+      if (
+        canRelease &&
+        row.episode.job?.status === "running" &&
+        row.episode.syncToken &&
+        !remoteIds.has(id)
+      ) {
+        // Another browser may have accepted the finished episode since our last sync.
+        try {
+          await studio(episodePath(id), "GET", undefined, signal);
+        } catch (error) {
+          if (error instanceof StudioError && error.status === 404) {
+            const record = readRecord(row);
+            record.episode.job = {
+              stage: row.episode.job.stage,
+              status: "interrupted",
+              message:
+                "制作进程已无此任务，已保留本地进度。可编辑或手动继续制作。",
+            };
+            await commit(id, row.stamp, record);
+          } else issue ??= error;
+        }
+      }
+      continue;
+    }
     try {
       if (remoteIds.has(id))
         await studio(episodePath(id), "DELETE", undefined, signal);

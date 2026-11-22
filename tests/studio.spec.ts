@@ -148,3 +148,50 @@ test("a mixed-version install fails without replacing the active worker", async 
     await fs.writeFile(swPath, sw);
   }
 });
+
+test("installed app identity stays stable and upgrades retain only two owned shells", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(60000);
+  const fs = await import("node:fs/promises");
+  const original = await fs.readFile("dist/sw.js", "utf8");
+  try {
+    await page.goto("./");
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    const cdp = await context.newCDPSession(page);
+    const { manifest, errors } = await cdp.send("Page.getAppManifest");
+    expect(errors).toEqual([]);
+    expect(manifest.id).toBe(page.url());
+    expect(manifest.startUrl).toBe(page.url());
+    const scope = await page.evaluate(
+      async () => (await navigator.serviceWorker.ready).scope,
+    );
+    await page.evaluate(async () => {
+      const other = await caches.open("podcast-abcdefabcdefabcd");
+      await other.put("/another-app/", new Response("other application"));
+    });
+    for (const release of ["second", "third"]) {
+      await fs.writeFile(
+        "dist/sw.js",
+        original.replace(/podcast-([a-f0-9]+)/, "podcast-$1-" + release),
+      );
+      await page.evaluate(async () =>
+        (await navigator.serviceWorker.ready).update(),
+      );
+      const apply = page.getByRole("button", { name: "立即更新" });
+      await expect(apply).toBeVisible();
+      await Promise.all([page.waitForEvent("load"), apply.click()]);
+    }
+    const keys = await page.evaluate(() => caches.keys());
+    const owned = keys.filter((key) =>
+      key.startsWith("podcast-shell:" + scope),
+    );
+    expect(owned).toHaveLength(2);
+    expect(owned.some((key) => key.endsWith("-second"))).toBe(true);
+    expect(owned.some((key) => key.endsWith("-third"))).toBe(true);
+    expect(keys).toContain("podcast-abcdefabcdefabcd");
+  } finally {
+    await fs.writeFile("dist/sw.js", original);
+  }
+});

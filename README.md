@@ -13,7 +13,9 @@ Verification covered the ball's clearance over the cassette and nearby props, pi
 
 ## Start the V2 local studio
 
-Use Node.js 24 LTS.
+For the prebuilt release, open a successful [Pages release run](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/workflows/pages.yml), download the `knowledge-podcast-worker` artifact and extract its tarball. The worker starts directly with Node.js 24 LTS. [Run the prebuilt worker](deploy/WORKER.md)
+
+To build from source, use Node.js 24 LTS.
 
 ```sh
 npm ci
@@ -103,4 +105,4 @@ OpenAI's [text-to-speech guide](https://developers.openai.com/api/docs/guides/te
 
 ## Deployment
 
-CI runs on pushes and pull requests. The Pages workflow runs on pushes to `main` and can also be dispatched manually. It runs the security audit, typecheck, unit tests, build, and Chromium E2E tests before publishing. GitHub Pages must be configured to use GitHub Actions in repository settings. Never embed API secrets in source, GitHub Pages artifacts, persistent browser storage or this repository. Browser BYOK exposes a user-entered key to the page runtime as described above.
+Every release to GitHub Pages passes the same Node 24 checks as a pull request. On `main`, the Pages workflow runs the dependency audit, type check, Node tests, public and private builds, and the configured Chromium, WebKit and Firefox suites. It then publishes the tested `dist` artifact. The workflow also supports a manual run on `main`. Select GitHub Actions as the Pages source. The private worker runs on its own host and keeps operator credentials there. See the [production checklist](docs/PRODUCTION-READINESS.md) and [worker runbook](docs/V2-FACTORY.md).

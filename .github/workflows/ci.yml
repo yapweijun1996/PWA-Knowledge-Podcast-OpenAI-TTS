@@ -1,7 +1,14 @@
 name: CI
 on:
   push:
+    branches-ignore: [main]
+    tags: ["**"]
   pull_request:
+  workflow_call:
+    inputs:
+      upload_pages:
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -26,3 +33,17 @@ jobs:
         env:
           PLAYWRIGHT_FACTORY_BROWSER: webkit
       - run: npx playwright test --config playwright.firefox.config.ts
+      - name: Package and start the private worker
+        run: |
+          node scripts/package-worker.mjs "$RUNNER_TEMP/knowledge-podcast-worker.tar.gz"
+          node scripts/verify-worker.mjs "$RUNNER_TEMP/knowledge-podcast-worker.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.upload_pages
+        with:
+          name: knowledge-podcast-worker
+          path: ${{ runner.temp }}/knowledge-podcast-worker.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        if: inputs.upload_pages
+        with:
+          path: dist

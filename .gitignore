@@ -5,3 +5,4 @@ test-results/
 *.tsbuildinfo
 .env*
 dist-private/
+dist-worker/

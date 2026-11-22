@@ -2,6 +2,7 @@ import { createReadStream, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, resolve } from "node:path";
 import { studioAPI, studioBase } from "../shared/factory.ts";
+import { backupLimit, restoreRecord } from "../shared/episode-backup.ts";
 import { productionBounds, readPreferences } from "../shared/preferences.ts";
 import { PublicError } from "./errors.mjs";
 import { ownerBoundary } from "./session.mjs";
@@ -71,9 +72,7 @@ function json(res, value, status = 200) {
   res.end(JSON.stringify(value));
 }
 
-async function body(req, max = 32_768) {
-  if (req.headers["content-type"]?.split(";")[0] !== "application/json")
-    throw new PublicError("请求须使用 JSON。", 415);
+async function readBytes(req, max) {
   if (Number(req.headers["content-length"]) > max)
     throw new PublicError("请求内容过长。", 413);
   let size = 0;
@@ -86,8 +85,21 @@ async function body(req, max = 32_768) {
     }
     chunks.push(chunk);
   }
+  return Buffer.concat(chunks);
+}
+
+async function body(req, max = 32_768) {
+  if (req.headers["content-type"]?.split(";")[0] !== "application/json")
+    throw new PublicError("请求须使用 JSON。", 415);
+  const deadline = setTimeout(() => req.destroy(), 20_000);
+  let bytes;
   try {
-    const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    bytes = await readBytes(req, max);
+  } finally {
+    clearTimeout(deadline);
+  }
+  try {
+    const data = JSON.parse(bytes.toString("utf8"));
     if (!data || typeof data !== "object" || Array.isArray(data))
       throw new Error();
     return data;
@@ -146,10 +158,12 @@ export function podcastHTTP({
       throw new PublicError(error.message, 400);
     }
   }
+  let acceptingArchive = false;
   const boundary = ownerBoundary(publicOrigin, ownerToken);
   return createServer(
-    { requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 16_384 },
+    { requestTimeout: 600_000, headersTimeout: 10_000, maxHeaderSize: 16_384 },
     async (req, res) => {
+      req.setTimeout?.(20_000, () => req.destroy());
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("Referrer-Policy", "no-referrer");
       res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
@@ -265,6 +279,49 @@ export function podcastHTTP({
             const payload = await body(req);
             requireDiscoveryIdle();
             return json(res, jobs.start(id, payload), 202);
+          }
+          if (
+            production &&
+            action === "transcribe-local" &&
+            !clipId &&
+            req.method === "POST"
+          ) {
+            if (req.headers["x-podcast-consent"] !== "true")
+              throw new PublicError("请先确认转录可能计费。", 400);
+            const stamp = req.headers["x-local-stamp"];
+            if (typeof stamp !== "string" || !episodeId.test(stamp))
+              throw new PublicError("本地版本无效。", 400);
+            if (req.headers["content-type"] !== "application/octet-stream")
+              throw new PublicError("需要节目备份格式。", 415);
+            if (!production.runtime().configured)
+              throw new PublicError("请先配置密钥。", 503);
+            requireDiscoveryIdle();
+            if (acceptingArchive || jobs.busy)
+              throw new PublicError("已有任务进行中，请先同步。", 409);
+            acceptingArchive = true;
+            try {
+              const bytes = await readBytes(req, backupLimit);
+              let archive;
+              try {
+                archive = await restoreRecord(new Blob([bytes]));
+              } catch {
+                throw new PublicError("节目备份或音频校验失败。", 400);
+              }
+              const media = new Map();
+              for (const [name, blob] of Object.entries(archive.assets)) {
+                // Library clips are WAV-wrapped. The worker stores their PCM payload.
+                const data = name.endsWith(".pcm") ? blob.slice(44) : blob;
+                media.set(name, Buffer.from(await data.arrayBuffer()));
+              }
+              requireDiscoveryIdle();
+              return json(
+                res,
+                jobs.transcribeLocal(id, stamp, archive.episode, media),
+                202,
+              );
+            } finally {
+              acceptingArchive = false;
+            }
           }
           if (
             production &&

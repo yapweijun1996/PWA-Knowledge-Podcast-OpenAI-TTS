@@ -1,10 +1,12 @@
-import { episodeAssets, readEpisode } from "../../shared/episode-record.ts";
-import { validateAudio } from "../../shared/audio-record.ts";
-import type { Record } from "./library";
+import { episodeAssets, readEpisode } from "./episode-record.ts";
+import { validateAudio } from "./audio-record.ts";
+import type { Episode } from "./factory.ts";
+
+type Archive = { episode: Episode; assets: Record<string, Blob> };
 
 const magic = "KPS-V2";
 const manifestLimit = 262_144;
-const backupLimit = 120_000_000;
+export const backupLimit = 120_000_000;
 
 async function checksum(blob: Blob) {
   const hash = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -13,7 +15,7 @@ async function checksum(blob: Blob) {
   ).join("");
 }
 
-export async function backupRecord(row: Record) {
+export async function backupRecord(row: Archive) {
   const episode = structuredClone(row.episode);
   delete episode.syncToken;
   delete episode.localStamp;
@@ -65,7 +67,7 @@ export async function restoreRecord(file: Blob) {
     manifest.hashes.length !== entries.length
   )
     throw fail();
-  const assets: Record["assets"] = {};
+  const assets: Archive["assets"] = {};
   let cursor = headerSize + size;
   for (const [index, { asset, type }] of entries.entries()) {
     const length = manifest.lengths[index];

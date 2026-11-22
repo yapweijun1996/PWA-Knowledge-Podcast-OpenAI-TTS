@@ -1,4 +1,6 @@
 {
+  "id": "/PWA-Knowledge-Podcast-OpenAI-TTS/",
+  "lang": "zh-Hans",
   "name": "Knowledge Podcast Studio",
   "short_name": "Podcast Studio",
   "start_url": "./",

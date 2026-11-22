@@ -57,6 +57,7 @@ export function StudioIntake({
             </div>
             <textarea
               id="studio-topic"
+              disabled={busy}
               required
               rows={4}
               maxLength={limits.topic}

@@ -35,9 +35,10 @@ import {
   type Record as LibraryRecord,
 } from "./library";
 import type { FactoryPage, WorkspaceNavigation } from "./navigation";
+import { readIntakeDraft, writeIntakeDraft, type IntakeDraft } from "./intake-draft";
 import { PlaybackBar } from "./PlaybackBar";
 import { ProductionCredentials, ProductionSettings } from "./Preferences";
-import { backupRecord, restoreRecord } from "./record-backup";
+import { backupRecord, restoreRecord } from "../../shared/episode-backup";
 import { StudioIntake, type StudioAvailability } from "./StudioIntake";
 import { useLibraryAudio } from "./useLibraryAudio";
 import { usePlayback } from "./usePlayback";
@@ -107,8 +108,8 @@ export function Factory({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [syncIssue, setSyncIssue] = useState("");
-  const [topic, setTopic] = useState("");
-  const [exactHosts, setExactHosts] = useState<2>();
+  const [intake, setIntake] = useState(readIntakeDraft);
+  const { topic, exactHosts } = intake;
   const [consent, setConsent] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
@@ -123,7 +124,6 @@ export function Factory({
   const token = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
-  const creationId = useRef<string | null>(null);
   const awaitingCreated = useRef<string | null>(null);
   const row = records.find((record) => record.episode.id === selected);
   const getAudio = useLibraryAudio(records);
@@ -265,10 +265,7 @@ export function Factory({
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       let next = 5000;
-      const signal = AbortSignal.any([
-        controller.signal,
-        AbortSignal.timeout(60_000),
-      ]);
+      const signal = controller.signal;
       let detected = false;
       try {
         const runtime = await studio<Runtime>(
@@ -357,11 +354,17 @@ export function Factory({
     }
   }
 
+  function changeIntake(next: IntakeDraft) {
+    writeIntakeDraft(next);
+    setIntake(next);
+    setConsent(false);
+  }
+
   function create(event: FormEvent) {
     event.preventDefault();
     if (!canProduce || !consent || !topic.trim()) return;
-    const id = (creationId.current ??= crypto.randomUUID());
-    setConsent(false);
+    const id = intake.requestId ?? crypto.randomUUID();
+    changeIntake({ topic, exactHosts, requestId: id });
     void perform(async () => {
       await studio("/episodes", "POST", {
         topic,
@@ -372,8 +375,7 @@ export function Factory({
       });
       awaitingCreated.current = id;
       select(id);
-      setTopic("");
-      creationId.current = null;
+      changeIntake({ topic: "", exactHosts });
     });
   }
 
@@ -383,18 +385,34 @@ export function Factory({
       const episode = row.episode;
       const path = episodePath(episode.id);
       if (row.edited || !workerRow) {
-        const updated = await studio<Episode>(path + "/resume-local", "POST", {
-          snapshot: episode,
-          expected: workerRow?.syncToken ?? null,
-          consent: true,
-          kind: episode.script ? "audio" : "draft",
-          localStamp: row.stamp,
-          preferences: readPreferences(preferences),
-        });
+        if (kind === "transcript" && workerRow)
+          throw new Error("制作检查点已变化，请同步后再转录。");
+        const updated =
+          kind === "transcript"
+            ? await studio<Episode>(
+                path + "/transcribe-local",
+                "POST",
+                await backupRecord(row),
+                undefined,
+                {
+                  "X-Podcast-Consent": "true",
+                  "X-Local-Stamp": row.stamp,
+                },
+              )
+            : await studio<Episode>(path + "/resume-local", "POST", {
+                snapshot: episode,
+                expected: workerRow ? (episode.syncToken ?? null) : null,
+                consent: true,
+                kind,
+                localStamp: row.stamp,
+                preferences: readPreferences(preferences),
+              });
         await receive(updated, AbortSignal.timeout(30_000), row, true);
       } else {
         await studio(path + "/jobs", "POST", {
           revision: episode.revision,
+          syncToken: episode.syncToken,
+          asset: kind === "transcript" ? episode.finished?.asset : undefined,
           kind,
           consent: true,
         });
@@ -709,7 +727,6 @@ export function Factory({
               }
               unavailable={!canProduce || !!schedule?.running}
               disconnected={!connected}
-              canResumeTranscript={!!workerRow && !row.edited}
               onStart={start}
               onCancel={() =>
                 void perform(async () => {
@@ -760,17 +777,9 @@ export function Factory({
               exactHosts={exactHosts}
               consent={consent}
               busy={busy}
-              onChange={(value) => {
-                setTopic(value);
-                setConsent(false);
-                creationId.current = null;
-              }}
+              onChange={(topic) => changeIntake({ topic, exactHosts })}
               onConsent={setConsent}
-              onHostsChange={(value) => {
-                setExactHosts(value);
-                setConsent(false);
-                creationId.current = null;
-              }}
+              onHostsChange={(exactHosts) => changeIntake({ topic, exactHosts })}
               onSubmit={create}
             />
           )}

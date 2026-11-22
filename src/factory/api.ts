@@ -14,15 +14,24 @@ export async function studio<T>(
   method = "GET",
   body?: unknown,
   signal?: AbortSignal,
+  requestHeaders?: Record<string, string>,
 ): Promise<T> {
+  const upload = body instanceof Blob;
+  const timeout = AbortSignal.timeout(
+    upload ? 600_000 : signal ? 60_000 : 15_000,
+  );
   const response = await fetch(studioAPI + path, {
     method,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers:
-      body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: upload ? body : JSON.stringify(body),
+    headers: {
+      ...(body === undefined
+        ? {}
+        : { "Content-Type": upload ? body.type : "application/json" }),
+      ...requestHeaders,
+    },
     credentials: "same-origin",
     cache: "no-store",
-    signal: signal ?? AbortSignal.timeout(15_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   }).catch(() => {
     signal?.throwIfAborted();
     throw new StudioError("无法连接本机制作进程。浏览器节目仍可使用。", 0);
@@ -30,7 +39,7 @@ export async function studio<T>(
   if (!response.headers.get("Content-Type")?.includes("application/json"))
     throw new StudioError(
       "此网址没有连接制作进程。可继续使用浏览器资料库和本地编辑器。",
-      response.status,
+      0,
     );
   const payload = await response.json();
   if (!response.ok)
