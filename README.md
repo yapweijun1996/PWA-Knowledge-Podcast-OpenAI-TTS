@@ -25,6 +25,8 @@ Open [the loopback workspace](http://127.0.0.1:8787/) to see the Library (**资�
 
 The **本地编辑器** link opens V1. The Pages build also offers the Library from its workspace link. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
 
+Before sharing a finished episode, use the [V2 production checklist](docs/V2-PRODUCTION-CHECKLIST.md) to review the narration, verify the exports, reconcile costs and test the backup.
+
 ## V2 release status and player (2026-11-22)
 
 The V2 implementation and UI Batches 1–3 were merged into `main` at commit `559b7cf56e4877fd12c3b61d28852498df27eebe`. Independent macOS verification passed **95/95 automated tests**: 30 Node tests, 10 V2 Chromium tests and 55 V1 Chromium tests. Type checking, public/private builds and `git diff --check` passed; the production-dependency audit reported zero vulnerabilities. These are **candidate/source QA results**, not evidence of a deployed site, successful paid OpenAI calls or real-device validation. Consult the [independent verification record](docs/V2-FACTORY.md#independent-release-verification-2026-11-22).
