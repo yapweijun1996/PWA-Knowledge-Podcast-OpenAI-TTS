@@ -2440,7 +2440,11 @@ export default function App() {
                     >
                       ▶ 本机朗读全文
                     </button>
-                    <button className="outline full" onClick={exportDemo}>
+                    <button
+                      className="outline full"
+                      disabled={!!busy}
+                      onClick={exportDemo}
+                    >
                       {mode === "openai"
                         ? "下载完整 WAV 语音"
                         : "下载完整 WAV 提示音"}

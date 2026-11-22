@@ -21,10 +21,13 @@ test("offline demo works and export skips blank segments without provider calls"
   await page.waitForFunction(() => !navigator.onLine);
   const generate = page.getByRole("button", { name: "生成模拟提示音" });
   await expect(generate).toBeEnabled();
+  const fullExport = page.getByRole("button", { name: "下载完整 WAV 提示音" });
   await generate.click();
+  await expect(fullExport).toBeDisabled();
+  await expect(fullExport).toBeEnabled();
   await expect(page.getByText("已模拟", { exact: true })).toHaveCount(1);
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "下载完整 WAV 提示音" }).click();
+  await fullExport.click();
   const bytes = await readFile((await (await download).path())!);
   expect(bytes.subarray(0, 4).toString()).toBe("RIFF");
   await page.getByLabel("生成模式").selectOption("openai");

@@ -30,6 +30,8 @@ listening results without saving credentials or private audio to documentation.
 The owner has authorized up to US$5 for the planned small continuity comparison;
 that authorization is not proof that a call or charge occurred.
 
+The deployed two-tab upgrade preserved both drafts offline. A live export check also caught a click during active generation. The full WAV download stays disabled until the operation finishes. [Offline export regression](../tests/offline-demo.spec.ts)
+
 ## V1 recording protection and recovery (2026-11-22)
 
 - At `f08d2a5`, the public build and all five cases in
