@@ -37,6 +37,25 @@ npm run e2e:factory
 
 The Node fixture exercises scheduling without a browser, host selection, cross-checks, retry/cancel, transfers, offline-edit rules and backup validation. The Chromium spec exercises the full Library handoff and offline workflow. In this sandbox both browser runs stopped before navigation with `listen EPERM`; run them on a host that can listen on loopback. No live OpenAI requests or real FFmpeg encoding were performed. Verify one short live episode per language, fail/retry behavior with the account in use, real MP3 seek/playback, mobile PWA installation and low-storage recovery on target browsers.
 
+## Independent release verification (2026-11-22)
+
+**Scope:** Podcast Studio V2 plus UI Batches 1–3, committed and fast-forward merged into GitHub `main` as `559b7cf56e4877fd12c3b61d28852498df27eebe`. The remote `refs/heads/main` SHA was read back and matched the local SHA. The main worktree was clean after the push.
+
+| Independent macOS release gate | Observed result |
+| --- | --- |
+| `npm test` | **30/30 passed** |
+| V2 Chromium (`npx playwright test --config playwright.factory.config.ts --reporter=line --workers=1`) | **10/10 passed** |
+| V1 Chromium (`npm run e2e -- --reporter=line --workers=1`) | **55/55 passed** |
+| TypeScript, public build, private build, Git diff whitespace check | **Passed** |
+| `npm audit --omit=dev --audit-level=high` | **0 reported vulnerabilities** |
+| GitHub `main` push and remote SHA readback | **Verified** |
+
+These independent runs occurred outside the coding agent's restricted sandbox, which had reported `listen EPERM`. The earlier Batch 2/3 tables below are retained as **coding-agent environment evidence**, not the final release result. An initial V2 Playwright failure used a non-unique `配音预览` text locator; the locator was scoped to one element and the complete 10-test suite passed on rerun. No production player change was needed for that test failure.
+
+**Release boundary:** The source and candidate browser QA are verified. Live OpenAI model access, paid multilingual voice quality, actual FFmpeg/MP3 playback, iOS/Android PWA installation, long-running worker scheduling, private HTTPS access, dollar-denominated cost cutoff and live Pages deployment remain **NOT VERIFIED**. The private worker is not hosted by GitHub Pages. A successful source push must not be described as a production rollout.
+
+**Operational checks before relying on the system:** Confirm the correct browser origin and profile, request persistent storage where supported, export `.kps` backups, verify the worker stays awake for scheduled production, obtain explicit consent before paid calls, and test recovery on the target device. On refresh, playback position may return but audio remains paused until a user gesture. Browser background and lock-screen audio behavior varies by platform.
+
 ## Library UI Batch 2
 
 The Library shows locally saved records in an adaptive grid or compact list. Search matches title, topic and language with case-insensitive Unicode normalization. Production status, language and sort order apply together. Reset restores all defaults. The detail stays open when a filter excludes it, and opening another episode or starting a new one still checks for unsaved edits. The card's audio action focuses the existing audio section.
