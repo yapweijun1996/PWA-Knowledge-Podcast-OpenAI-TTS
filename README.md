@@ -2,6 +2,15 @@
 
 V2 is a browser-local Podcast Library with an optional trusted production worker. The worker can discover topics, cross-check citations, plan one to three hosts and an adaptive runtime, generate audio, and compare a separate audio transcript to the script. The browser stores the resulting episodes, research, scripts and playable audio for offline use.
 
+## Pocket Frequency animation
+
+In this Blender MCP design demo, a cassette hops onto the studio controls and accidentally starts a party. A disco ball swings over its head amid two bursts of confetti. The cassette ducks, then springs back to its starting pose.
+
+- [Watch or download the MP4](design/pocket-frequency-duck.mp4). Enable repeat in your player for continuous playback. The export runs for 4 seconds at 24 fps (96 frames) with H.264 video at 1000 × 744 and stereo AAC audio.
+- [Open the editable scene](design/pocket-frequency-duck.blend) in Blender. The timeline covers frames 1–96 and marks the button press, disco ball drop, duck and return. The scene was verified in Blender 5.1.2. The stereo soundtrack is in the MP4.
+
+Verification covered the ball's clearance over the cassette and nearby props, pixel-identical rendered endpoints, and a quiet audio splice.
+
 ## Start the V2 local studio
 
 Use Node.js 24 LTS.
