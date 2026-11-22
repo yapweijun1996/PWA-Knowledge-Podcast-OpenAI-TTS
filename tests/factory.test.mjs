@@ -12,6 +12,7 @@ import { podcastHTTP } from "../server/http.mjs";
 import { createJobs } from "../server/jobs.mjs";
 import { createOpenAI, defaults } from "../server/openai.mjs";
 import { createCredential, createProduction } from "../server/production.mjs";
+import { makeScript } from "../server/script.mjs";
 import { createStore } from "../server/store.mjs";
 import { validateAudio } from "../shared/audio-record.ts";
 import { readEpisode } from "../shared/episode-record.ts";
@@ -29,6 +30,7 @@ import {
   intended,
   pcmFixture,
   researchResponse,
+  textResponse,
 } from "./fixtures/podcast-provider.mjs";
 
 const local = "http://127.0.0.1:8787";
@@ -353,6 +355,173 @@ test("a script with a made-up claim fails and preserves the saved outline", asyn
   assert.equal(episode.job.status, "failed");
   assert.equal(episode.script, undefined);
   assert.equal(episode.outline.chapters.length, 2);
+  const response = await request("/episodes/" + id);
+  assert.equal(response.status, 200);
+  const { job } = response.data;
+  assert.match(job.message, /第 1 章第 2 段引用了本章大纲未分配的主张/);
+  assert.doesNotMatch(job.message, /invented/);
+});
+
+test("script validation reports the failed rule and relevant limits", async (t) => {
+  const rain = { id: "C1", text: "阵雨范围有限", sourceIds: ["S1"] };
+  const wind = { id: "C2", text: "风会移动雨云", sourceIds: ["S1"] };
+  const radar = { id: "C3", text: "雷达能观察雨区", sourceIds: ["S1"] };
+  const unused = { id: "C4", text: "未分配的主张", sourceIds: ["S1"] };
+  const episode = {
+    language: "zh",
+    plan: { targetSeconds: 90 },
+    voices: { A: "marin", B: "cedar" },
+    outline: {
+      chapters: [
+        { id: "ch1", claimIds: ["C1", "C3"] },
+        { id: "ch2", claimIds: ["C2", "C3"] },
+      ],
+    },
+    research: {
+      claims: [rain, wind, radar, unused],
+      sources: [{ id: "S1", title: "Example weather source" }],
+    },
+  };
+  const draft = {
+    title: "天气",
+    chapters: [
+      {
+        chapterId: "ch1",
+        turns: [{ text: "雨".repeat(60), host: "A", claimIds: ["C1"] }],
+      },
+      {
+        chapterId: "ch2",
+        turns: [{ text: "风".repeat(60), host: "B", claimIds: ["C2"] }],
+      },
+    ],
+  };
+  const validate = (data, input = episode) =>
+    makeScript(
+      async () => textResponse(JSON.stringify(data)),
+      "fixture",
+      input,
+      AbortSignal.timeout(1000),
+    );
+  await t.test("writer receives only each chapter's assigned evidence", async () => {
+    const script = await makeScript(
+      async (_, request) => {
+        const input = JSON.parse(request.input);
+        assert.deepEqual(input.chapters, [
+          { id: "ch1", allowedClaimIds: ["C1", "C3"], claims: [rain, radar] },
+          { id: "ch2", allowedClaimIds: ["C2", "C3"], claims: [wind, radar] },
+        ]);
+        assert.equal(Object.hasOwn(input, "claims"), false);
+        assert.deepEqual(input.sources, episode.research.sources);
+        return textResponse(JSON.stringify(draft));
+      },
+      "fixture",
+      episode,
+      AbortSignal.timeout(1000),
+    );
+    assert.equal(script.turns.length, 2);
+  });
+
+  const cases = [
+    ["chapter count", (d) => d.chapters.pop(), /章节数为 1，大纲要求 2 章/],
+    [
+      "chapter order",
+      (d) => d.chapters.reverse(),
+      /第 1 章的章节编号或顺序与大纲不符/,
+    ],
+    [
+      "chapter turn limit",
+      (d) => {
+        const turns = d.chapters[0].turns;
+        turns.push(...Array(10).fill(turns[0]));
+      },
+      /第 1 章有 11 段发言，超过上限 10/,
+    ],
+    [
+      "script turn limit",
+      (d) => {
+        for (const { turns } of d.chapters)
+          turns.push(...Array(5).fill(turns[0]));
+      },
+      /全稿有 12 段发言，超过上限 10/,
+    ],
+    [
+      "total text length",
+      (d) => {
+        for (const { turns } of d.chapters) {
+          turns[0].text = "雨".repeat(450);
+          turns.push(turns[0], turns[0]);
+        }
+      },
+      /全稿发言长度为 2700，超过上限 2610/,
+    ],
+    [
+      "unassigned host",
+      (d) => {
+        d.chapters[0].turns[0].host = "C";
+      },
+      /第 1 章第 1 段的主持人不在本集名单内/,
+    ],
+    [
+      "empty speech",
+      (d) => {
+        d.chapters[0].turns[0].text = " ";
+      },
+      /第 1 章第 1 段发言不能为空/,
+    ],
+    [
+      "turn length",
+      (d) => {
+        d.chapters[0].turns[0].text = "雨".repeat(451);
+      },
+      /第 1 章第 1 段发言长度为 451，超过上限 450/,
+    ],
+    [
+      "chapter citations",
+      (d) => {
+        d.chapters[0].turns[0].claimIds = [];
+      },
+      /第 1 章至少需要一段发言引用主张/,
+    ],
+    [
+      "claim assigned only to a different chapter",
+      (d) => {
+        d.chapters[1].turns[0].claimIds = ["C1"];
+      },
+      /第 2 章第 1 段引用了本章大纲未分配的主张/,
+    ],
+    [
+      "minimum spoken units",
+      (d) => {
+        d.chapters[0].turns[0].text = "雨";
+      },
+      /全稿只有 61 个口播单位，至少需要 112 个/,
+    ],
+    [
+      "missing host",
+      (d) => {
+        d.chapters[1].turns[0].host = "A";
+      },
+      /全稿缺少主持人 B 的发言/,
+    ],
+    [
+      "title length",
+      (d) => {
+        d.title = "雨".repeat(101);
+      },
+      /节目标题长度为 101，超过上限 100/,
+    ],
+  ];
+  for (const [name, change, message] of cases) {
+    await t.test(name, async () => {
+      const data = structuredClone(draft);
+      change(data);
+      await assert.rejects(validate(data), { status: 422, message });
+    });
+  }
+  await assert.rejects(validate(draft, { ...episode, plan: undefined }), {
+    status: 422,
+    message: /第 1 章缺少主持人 B 的发言/,
+  });
 });
 
 test("public-origin mode gates projects and audio with an owner cookie and exact same-origin writes", async (t) => {
