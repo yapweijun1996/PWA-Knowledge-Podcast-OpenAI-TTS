@@ -108,6 +108,7 @@ export function Factory({
   const [error, setError] = useState("");
   const [syncIssue, setSyncIssue] = useState("");
   const [topic, setTopic] = useState("");
+  const [exactHosts, setExactHosts] = useState<2>();
   const [consent, setConsent] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
@@ -366,6 +367,7 @@ export function Factory({
         topic,
         id,
         consent: true,
+        exactHosts,
         preferences: readPreferences(preferences),
       });
       awaitingCreated.current = id;
@@ -755,6 +757,7 @@ export function Factory({
               availability={availability}
               navigation={navigation}
               topic={topic}
+              exactHosts={exactHosts}
               consent={consent}
               busy={busy}
               onChange={(value) => {
@@ -763,6 +766,11 @@ export function Factory({
                 creationId.current = null;
               }}
               onConsent={setConsent}
+              onHostsChange={(value) => {
+                setExactHosts(value);
+                setConsent(false);
+                creationId.current = null;
+              }}
               onSubmit={create}
             />
           )}

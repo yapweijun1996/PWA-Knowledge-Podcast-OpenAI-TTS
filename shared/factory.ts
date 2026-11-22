@@ -134,8 +134,9 @@ export type ProductionBounds = {
   allowedLanguages: Language[];
   maxSeconds: number;
   maxHosts: number;
+  exactHosts?: 2;
 };
-export type Preferences = ProductionBounds & {
+export type Preferences = Omit<ProductionBounds, "exactHosts"> & {
   interests: string;
   enabled: boolean;
   cadence: "adaptive" | "daily" | "weekly";

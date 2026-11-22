@@ -19,19 +19,23 @@ export function StudioIntake({
   availability,
   navigation,
   topic,
+  exactHosts,
   consent,
   busy,
   onChange,
   onConsent,
+  onHostsChange,
   onSubmit,
 }: {
   availability: StudioAvailability;
   navigation: WorkspaceNavigation;
   topic: string;
+  exactHosts?: 2;
   consent: boolean;
   busy: boolean;
   onChange: (topic: string) => void;
   onConsent: (consent: boolean) => void;
+  onHostsChange: (count: 2 | undefined) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
   const [status, guidance] = availabilityCopy[availability];
@@ -61,6 +65,19 @@ export function StudioIntake({
               onChange={(event) => onChange(event.target.value)}
             />
           </div>
+          <label className="field">
+            主持人数
+            <select
+              value={exactHosts ?? "auto"}
+              disabled={busy}
+              onChange={(event) =>
+                onHostsChange(event.target.value === "2" ? 2 : undefined)
+              }
+            >
+              <option value="auto">自动安排</option>
+              <option value="2">恰好两位主持人</option>
+            </select>
+          </label>
           <div className="studio-availability" id="studio-availability">
             <div role="status">
               <strong>{status}</strong>

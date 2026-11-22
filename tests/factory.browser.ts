@@ -2,8 +2,16 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buffer } from "node:stream/consumers";
 import { episodeAssets } from "../shared/episode-record";
 import type { Episode, EpisodeSummary } from "../shared/factory";
+
+async function downloadBytes(page: Page, button: string) {
+  const pending = page.waitForEvent("download");
+  await page.getByRole("button", { name: button, exact: true }).click();
+  const download = await pending;
+  return buffer(await download.createReadStream());
+}
 
 async function readCommittedEpisode(page: Page, id: string) {
   return page.evaluate(async (id) => {
@@ -18,7 +26,10 @@ async function readCommittedEpisode(page: Page, id: string) {
         .objectStore("episodes")
         .get(id);
       const row = await new Promise<
-        { episode: Episode; assets: Record<string, Blob> } | undefined
+        {
+          episode: Episode;
+          assets: Record<string, Blob | { bytes: ArrayBuffer; type: string }>;
+        } | undefined
       >((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
@@ -27,9 +38,12 @@ async function readCommittedEpisode(page: Page, id: string) {
         row && {
           episode: row.episode,
           assets: Object.fromEntries(
-            Object.entries(row.assets).map(([asset, { type, size }]) => [
+            Object.entries(row.assets).map(([asset, audio]) => [
               asset,
-              { type, size },
+              {
+                type: audio.type,
+                size: audio instanceof Blob ? audio.size : audio.bytes.byteLength,
+              },
             ]),
           ),
         }
@@ -288,9 +302,10 @@ test("autonomous worker hands off audio and research, then offline editing and b
   ).toHaveCount(0);
 });
 
-test("manual Studio creation shows all five saved stages and opens the same result in Library", async ({
+test("manual Studio creation saves an exact two-speaker episode and recovers it offline", async ({
   page,
   context,
+  browser,
 }) => {
   const topic = "新加坡的组屋为何能容纳不同族群？";
   const providerRequests: string[] = [];
@@ -312,6 +327,8 @@ test("manual Studio creation shows all five saved stages and opens the same resu
   const submit = studio.getByRole("button", { name: "制作整集播客" });
   const topicInput = studio.getByRole("textbox", { name: "播客主题" });
   const consent = studio.getByRole("checkbox", { name: /同意本次 OpenAI/ });
+  const hosts = studio.getByRole("combobox", { name: "主持人数" });
+  await expect(hosts).toHaveValue("auto");
   await topicInput.fill(topic);
   await expect(studio.getByText("需要 OpenAI 密钥")).toBeVisible();
   await expect(consent).toBeDisabled();
@@ -325,8 +342,18 @@ test("manual Studio creation shows all five saved stages and opens the same resu
   await expect(topicInput).toHaveValue(topic);
   await expect(submit).toBeDisabled();
   await consent.check();
+  await hosts.selectOption("2");
+  await expect(consent).not.toBeChecked();
+  await expect(submit).toBeDisabled();
+  await consent.check();
   await expect(submit).toBeEnabled();
+  const submitted = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/studio/episodes",
+  );
   await submit.click();
+  expect((await submitted).postDataJSON().exactHosts).toBe(2);
 
   const episode = studio.getByRole("region", { name: "Fixture episode" });
   const stages = episode.getByRole("list", { name: "制作阶段" });
@@ -343,6 +370,7 @@ test("manual Studio creation shows all five saved stages and opens the same resu
     await expect(stages.getByText(name)).toBeVisible();
   }
   await expect(episode.getByText(topic, { exact: true })).toBeVisible();
+  await expect(episode.getByText(/2 位主持/)).toBeVisible();
   await expect(
     studio.getByRole("heading", { name: "音频转录与脚本对照" }),
   ).toBeVisible();
@@ -378,12 +406,51 @@ test("manual Studio creation shows all five saved stages and opens the same resu
     })
     .toBe(false);
 
+  const originalWav = await downloadBytes(page, "下载 WAV");
+  expect(originalWav.toString("ascii", 8, 12)).toBe("WAVE");
+  expect(originalWav.length).toBeGreaterThan(44);
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await context.setOffline(true);
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "音频转录与脚本对照" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "下载 WAV" })).toBeEnabled();
+  expect((await downloadBytes(page, "下载 WAV")).equals(originalWav)).toBe(true);
+  const backup = await downloadBytes(page, "备份本期节目");
+  const recovery = await browser.newContext();
+  try {
+    const copy = await recovery.newPage();
+    await copy.goto(new URL("/", page.url()).href);
+    await expect(copy.getByText("此浏览器尚无节目。")).toBeVisible();
+    await copy.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await recovery.setOffline(true);
+    await copy.getByLabel("节目备份文件").setInputFiles({
+      name: "two-speakers.kps",
+      mimeType: "application/octet-stream",
+      buffer: backup,
+    });
+    await expect(copy.getByText("备份已恢复为本地副本。")).toBeVisible();
+    await copy.reload();
+    await expect(
+      copy.getByRole("heading", { name: "音频转录与脚本对照" }),
+    ).toBeVisible();
+    const copyId = new URL(copy.url()).searchParams.get("episode");
+    if (!copyId) throw new Error("Missing restored episode ID");
+    expect(copyId).not.toBe(episodeId);
+    const saved = (await readCommittedEpisode(copy, copyId))?.episode;
+    expect(saved?.voices).toEqual({ A: "marin", B: "cedar" });
+    expect(new Set(saved?.script?.turns.map(({ host }) => host))).toEqual(
+      new Set(["A", "B"]),
+    );
+    expect((await downloadBytes(copy, "下载 WAV")).equals(originalWav)).toBe(true);
+    await copy.getByRole("button", { name: "0:00 · What happened" }).click();
+    const player = copy.getByLabel("成品音频播放器");
+    await expect
+      .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
+      .toBeGreaterThan(0);
+  } finally {
+    await recovery.close();
+  }
   expect(providerRequests).toEqual([]);
 });
 

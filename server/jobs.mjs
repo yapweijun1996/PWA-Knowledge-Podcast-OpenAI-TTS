@@ -378,6 +378,8 @@ export function createJobs({
         outline,
         script,
       } = source;
+      if (source.production?.exactHosts === 2)
+        production = { ...production, maxHosts: 2, exactHosts: 2 };
       return start(
         {
           id,

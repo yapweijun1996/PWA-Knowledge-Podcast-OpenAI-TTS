@@ -223,6 +223,15 @@ export function podcastHTTP({
               requireDiscoveryIdle();
               if (production) {
                 const preferences = bounds(payload.preferences);
+                if (payload.exactHosts !== undefined) {
+                  if (payload.exactHosts !== 2)
+                    throw new PublicError(
+                      "请选择自动安排或恰好两位主持人。",
+                      400,
+                    );
+                  preferences.maxHosts = payload.exactHosts;
+                  preferences.exactHosts = payload.exactHosts;
+                }
                 const language =
                   preferences.language === "auto"
                     ? preferences.allowedLanguages[0]

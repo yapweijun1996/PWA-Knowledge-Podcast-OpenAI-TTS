@@ -406,6 +406,12 @@ test("script validation reports the failed rule and relevant limits", async (t) 
     const script = await makeScript(
       async (_, request) => {
         const input = JSON.parse(request.input);
+        const chapters = request.text.format.schema.properties.chapters;
+        assert.equal(chapters.minItems, 2);
+        assert.equal(chapters.maxItems, 2);
+        assert.deepEqual(chapters.items.properties.chapterId.enum, ["ch1", "ch2"]);
+        assert.equal(chapters.items.properties.turns.minItems, 1);
+        assert.equal(chapters.items.properties.turns.maxItems, 5);
         assert.deepEqual(input.chapters, [
           { id: "ch1", allowedClaimIds: ["C1", "C3"], claims: [rain, radar] },
           { id: "ch2", allowedClaimIds: ["C2", "C3"], claims: [wind, radar] },
@@ -646,18 +652,20 @@ test("Realtime adapter waits for voice confirmation and a completed PCM response
   const pcm = await createNarrator("fixture-only", Socket)(
     {
       model: defaults.audio,
-      language: "sg",
+      language: "zh",
       host: "B",
       voice: "cedar",
-      text: "Okay, 你明白吗？ Betul.",
+      text: "那四种分别是什么？",
     },
     new AbortController().signal,
   );
   assert.equal(sent[0].session.audio.output.voice, "cedar");
-  assert.equal(
-    sent[1].response.input[0].content[0].text,
-    "Okay, 你明白吗？ Betul.",
-  );
+  const request = sent[1].response;
+  const input = request.input[0].content[0].text;
+  const [directive, data] = input.split("\n");
+  assert.match(directive, /Record this scripted line/);
+  assert.deepEqual(JSON.parse(data), { line: "那四种分别是什么？" });
+  assert.match(request.instructions, /read the question and stop/);
   assert.equal(sent[1].response.max_output_tokens, 2048);
   assert.equal(pcm.length, 24_000);
   assert.equal(pcm.readInt16LE(pcm.length - 2), 0);
@@ -870,6 +878,79 @@ test("manual production selects a single Mandarin host and enforces consent and 
   assert.ok(
     narrated.every(({ host, language }) => host === "A" && language === "zh"),
   );
+});
+
+test("manual exact casting produces two voices and rejects unsupported mode values before billing", async (t) => {
+  const { store, request, narrated, calls } = harness(t, { dynamic: true });
+  await request("/key", keyPayload);
+  const id = randomUUID();
+  const payload = {
+    id,
+    topic: "Two host fixture",
+    consent: true,
+    exactHosts: 2,
+    preferences: { ...defaultPreferences, maxHosts: 1 },
+  };
+  assert.equal((await create(request, { ...payload, exactHosts: 3 })).status, 400);
+  assert.deepEqual(calls, []);
+  assert.equal((await create(request, payload)).status, 202);
+  const episode = await settled(store, id);
+  assert.equal(episode.production.exactHosts, 2);
+  assert.equal(episode.production.maxHosts, 2);
+  assert.deepEqual(episode.voices, { A: "marin", B: "cedar" });
+  assert.deepEqual(
+    new Set(narrated.map(({ voice }) => voice)),
+    new Set(["marin", "cedar"]),
+  );
+  assert.throws(() =>
+    readEpisode({
+      ...episode,
+      script: {
+        ...episode.script,
+        turns: episode.script.turns.filter(({ host }) => host === "A"),
+      },
+    }),
+  );
+  assert.ok(episode.finished.transcript);
+});
+
+test("an exact cast rejects a one-host plan and keeps the constraint on checkpoint resume", async (t) => {
+  const { store, request, narrated, calls } = harness(t, {
+    dynamic: true,
+    cast: 1,
+  });
+  await request("/key", keyPayload);
+  const id = randomUUID();
+  assert.equal(
+    (await create(request, {
+      id,
+      topic: "Wrong cast",
+      consent: true,
+      exactHosts: 2,
+    })).status,
+    202,
+  );
+  const episode = await settled(store, id);
+  assert.equal(episode.job.stage, "outline");
+  assert.match(episode.job.message, /恰好两位主持人/);
+  assert.ok(episode.research);
+  assert.equal(episode.script, undefined);
+  assert.equal(narrated.length, 0);
+  const resumed = await request(`/episodes/${id}/resume-local`, {
+    method: "POST",
+    payload: {
+      snapshot: episode,
+      expected: episode.syncToken,
+      localStamp: randomUUID(),
+      kind: "draft",
+      consent: true,
+    },
+  });
+  assert.equal(resumed.status, 202);
+  const retry = await settled(store, id);
+  assert.equal(retry.production.exactHosts, 2);
+  assert.match(retry.job.message, /恰好两位主持人/);
+  assert.deepEqual(calls, ["research", "audit", "outline", "outline"]);
 });
 
 test("browser backup round-trips a complete WAV with evidence and rejects corrupted audio and unsafe citations", async (t) => {

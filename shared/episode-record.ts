@@ -99,6 +99,13 @@ export function readEpisode(value: unknown): Episode {
   }
   const claimIds = new Set(e.research?.claims.map((claim) => claim.id));
   if (
+    e.production?.exactHosts !== undefined &&
+    (e.production.exactHosts !== 2 ||
+      e.production.maxHosts !== 2 ||
+      (e.outline && activeHosts(e).length !== 2))
+  )
+    return invalid();
+  if (
     e.outline &&
     (!text(e.outline.model, 150) ||
       !array(e.outline.chapters, 7) ||
@@ -135,6 +142,10 @@ export function readEpisode(value: unknown): Episode {
           !ids(turn.claimIds, new Set(chapter.claimIds))
         );
       }) ||
+      (e.production?.exactHosts === 2 &&
+        !activeHosts(e).every((host) =>
+          e.script?.turns.some((turn) => turn.host === host),
+        )) ||
       !unique(e.script.turns.map((turn) => turn.id)) ||
       e.script.turns.reduce((sum, turn) => sum + turn.text.length, 0) >
         limits.script
