@@ -1,10 +1,12 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+import { build } from "vite";
 import { bundleStudio3d, measureStudio3d } from "../scripts/studio3d-bench.mjs";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
-import { buildTimeline } from "../src/video/timeline.ts";
+import { beforeEnd, buildTimeline } from "../src/video/timeline.ts";
 import { test } from "./fixtures/guards";
 import {
   dialogue,
@@ -37,9 +39,13 @@ const turns = dialogue.flatMap(({ chapterId, turns }) =>
   })),
 );
 const pcm = pcmFixture();
-const secondsPerTurn = pcm.length / 48_000;
+const repeatedPcm = Buffer.concat([pcm, pcm]);
+// Start the second chapter early so the short fixture still shows the 3D stage.
+const clips = turns.map(({ chapterId }) =>
+  repeatedPcm.subarray(0, chapterId === chapters[0].id ? 6_000 : 42_000),
+);
 const pause = Buffer.alloc(0.23 * 48_000);
-const wav = wave(turns.flatMap((_, index) => (index ? [pause, pcm] : [pcm])));
+const wav = wave(clips.flatMap((clip, index) => (index ? [pause, clip] : [clip])));
 const duration = (wav.length - 44) / 48_000;
 const episode: Episode = {
   id,
@@ -54,9 +60,9 @@ const episode: Episode = {
     revision: 1,
     model: "fixture",
     clips: Object.fromEntries(
-      turns.map(({ id }) => [
+      turns.map(({ id }, index) => [
         id,
-        { asset: `${id}.wav`, duration: secondsPerTurn },
+        { asset: `${id}.wav`, duration: clips[index].length / 48_000 },
       ]),
     ),
   },
@@ -68,16 +74,35 @@ const episode: Episode = {
     intendedText: intended,
     chapters: chapters.map(({ title }, index) => ({
       title,
-      start: index * 2 * (secondsPerTurn + 0.23),
+      start: index * 2 * (clips[0].length / 48_000 + 0.23),
     })),
     transcript: { text: heard, model: "fixture", similarity: 100 },
     qa: { status: "matched", reasons: [] },
   },
 };
 const plan = buildTimeline(episode);
-const firstTurnFrame = Math.ceil(
-  plan.scenes.find(({ kind }) => kind === "turn")!.start * plan.fps,
-);
+const frameCount = Math.ceil(plan.duration * plan.fps);
+const stageFrames = Array.from(
+  { length: frameCount },
+  (_, frame) => frame,
+).filter((frame) => {
+  const time = frame / plan.fps;
+  const visible = plan.scenes.filter(
+    ({ start, end }) => start <= time && beforeEnd(time, end),
+  );
+  return visible.length === 1 && visible[0].kind === "turn";
+});
+if (stageFrames.length < 3)
+  throw new Error("3D fixture needs uncropped stage frames");
+const firstStageFrame = stageFrames[0];
+const previewFrames = [
+  0,
+  15,
+  30,
+  firstStageFrame,
+  stageFrames[Math.floor(stageFrames.length / 2)],
+  stageFrames.at(-1)!,
+];
 
 async function openFixture(page: Page) {
   await page.addInitScript(() =>
@@ -153,76 +178,96 @@ async function videoReceipts(page: Page) {
   });
 }
 
+const decoderUrl = "/__test/visual-mp4.js";
+
+async function servePreviewDecoder(page: Page) {
+  const result = await build({
+    configFile: false,
+    logLevel: "error",
+    build: {
+      write: false,
+      lib: {
+        entry: fileURLToPath(
+          new URL("./fixtures/visual-mp4.ts", import.meta.url),
+        ),
+        formats: ["es"],
+      },
+    },
+  });
+  if (!Array.isArray(result))
+    throw new Error("Could not build the preview decoder");
+  const reader = result[0].output.find(
+    (chunk) => chunk.type === "chunk" && chunk.isEntry,
+  );
+  if (!reader || reader.type !== "chunk")
+    throw new Error("Missing preview decoder");
+  await page.route(`**${decoderUrl}`, (route) =>
+    route.fulfill({ contentType: "text/javascript", body: reader.code }),
+  );
+}
+
 async function decodedFrames(preview: Locator) {
   return preview.evaluate(
-    async (video: HTMLVideoElement, { fps, frames }) => {
+    async (
+      video: HTMLVideoElement,
+      { decoderUrl, fps, frameCount, indices },
+    ) => {
+      const module: typeof import("./fixtures/visual-mp4.ts") = await import(
+        decoderUrl
+      );
+      const blob = await (await fetch(video.currentSrc)).blob();
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const width = (canvas.width = video.videoWidth);
+      const height = (canvas.height = video.videoHeight);
       const context = canvas.getContext("2d", { willReadFrequently: true })!;
-      const results = [];
-      for (const frame of frames) {
-        const sought = new Promise<void>((resolve, reject) => {
-          const listeners = new AbortController();
-          video.addEventListener(
-            "seeked",
-            () => {
-              listeners.abort();
-              resolve();
-            },
-            { signal: listeners.signal },
-          );
-          video.addEventListener(
-            "error",
-            () => {
-              listeners.abort();
-              reject(new Error("Could not decode the requested video frame"));
-            },
-            { signal: listeners.signal },
-          );
-        });
-        // Seek to the center of the frame's presentation interval.
-        video.currentTime = (frame + 0.5) / fps;
-        await sought;
-        context.drawImage(video, 0, 0);
-        const pixels = context.getImageData(
-          0,
-          0,
-          canvas.width,
-          canvas.height,
-        ).data;
-        const digest = await crypto.subtle.digest("SHA-256", pixels);
-        const sha256 = Array.from(new Uint8Array(digest), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
-
-        // Sample the space between the shared speaker label and captions.
-        const studioPixels = context.getImageData(
-          canvas.width * 0.2,
-          canvas.height * 0.43,
-          canvas.width * 0.6,
-          canvas.height * 0.22,
-        ).data;
-        const colors = new Set<number>();
-        for (let index = 0; index < studioPixels.length; index += 4 * 16) {
-          colors.add(
-            (studioPixels[index] << 16) |
-              (studioPixels[index + 1] << 8) |
-              studioPixels[index + 2],
-          );
-        }
-        results.push({ sha256, colors: colors.size });
-      }
-      return results;
+      const samples = new Map<
+        number,
+        { pixels: Uint8ClampedArray; colors: number }
+      >();
+      await module.readMp4Frames(
+        blob,
+        width,
+        height,
+        fps,
+        frameCount,
+        (frame, index) => {
+          if (!indices.includes(index)) return;
+          context.drawImage(frame, 0, 0);
+          const pixels = context.getImageData(0, 0, width, height).data;
+          const studioPixels = context.getImageData(
+            width * 0.2,
+            height * 0.43,
+            width * 0.6,
+            height * 0.22,
+          ).data;
+          const colors = new Set<number>();
+          for (let offset = 0; offset < studioPixels.length; offset += 4 * 16) {
+            colors.add(
+              (studioPixels[offset] << 16) |
+                (studioPixels[offset + 1] << 8) |
+                studioPixels[offset + 2],
+            );
+          }
+          samples.set(index, { pixels, colors: colors.size });
+        },
+      );
+      return Promise.all(
+        indices.map(async (index) => {
+          const sample = samples.get(index);
+          if (!sample) throw new Error(`Preview is missing frame ${index}`);
+          const digest = await crypto.subtle.digest("SHA-256", sample.pixels);
+          const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+          return { sha256, colors: sample.colors };
+        }),
+      );
     },
     {
+      decoderUrl,
       fps: plan.fps,
-      frames: [
-        0,
-        15,
-        30,
-        ...[0, 15, 30].map((offset) => firstTurnFrame + offset),
-      ],
+      frameCount,
+      indices: previewFrames,
     },
   );
 }
@@ -241,6 +286,7 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
   page,
 }) => {
   test.setTimeout(150_000);
+  await servePreviewDecoder(page);
   await page.addInitScript(() => {
     const wordmarks = new Set<string>();
     Reflect.set(window, "renderedWordmarks", wordmarks);
@@ -302,6 +348,17 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
   }
 
   const first = await renderAndSample();
+  await preview.evaluate(async (video: HTMLVideoElement) => {
+    video.muted = true;
+    await video.play();
+  });
+  await expect
+    .poll(() =>
+      preview.evaluate((video: HTMLVideoElement) => video.currentTime),
+    )
+    .toBeGreaterThan(0.15);
+  await preview.evaluate((video: HTMLVideoElement) => video.pause());
+
   expect(
     await page.evaluate(() => [...Reflect.get(window, "renderedWordmarks")]),
   ).toEqual([createTranslator("zh-CN")("video.wordmark")]);
@@ -379,12 +436,12 @@ test("cancelling after Studio 3D starts leaves no video artifact", async ({
   test.setTimeout(90_000);
   const { panel, render, preview } = await openFixture(page);
   await panel.evaluate(
-    (element, { firstTurnFrame, cancelText }) => {
+    (element, { firstStageFrame, cancelText }) => {
       const observer = new MutationObserver(() => {
         const progress = element.querySelector("progress");
         if (
           !progress ||
-          progress.value <= firstTurnFrame ||
+          progress.value <= firstStageFrame ||
           progress.value >= progress.max
         )
           return;
@@ -401,7 +458,7 @@ test("cancelling after Studio 3D starts leaves no video artifact", async ({
         subtree: true,
       });
     },
-    { firstTurnFrame, cancelText: english("video.panel.cancel") },
+    { firstStageFrame, cancelText: english("video.panel.cancel") },
   );
   await render.click();
   await expect(panel.getByText(english("video.panel.cancelled"))).toBeVisible({
