@@ -43,16 +43,27 @@ Settings, select worker production in Studio if both modes are available, then
 review the cost disclosure and consent. Configure a schedule in Automation for
 unattended production. The worker must stay running. [Worker setup and access](docs/V2-FACTORY.md#optional-worker)
 
-## Video and publishing
+## Video, animation and publishing
 
-The repository includes a browser-local waveform and caption renderer using
-Canvas, WebCodecs and MP4 muxing. A publish ZIP builder packages the MP4, a
-thumbnail, title, description, tags, chapters and a manual-upload checklist.
-Both are exposed as agent tools and in the Episode view: render, preview,
-review and approve the video, then download the publish ZIP. This was verified
-in Chromium only (render, preview, ZIP and cancel tests); real Safari, mobile
-and upload acceptance are **UNVERIFIED**. The owner uploads to YouTube
-manually. [Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts) · [Tool integration](src/agent/tools.ts)
+The Episode view renders a finished episode to MP4 in the browser (Canvas 2D
+waveform and captions today, WebCodecs and MP4 muxing, H.264 with AAC or Opus
+depending on the browser), previews it, lets you edit the title, description
+and chapters, and then downloads one publish ZIP: video, thumbnail, title,
+description with chapters and sources, tags and a manual-upload checklist.
+Rendering never calls a provider. The owner uploads to YouTube manually.
+Verified in Chromium; Safari, phones and upload acceptance are **UNVERIFIED**.
+[Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts)
+
+A scene interface lets different scenes draw the video. A Three.js studio
+scene and an AI-directed storyboard are in progress. [Animation decision](docs/ANIMATION-DECISION.md) · [Research](docs/ANIMATION-RESEARCH-2026-11-23.md)
+
+## Agent
+
+Studio has a collapsed Agent panel: give a goal, consent to the run, and the
+in-page agent calls tools (research, script, narration, render, export). Each
+paid tool asks for separate approval, a live log shows every step, and
+cancellation stops at the next safe point. Tested with mocked provider
+turns; a real model-driven run is **UNVERIFIED**. [Agent](docs/AGENT.md) · [pi bridge spike](docs/PI-BRIDGE.md)
 
 ## Repository layout
 
@@ -66,13 +77,14 @@ manually. [Renderer](src/video/render.ts) · [Publish package](src/publish/packa
 
 ## Verification
 
-The T30/T31 candidate passed the type check and 152 Node tests. The locale
-scan found zero CJK fragments outside the UI catalogue in its scanned source.
-Playwright listed 30 Chromium cases and one WebKit case. Browser execution for
-this candidate is `NOT_RUN`. Earlier paid evidence covers individual API
-endpoints and a short Chromium narration sample. Full-episode listening,
-actual episode costs, physical devices, and manual upload compatibility remain
-**UNVERIFIED**. [Test matrix and commands](docs/TEST-MATRIX.md) · [Provider contract](docs/PROVIDER-CONTRACT.md)
+On 2026-11-23 the project passed the type check, 199 Node tests (1 skipped),
+the strict locale scan (0 hard-coded CJK fragments), 38 of 38 Chromium browser
+tests, both builds and the dependency audit (0 vulnerabilities). One real
+end-to-end run with a user-supplied key produced a 1:53 episode, an MP4 and a
+publish ZIP in about 3 minutes with 14 provider calls and no key found in
+storage. **Not verified:** listening quality and continuity, actual dollar
+cost, Safari, phones, physical-device accessibility, long episodes and manual
+upload compatibility. [Test matrix](docs/TEST-MATRIX.md) · [E2E trial](docs/E2E-TRIAL-2026-11-23.md) · [Provider contract](docs/PROVIDER-CONTRACT.md)
 
 Pages publishes the tested public build through the Pages workflow. The
 optional worker has its own distributable artifact. Use the release and

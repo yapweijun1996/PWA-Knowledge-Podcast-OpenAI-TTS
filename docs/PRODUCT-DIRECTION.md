@@ -30,13 +30,16 @@ reviews the output and handles any YouTube upload manually.
 
 ## Implementation status
 
+Evidence date 2026-11-23, `main` at the commit named in [TEST-MATRIX](TEST-MATRIX.md).
+
 | Capability | Status and evidence |
 | --- | --- |
-| M0 · Browser Studio and Library | **Implemented.** Direct BYOK generation, checkpoint recovery, playback and `.kps` transfer. T30/T31 browser execution and live full-episode quality are **UNVERIFIED**. [Browser runner](../src/factory/browser-production.ts) · [Test matrix](TEST-MATRIX.md) |
-| M1 · Render | **Core module implemented.** Canvas waveform and captions, WebCodecs and MP4 hashing. Target-device performance and Studio review are **UNVERIFIED**. [Render tests](../tests/video-render.test.mjs) · [Video evidence](VIDEO-RENDER-DECISION.md) |
-| M2 · Manual publish | **Core module implemented.** Local ZIP packaging and agent export. Studio UI download and upload acceptance remain **UNVERIFIED**. [Package tests](../tests/publish-package.test.mjs) · [Agent tools](../src/agent/tools.ts) |
-| M3 · Agent and pi | **In-page loop and tools implemented.** The optional pi loopback spike has limited evidence. Model-driven bridge use remains **UNVERIFIED**. [Agent tests](../tests/agent.test.mjs) · [Bridge evidence](PI-BRIDGE.md) |
-| M6 · i18n | **Implemented.** Three catalogues, runtime locale switch, Intl formatting, catalogue checks and browser sweep. Sensitive-copy native review remains **UNVERIFIED**. [i18n tests](../tests/i18n.test.mjs) · [UI/UX evidence](UIUX-EVIDENCE.md) |
+| M0 · Browser Studio and Library | **Implemented and run once end to end.** Direct BYOK production with checkpoint recovery, playback and `.kps` transfer, with no worker. One real run produced a 1:53 episode in about 3 minutes with the owner's key and 14 provider calls; no key was found in storage, DOM or IndexedDB records. [E2E trial](E2E-TRIAL-2026-11-23.md) · [Browser runner](../src/factory/browser-production.ts) |
+| M1 · Video | **Implemented and run in real Chromium.** Episode view renders an MP4 locally (H.264 plus AAC or the Opus fallback), previews it, supports review and approval. 13.8 MiB for a 2 minute test episode after T49. Safari, phones and memory limits are **UNVERIFIED**. [Video decision](VIDEO-RENDER-DECISION.md) · [Video tests](../tests/factory-video.browser.ts) |
+| M2 · Manual publish | **Implemented.** The approved video plus title, description with chapters and sources, tags, thumbnail and a manual-upload checklist download as one ZIP. YouTube acceptance of Opus audio and the AI-content disclosure wording are **UNVERIFIED**; the owner uploads by hand. |
+| M3 · Agent | **Implemented in the Studio.** A collapsed Agent panel runs the in-page tool loop with consent for the run and for each paid tool, a live log and cancellation. Covered by mocked provider tests only; a real model-driven run is **UNVERIFIED**. The pi bridge is a no-model spike. [Agent](AGENT.md) · [pi bridge](PI-BRIDGE.md) |
+| M6 · i18n and UI/UX | **Implemented.** Three catalogues, runtime locale switch, Intl formatting, catalogue checks and a 12-case Chromium sweep. Native review of English and Malay consent, cost and key-risk copy is **UNVERIFIED**. [I18N](I18N.md) · [UI/UX evidence](UIUX-EVIDENCE.md) |
+| M7 · Animation | **Scene interface implemented; first 3D scene in progress.** Waveform is the first scene. A Three.js studio scene was measured in a spike (26.7 ms per 1080p frame on software WebGL, identical frame hashes across runs and worker). Crucible ("67JS", confirmed by the owner) was measured at 113 ms per frame. Visual design and AI storyboard are in progress. [Animation decision](ANIMATION-DECISION.md) |
 
 ## Run modes
 

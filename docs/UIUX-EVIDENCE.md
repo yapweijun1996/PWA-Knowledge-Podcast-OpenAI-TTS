@@ -93,3 +93,13 @@ npm run e2e:factory -- tests/factory-i18n-sweep.browser.ts
 - Known product follow-ups from the integration notes: the unknown-outcome flow
   can still show worker retry wording and needs a distinct request-review step
   before new paid work; playback track metadata lacks the episode language.
+
+## Run record 2 (2026-11-23, after T39 UI, T49, T50 and T54)
+
+`npm run e2e:factory`: **38 of 38 browser tests passed** in Chromium (the 12
+locale and layout sweep cases, 6 agent panel cases including a key-leak scan,
+4 rule cases, 2 video cases with a real render, 9 Library and player cases and
+the others). `npm test`: 199 tests, 198 passed, 1 skipped. The agent panel
+states were added to the locale sweep: English and Malay show no CJK and no
+overflow at 320 to 1440 wide and at 200 percent text. The statuses above remain
+`PASS (Chromium)` and the `NOT_RUN` items are unchanged.

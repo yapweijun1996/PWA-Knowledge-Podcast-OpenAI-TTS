@@ -510,3 +510,11 @@ line with bars only at its right end; review the amplitude window in T50.
   repeated against the installed code and the frame-time and hash gates from
   T51 and T54. Default stays the hand-written Three.js scene unless the owner
   chooses otherwise.
+
+Status 2026-11-23 (evening): T55 (Three.js studio scene in the app) is running;
+T52 (AI storyboard) is specified and starts after T55; a visual design system
+(research by Codex, owner delegated the visual style to the manager and asked
+for production quality without involvement) will be implemented after the
+research lands: fonts, four palettes, caption and title layout, callouts,
+thumbnails, 3D scene art direction, with a 100-point rubric reviewed by an
+independent reviewer and the manager's own screenshots.
