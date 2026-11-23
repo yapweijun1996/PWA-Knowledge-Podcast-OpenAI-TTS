@@ -410,3 +410,37 @@ dropped from the critical path.
 
 Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
 T31, then T33 to T36, then T38, T39, then T40 to T43 (T37 is parked).
+
+### M6. Internationalization and UI/UX standard (owner instruction 2026-11-23)
+
+Governing rules and acceptance evidence: [docs/UIUX-STANDARD.md](docs/UIUX-STANDARD.md).
+UI locales: `zh-CN` (source), `en`, `ms`. Do this after T29 is stable because it
+touches every UI file; split the extraction by file group so workers do not
+collide.
+
+- [ ] **T44 — i18n core** (M). A keyed catalogue with `t(key, vars)`, Intl
+  plural, date, number and list formatting, a locale provider and hook, saved
+  per-viewer preference, language switcher in Settings, `document.lang`
+  updates, and CI checks (missing or empty keys per locale, unused keys,
+  placeholder consistency, question-mark-only strings, duplicate keys).
+  Acceptance: unit tests; runtime switch without reload.
+- [ ] **T45 — Extract UI strings** (L, parallel by file group). Move every
+  user-facing string, thrown error and aria label in `src/factory/*.tsx`,
+  `src/agent`, `src/publish` and `src/video` user messages into catalogue keys.
+  Source locale stays `zh-CN`. Acceptance: a scan finds no hard-coded
+  user-facing string; behavior unchanged; existing browser tests updated only
+  where text changed.
+- [ ] **T46 — English and Malay catalogues and glossary** (M). Complete `en` and
+  `ms` with a per-locale glossary (key, cost, consent, estimate, unknown
+  outcome, backup, episode, narration). Mark consent, cost, key-risk and
+  no-retry messages for native review. Acceptance: no missing key; `ms`
+  recorded as unreviewed until a native speaker signs off.
+- [ ] **T47 — UI/UX standard audit and fixes** (L). Run the evidence in the
+  standard per locale: scans, runtime toggle, 1440, 768 and 390 screenshots
+  viewed by the manager, 200% text, keyboard pass, state coverage (empty,
+  loading, running, failed, unknown paid outcome, offline), CJK typography,
+  16px inputs and 44px targets, focus and live regions. Fix findings.
+  Acceptance: evidence table committed; remaining gaps listed.
+- [ ] **T48 — Compatibility and evidence record** (S). Fill the
+  `pwa:product-standard` evidence rows for what actually ran; everything
+  not run (real iOS, Safari, VoiceOver, field Web Vitals) stays `NOT_RUN`.
