@@ -444,3 +444,11 @@ collide.
 - [ ] **T48 — Compatibility and evidence record** (S). Fill the
   `pwa:product-standard` evidence rows for what actually ran; everything
   not run (real iOS, Safari, VoiceOver, field Web Vitals) stays `NOT_RUN`.
+
+Baseline findings from the 2026-11-23 screenshot review (1440, 768, 390; zh-CN;
+no horizontal overflow) to fix in T47: (1) at 390 px the fixed bottom playback
+bar overlaps the lower part of the Studio submit button at scroll top, so check
+bottom padding and reachability; (2) disabled primary buttons are pale purple on
+white and hard to read, so check contrast and add the reason next to the button;
+(3) 768 px and the Library, Episode and running or failed states were not
+reviewed yet.
