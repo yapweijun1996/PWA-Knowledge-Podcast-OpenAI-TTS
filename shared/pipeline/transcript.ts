@@ -48,6 +48,8 @@ export async function transcribe(
   if (!text || text.length > 12_000)
     throw new PublicError(
       "转录为空或超出长度限制。可试听已有音频，或重试转录。",
+      undefined,
+      "transcript.invalid",
     );
   return { text, model, similarity: similarity(intended, text) };
 }

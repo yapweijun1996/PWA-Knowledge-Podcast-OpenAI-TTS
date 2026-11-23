@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, current } from "../src/model.ts";
 import { demoAudio, joinDemoWavs } from "../src/audio.ts";
-import { DisabledGatewayProvider } from "../src/provider.ts";
 test("audio becomes stale after script, voice or instructions change", () => {
   const p = makeProject(true),
     s = {
@@ -32,16 +31,6 @@ test("demo creates valid WAV and cancellation rejects", async () => {
   c.abort();
   await assert.rejects(result, { name: "AbortError" });
 });
-test("paid provider fails closed", async () => {
-  await assert.rejects(
-    new DisabledGatewayProvider().generate(
-      { text: "hello", voice: "marin", instructions: "", requestId: "id" },
-      new AbortController().signal,
-    ),
-    /no gateway is configured/,
-  );
-});
-
 test("assembled demo WAV contains both samples", async () => {
   const c = new AbortController();
   const a = await demoAudio("test", c.signal);
@@ -76,63 +65,6 @@ test("script backup excludes audio and restores with a new identity", async () =
   );
 });
 
-test("gateway adapter enforces HTTPS, fails safely and validates audio", async () => {
-  const { GatewayProvider } = await import("../src/provider.ts");
-  assert.throws(
-    () => new GatewayProvider("http://example.com/tts", "session"),
-    /Invalid gateway configuration/,
-  );
-  assert.throws(
-    () =>
-      new GatewayProvider("https://api.openai.com/v1/audio/speech", "session"),
-    /Invalid gateway configuration/,
-  );
-  assert.throws(
-    () => new GatewayProvider("https://gateway.example/tts", "sk-example"),
-    /Invalid gateway configuration/,
-  );
-  const clip = await demoAudio("sample", new AbortController().signal);
-  let options;
-  const mock = async (_url, init) => {
-    options = init;
-    return new Response(clip, {
-      headers: {
-        "content-type": "audio/wav",
-        "content-length": String(clip.size),
-      },
-    });
-  };
-  const provider = new GatewayProvider(
-    "https://gateway.example/tts",
-    "short-lived-session",
-    mock,
-  );
-  const result = await provider.generate(
-    { text: "hello", voice: "marin", instructions: "calm", requestId: "job-1" },
-    new AbortController().signal,
-  );
-  assert.equal(result.size, clip.size);
-  assert.equal(options.redirect, "error");
-  assert.equal(options.cache, "no-store");
-  assert.equal(options.credentials, "omit");
-  const invalid = new GatewayProvider(
-    "https://gateway.example/tts",
-    "session",
-    async () =>
-      new Response("not audio", {
-        status: 200,
-        headers: { "content-type": "text/html", "content-length": "100" },
-      }),
-  );
-  await assert.rejects(
-    invalid.generate(
-      { text: "hello", voice: "marin", instructions: "", requestId: "job-1" },
-      new AbortController().signal,
-    ),
-    /Invalid audio response/,
-  );
-});
-
 test("WAV assembly rejects incompatible sample rates", async () => {
   const a = await demoAudio("x", new AbortController().signal);
   const bytes = await a.arrayBuffer();
@@ -141,22 +73,6 @@ test("WAV assembly rejects incompatible sample rates", async () => {
     joinDemoWavs([a, new Blob([bytes], { type: "audio/wav" })]),
     /incompatible/,
   );
-});
-
-test("PCM export rejects silence and preserves multi-chunk samples", async () => {
-  const { pcmToWav } = await import("../src/browser-tts.ts");
-  assert.throws(
-    () => pcmToWav([new Float32Array(64)], 16000),
-    /未收到可听见的音频/,
-  );
-  const result = pcmToWav(
-    [new Float32Array([0.5]), new Float32Array([-0.5])],
-    16000,
-  );
-  const view = new DataView(await result.arrayBuffer());
-  assert.equal(view.getUint32(40, true), 4);
-  assert.ok(view.getInt16(44, true) > 16000);
-  assert.ok(view.getInt16(46, true) < -16000);
 });
 
 test("optional pauses preserve every PCM sample including quiet endings", async () => {

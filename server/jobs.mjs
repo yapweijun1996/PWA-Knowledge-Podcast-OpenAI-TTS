@@ -39,17 +39,25 @@ export function createJobs({
 
   function requireIdle(episode) {
     if (active?.id === episode.id)
-      throw new PublicError("请等待任务完成或取消后再修改。", 409);
+      throw new PublicError(
+        "请等待任务完成或取消后再修改。",
+        409,
+        "job.active",
+      );
   }
 
   function requireRevision(episode, revision) {
     if (episode.revision !== revision)
-      throw new PublicError("另一个标签页已更新脚本。请刷新后再试。", 409);
+      throw new PublicError(
+        "另一个标签页已更新脚本。请刷新后再试。",
+        409,
+        "job.revisionChanged",
+      );
   }
 
   function start(episode, kind, consent, autoAudio = false, importedMedia) {
     if (!["draft", "audio", "transcript"].includes(kind))
-      throw new PublicError("未知的制作任务。", 400);
+      throw new PublicError("未知的制作任务。", 400, "job.unknownKind");
     const stage = {
       draft: episode.research
         ? episode.outline
@@ -60,18 +68,34 @@ export function createJobs({
       transcript: "transcript",
     }[kind];
     if (!(typeof configured === "function" ? configured() : configured))
-      throw new PublicError("请先在服务器配置 OPENAI_API_KEY。", 503);
+      throw new PublicError(
+        "请先在服务器配置 OPENAI_API_KEY。",
+        503,
+        "openai.serverKeyRequired",
+      );
     if (consent !== true)
-      throw new PublicError("请先确认本次 OpenAI 使用可能产生费用。", 400);
+      throw new PublicError(
+        "请先确认本次 OpenAI 使用可能产生费用。",
+        400,
+        "job.consentRequired",
+      );
     if (active)
-      throw new PublicError("已有一期正在制作。请等待或取消该任务。", 409);
+      throw new PublicError(
+        "已有一期正在制作。请等待或取消该任务。",
+        409,
+        "job.episodeBusy",
+      );
     const current = episode.finished?.revision === episode.revision;
     if (
       (kind === "draft" && episode.script) ||
       (kind === "audio" && (!episode.script || current)) ||
       (kind === "transcript" && (!current || episode.finished.transcript))
     )
-      throw new PublicError("此阶段已完成，或尚未准备好。", 409);
+      throw new PublicError(
+        "此阶段已完成，或尚未准备好。",
+        409,
+        "job.stageUnavailable",
+      );
     episode.job = {
       stage,
       status: "running",
@@ -169,11 +193,21 @@ export function createJobs({
       const saved = store.get(episode.id);
       if (saved.job) {
         saved.job.status = signal.aborted ? "cancelled" : "failed";
-        saved.job.message = signal.aborted
-          ? "已停止。先前保存的阶段仍可继续使用。"
+        const failure = signal.aborted
+          ? new PublicError(
+              "已停止。先前保存的阶段仍可继续使用。",
+              undefined,
+              "job.cancelled",
+            )
           : error instanceof PublicError
-            ? error.message
-            : "任务未能完成。请检查服务器网络与存储后重试。";
+            ? error
+            : new PublicError(
+                "任务未能完成。请检查服务器网络与存储后重试。",
+                undefined,
+                "job.failed",
+              );
+        const { message, code, params } = failure;
+        Object.assign(saved.job, { message, code, params });
         store.save(saved);
       }
     } finally {
@@ -202,6 +236,8 @@ export function createJobs({
       if (total > maxSeconds)
         throw new PublicError(
           "配音超出时长上限。已保存可用片段，请缩短部分脚本后重试。",
+          undefined,
+          "audio.durationExceeded",
         );
     };
     checkDuration();
@@ -262,6 +298,8 @@ export function createJobs({
         if (episode.job?.status === "running") {
           episode.job.status = "interrupted";
           episode.job.message = "服务器曾中断，已保存的阶段可继续使用。";
+          episode.job.code = "job.interrupted";
+          delete episode.job.params;
           store.save(episode);
         }
         if (!episode.syncToken) store.save(episode);
@@ -280,7 +318,11 @@ export function createJobs({
         topic.trim().length > limits.topic ||
         !Object.hasOwn(languages, language)
       )
-        throw new PublicError("请输入有效主题并选择语言。", 400);
+        throw new PublicError(
+          "请输入有效主题并选择语言。",
+          400,
+          "episode.topicInvalid",
+        );
       const existing = store.list();
       const retry = existing.find((episode) => episode.id === id);
       if (retry) {
@@ -289,14 +331,20 @@ export function createJobs({
             ? JSON.stringify(retry.production) === JSON.stringify(production)
             : retry.language === language;
         if (retry.topic === topic.trim() && sameSettings) return retry;
-        throw new PublicError("这个项目编号已使用。", 409);
+        throw new PublicError("这个项目编号已使用。", 409, "episode.idUsed");
       }
       if (store.receipt(id))
-        throw new PublicError("这期节目已交接，请在浏览器资料库查看。", 409);
+        throw new PublicError(
+          "这期节目已交接，请在浏览器资料库查看。",
+          409,
+          "episode.alreadyAccepted",
+        );
       if (existing.length >= limits.projects)
         throw new PublicError(
           `已有 ${limits.projects} 期节目。请先下载并删除不再需要的节目。`,
           409,
+          "episode.limit",
+          { count: limits.projects },
         );
       return start(
         {
@@ -319,7 +367,11 @@ export function createJobs({
         (syncToken !== undefined && syncToken !== episode.syncToken) ||
         (asset !== undefined && asset !== episode.finished?.asset)
       )
-        throw new PublicError("成品或制作检查点已变化，请先同步。", 409);
+        throw new PublicError(
+          "成品或制作检查点已变化，请先同步。",
+          409,
+          "job.audioChanged",
+        );
       return start(
         episode,
         kind,
@@ -339,7 +391,9 @@ export function createJobs({
       try {
         updated = editEpisode(episode, revision, edit);
       } catch (error) {
-        throw new PublicError(error.message, 400);
+        if (error instanceof PublicError)
+          throw new PublicError(error.message, 400, error.code, error.params);
+        throw error;
       }
       return store.save(updated);
     },
@@ -351,7 +405,11 @@ export function createJobs({
         episode.finished.revision !== episode.revision ||
         episode.finished.transcript
       )
-        throw new PublicError("需要当前脚本版本的成品音频。", 400);
+        throw new PublicError(
+          "需要当前脚本版本的成品音频。",
+          400,
+          "job.currentAudioRequired",
+        );
       const episodes = store.list();
       const existing = episodes.find((item) => item.id === id);
       if (
@@ -360,9 +418,17 @@ export function createJobs({
       )
         return existing;
       if (existing || store.accepted(id, localStamp))
-        throw new PublicError("制作检查点已变化，请同步后再试。", 409);
+        throw new PublicError(
+          "制作检查点已变化，请同步后再试。",
+          409,
+          "job.checkpointChanged",
+        );
       if (episodes.length >= limits.projects)
-        throw new PublicError("本机暂存已满。请先同步节目。", 409);
+        throw new PublicError(
+          "本机暂存已满。请先同步节目。",
+          409,
+          "job.stagingFull",
+        );
       episode.localStamp = localStamp;
       return start(episode, "transcript", true, false, media);
     },
@@ -375,7 +441,7 @@ export function createJobs({
       try {
         source = readEpisode(snapshot);
       } catch {
-        throw new PublicError("本地脚本记录无效。", 400);
+        throw new PublicError("本地脚本记录无效。", 400, "job.scriptInvalid");
       }
       if (
         source.id !== id ||
@@ -384,18 +450,31 @@ export function createJobs({
         (kind === "audio" ? !source.script : !!source.script) ||
         !Number.isInteger(production.maxSeconds)
       )
-        throw new PublicError("本地脚本尚未准备好。", 400);
+        throw new PublicError(
+          "本地脚本尚未准备好。",
+          400,
+          "job.scriptNotReady",
+        );
       const existing = store.list().find((episode) => episode.id === id);
       if (existing?.localStamp === localStamp) return existing;
       if (store.accepted(id, localStamp))
         throw new PublicError(
           "这一制作请求已完成交接，请查看浏览器资料库。",
           409,
+          "job.requestAccepted",
         );
       if ((existing?.syncToken ?? null) !== expected)
-        throw new PublicError("制作检查点已变化。请同步后重新提交。", 409);
+        throw new PublicError(
+          "制作检查点已变化。请同步后重新提交。",
+          409,
+          "job.checkpointResubmit",
+        );
       if (!existing && store.list().length >= limits.projects)
-        throw new PublicError("本机暂存已满。请先同步节目。", 409);
+        throw new PublicError(
+          "本机暂存已满。请先同步节目。",
+          409,
+          "job.stagingFull",
+        );
       const {
         topic,
         language,
@@ -439,7 +518,11 @@ export function createJobs({
         episode.job ||
         !episode.finished?.transcript
       )
-        throw new PublicError("节目检查点已经变化，或尚未转录完成。", 409);
+        throw new PublicError(
+          "节目检查点已经变化，或尚未转录完成。",
+          409,
+          "job.handoffUnavailable",
+        );
       store.release(episode);
     },
     delete(id) {
@@ -450,7 +533,7 @@ export function createJobs({
     clip(episode, id, asset) {
       const clip = episode.render?.clips[id];
       if (!clip || clip.asset !== asset)
-        throw new PublicError("找不到此配音片段。", 404);
+        throw new PublicError("找不到此配音片段。", 404, "audio.clipMissing");
       return wave([store.readAsset(episode.id, clip.asset)]);
     },
     stop() {

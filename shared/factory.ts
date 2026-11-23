@@ -1,3 +1,5 @@
+import type { ErrorParams } from "./pipeline/errors.ts";
+
 export const languages = {
   en: "English",
   zh: "华语 Mandarin",
@@ -66,6 +68,8 @@ export type Job = {
   stage: Stage;
   status: "running" | "failed" | "cancelled" | "interrupted";
   message?: string;
+  code?: string;
+  params?: ErrorParams;
   autoAudio?: boolean;
 };
 export type Clip = { asset: string; duration: number };
@@ -147,6 +151,8 @@ export type Schedule = {
   nextCheck: string | null;
   running: boolean;
   message: string;
+  code?: string;
+  params?: ErrorParams;
   used: number;
 };
 export const defaultPreferences: Preferences = {

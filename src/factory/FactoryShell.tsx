@@ -42,7 +42,7 @@ export function FactoryShell({
   return (
     <div className="factory-shell" hidden={!visible}>
       <a className="factory-skip" href="#factory-page-title">
-        跳到主要内容
+        {t("shell.nav.skip")}
       </a>
       <div className="factory-shell-layout">
         <header className="factory-bar">
@@ -52,7 +52,7 @@ export function FactoryShell({
             navigation={navigation}
           >
             <span aria-hidden="true">▥</span>
-            Podcast Studio
+            {t("common.productName")}
           </WorkspaceLink>
           <div className="factory-bar-actions">
             <span className="factory-status" role="status">
@@ -77,8 +77,10 @@ export function FactoryShell({
             <h1 id="factory-page-title" tabIndex={-1}>
               {factoryPages[page].title}
             </h1>
-            {page === "library" && <p>在此浏览器保存、播放与编辑节目。</p>}
-            {page === "automation" && <p>自动化仅限本机制作进程。</p>}
+            {page === "library" && <p>{t("shell.library.description")}</p>}
+            {page === "automation" && (
+              <p>{t("shell.automation.description")}</p>
+            )}
           </div>
           {Children.map(children, withAppearanceSettings)}
         </main>

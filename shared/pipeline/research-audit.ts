@@ -45,7 +45,11 @@ Use "qualified" when evidence is partial or from the same underlying work, "disp
       (item) => item.type === "web_search_call" && item.status === "completed",
     )
   )
-    throw new PublicError("独立交叉检索未完成。初步研究已保存，可以重试。");
+    throw new PublicError(
+      "独立交叉检索未完成。初步研究已保存，可以重试。",
+      undefined,
+      "research.crossCheckIncomplete",
+    );
   const audit = collectEvidence(
     responseParts(response),
     new Date().toISOString(),

@@ -106,8 +106,8 @@ test("source catalogue keys are used and literal t calls have definitions", () =
     }
   }
   assert.deepEqual(
-    [...used].sort(),
-    [...keys].sort(),
+    [...used].filter((key) => !key.startsWith("errors.")).sort(),
+    [...keys].filter((key) => !key.startsWith("errors.")).sort(),
     "Unused source catalogue keys",
   );
 });

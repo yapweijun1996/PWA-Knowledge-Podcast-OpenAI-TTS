@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Factory } from "./factory/Factory";
 import { useWorkspaceNavigation } from "./factory/navigation";
-import { I18nProvider } from "./i18n";
+import { I18nProvider, useI18n, type MessageKey } from "./i18n";
 
 type Theme = "light" | "dark" | "system";
 
@@ -29,6 +29,7 @@ export default function App() {
 }
 
 function AppContent() {
+  const { t } = useI18n();
   const navigation = useWorkspaceNavigation();
   const { page } = navigation;
   const pauseFactoryPlayback = useRef<(() => void) | null>(null);
@@ -39,7 +40,7 @@ function AppContent() {
     "waiting",
   );
   const [updating, setUpdating] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<MessageKey>();
   const [theme, setTheme] = useState<Theme>(() => {
     const value = readPreference("podcast-theme", "system");
     return value === "light" || value === "dark" ? value : "system";
@@ -140,7 +141,7 @@ function AppContent() {
           });
         });
       })
-      .catch(() => setError("离线功能注册失败。"));
+      .catch(() => setError("shell.update.offlineFailed"));
     return () => {
       navigator.serviceWorker.removeEventListener("controllerchange", changed);
     };
@@ -150,7 +151,7 @@ function AppContent() {
     if (!waiting || factoryUpdateBlocked || updating || updateLock.current)
       return;
     if (!navigator.locks || tabGuard !== "held") {
-      setError("此浏览器无法安全协调更新。请关闭所有应用页面，再重新打开。 ");
+      setError("shell.update.coordinationUnsupported");
       return;
     }
     updateLock.current = true;
@@ -163,7 +164,7 @@ function AppContent() {
         { mode: "exclusive", ifAvailable: true },
         async (lock) => {
           if (!lock) {
-            setError("其他标签页仍在使用应用。请保存并关闭其他页面后再更新。");
+            setError("shell.update.otherTabsActive");
             return false;
           }
           applyingUpdate.current = true;
@@ -183,19 +184,17 @@ function AppContent() {
             waiting.postMessage("SKIP_WAITING_IF_SINGLE", [channel.port2]);
           });
           if (!approved) {
-            setError(
-              "其他页面可能仍在使用应用，或更新未响应。请关闭其他页面后重试。",
-            );
+            setError("shell.update.approvalFailed");
             return false;
           }
           await new Promise<void>((resolve) => setTimeout(resolve, 10000));
           applyingUpdate.current = false;
-          setError("更新未完成，请重新打开应用后重试。");
+          setError("shell.update.incomplete");
           return false;
         },
       );
     } catch {
-      setError("无法安全协调更新，请关闭其他页面后重试。");
+      setError("shell.update.coordinationFailed");
     } finally {
       applyingUpdate.current = false;
       updateLock.current = false;
@@ -207,8 +206,8 @@ function AppContent() {
   if (tabGuard === "waiting")
     return (
       <main className="loading">
-        <h1>Podcast Studio</h1>
-        <p>正在等待安全更新完成…</p>
+        <h1>{t("common.productName")}</h1>
+        <p>{t("shell.update.waiting")}</p>
       </main>
     );
   return (
@@ -222,7 +221,7 @@ function AppContent() {
       updateReady={!!waiting}
       updating={updating}
       updateBlocked={factoryUpdateBlocked}
-      updateError={error}
+      updateError={error ? t(error) : ""}
       onUpdate={() => void update()}
       onUpdateBlockedChange={setFactoryUpdateBlocked}
       pausePlayback={pauseFactoryPlayback}

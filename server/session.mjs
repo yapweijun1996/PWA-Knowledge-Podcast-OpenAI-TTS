@@ -39,7 +39,11 @@ export function ownerBoundary(publicOrigin, ownerToken) {
               "x-forwarded-proto",
             ].some((name) => name in req.headers)
       )
-        throw new PublicError("该请求的主机与服务器配置不符。", 403);
+        throw new PublicError(
+          "该请求的主机与服务器配置不符。",
+          403,
+          "worker.hostMismatch",
+        );
       return origin?.origin ?? `http://${direct}`;
     },
     authorized(req) {
@@ -57,25 +61,46 @@ export function ownerBoundary(publicOrigin, ownerToken) {
     checkRequest(req, expectedOrigin) {
       const site = req.headers["sec-fetch-site"];
       if (site && site !== "same-origin" && site !== "none")
-        throw new PublicError("请从此工作空间发起请求。", 403);
+        throw new PublicError(
+          "请从此工作空间发起请求。",
+          403,
+          "worker.workspaceRequired",
+        );
       if (
         !["GET", "HEAD"].includes(req.method) &&
         req.headers.origin !== expectedOrigin
       )
-        throw new PublicError("请求来源与工作空间不符。", 403);
+        throw new PublicError(
+          "请求来源与工作空间不符。",
+          403,
+          "worker.originMismatch",
+        );
     },
     login(token, res) {
-      if (!origin) throw new PublicError("此服务器使用本机模式。", 409);
+      if (!origin)
+        throw new PublicError(
+          "此服务器使用本机模式。",
+          409,
+          "worker.localMode",
+        );
       const now = Date.now();
       failedAttempts = failedAttempts.filter((time) => now - time < 300_000);
       if (failedAttempts.length >= 8)
-        throw new PublicError("登录尝试过多。请稍后再试。", 429);
+        throw new PublicError(
+          "登录尝试过多。请稍后再试。",
+          429,
+          "worker.loginRateLimited",
+        );
       if (
         typeof token !== "string" ||
         !timingSafeEqual(digest(token), expected)
       ) {
         failedAttempts.push(now);
-        throw new PublicError("私有工作空间口令不正确。", 401);
+        throw new PublicError(
+          "私有工作空间口令不正确。",
+          401,
+          "worker.tokenIncorrect",
+        );
       }
       failedAttempts = [];
       const value = randomBytes(32).toString("base64url");

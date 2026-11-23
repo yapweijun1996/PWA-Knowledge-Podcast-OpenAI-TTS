@@ -7,7 +7,7 @@ import type {
   Research,
   Script,
 } from "../factory.ts";
-import { PublicError } from "./errors.ts";
+import { PublicError, type ErrorParams } from "./errors.ts";
 import { plans } from "./languages.ts";
 import { structured, type OpenAI } from "./openai.ts";
 
@@ -90,6 +90,8 @@ function scriptSchema(
 const invalid = () =>
   new PublicError(
     "生成内容超出长度限制或引用关系不完整。已保存先前阶段，可以重试。",
+    undefined,
+    "script.contentInvalid",
   );
 const required = (value: unknown, max: number) => {
   if (typeof value !== "string" || !value.trim() || value.trim().length > max)
@@ -102,17 +104,42 @@ function validateIds(ids: unknown, allowed: ReadonlySet<string>) {
   return [...new Set<string>(ids)];
 }
 
-function invalidScript(reason: string) {
-  return new PublicError(`脚本校验失败：${reason}。已保存先前阶段，可以重试。`);
+function invalidScript(reason: string, code: string, params?: ErrorParams) {
+  return new PublicError(
+    `脚本校验失败：${reason}。已保存先前阶段，可以重试。`,
+    undefined,
+    code,
+    params,
+  );
 }
 
-function scriptText(value: unknown, max: number, field: string) {
+function scriptText(
+  value: unknown,
+  max: number,
+  position?: { chapter: number; turn: number },
+) {
+  const field = position
+    ? `第 ${position.chapter} 章第 ${position.turn} 段发言`
+    : "节目标题";
   if (typeof value !== "string")
-    throw invalidScript(`${field}必须是文本`);
+    throw invalidScript(
+      `${field}必须是文本`,
+      position ? "script.turnTextRequired" : "script.titleTextRequired",
+      position,
+    );
   const trimmed = value.trim();
-  if (!trimmed) throw invalidScript(`${field}不能为空`);
+  if (!trimmed)
+    throw invalidScript(
+      `${field}不能为空`,
+      position ? "script.turnTextEmpty" : "script.titleEmpty",
+      position,
+    );
   if (trimmed.length > max)
-    throw invalidScript(`${field}长度为 ${trimmed.length}，超过上限 ${max}`);
+    throw invalidScript(
+      `${field}长度为 ${trimmed.length}，超过上限 ${max}`,
+      position ? "script.turnTextTooLong" : "script.titleTooLong",
+      { ...position, count: String(trimmed.length), maximum: max },
+    );
   return trimmed;
 }
 
@@ -176,6 +203,8 @@ export async function makeOutline(
     if (exactHosts && data.hostCount !== exactHosts)
       throw new PublicError(
         "大纲没有安排恰好两位主持人。已保存研究，可以重试。",
+        undefined,
+        "outline.hostCount",
       );
     if (
       !bounds.allowedLanguages.includes(data.language) ||
@@ -256,36 +285,75 @@ Preserve all material limits or disagreement and attribute sensitive or conteste
     signal,
   );
   const data = output as ScriptOutput;
-  if (!Array.isArray(data?.chapters)) throw invalidScript("章节必须是列表");
+  if (!Array.isArray(data?.chapters))
+    throw invalidScript("章节必须是列表", "script.chaptersRequired");
   if (data.chapters.length !== chapters.length)
     throw invalidScript(
       `章节数为 ${data.chapters.length}，大纲要求 ${chapters.length} 章`,
+      "script.chapterCount",
+      { count: String(data.chapters.length), expected: chapters.length },
     );
   const turns = data.chapters.flatMap((group, index) => {
     const chapter = chapters[index];
-    const section = `第 ${index + 1} 章`;
+    const chapterNumber = index + 1;
+    const section = `第 ${chapterNumber} 章`;
     if (!group || typeof group !== "object" || Array.isArray(group))
-      throw invalidScript(`${section}格式无效`);
+      throw invalidScript(`${section}格式无效`, "script.chapterInvalid", {
+        chapter: chapterNumber,
+      });
     if (group.chapterId !== chapter.id)
-      throw invalidScript(`${section}的章节编号或顺序与大纲不符`);
+      throw invalidScript(
+        `${section}的章节编号或顺序与大纲不符`,
+        "script.chapterOrder",
+        { chapter: chapterNumber },
+      );
     if (!Array.isArray(group.turns))
-      throw invalidScript(`${section}的发言必须是列表`);
+      throw invalidScript(
+        `${section}的发言必须是列表`,
+        "script.turnsRequired",
+        {
+          chapter: chapterNumber,
+        },
+      );
     if (group.turns.length > maxTurns)
       throw invalidScript(
         `${section}有 ${group.turns.length} 段发言，超过上限 ${maxTurns}`,
+        "script.chapterTurnLimit",
+        {
+          chapter: chapterNumber,
+          count: String(group.turns.length),
+          maximum: maxTurns,
+        },
       );
     const allowed = new Set(chapter.claimIds);
     const result = group.turns.map((turn, turnIndex) => {
-      const position = `${section}第 ${turnIndex + 1} 段`;
+      const location = { chapter: chapterNumber, turn: turnIndex + 1 };
+      const position = `${section}第 ${location.turn} 段`;
       if (!turn || typeof turn !== "object" || Array.isArray(turn))
-        throw invalidScript(`${position}格式无效`);
+        throw invalidScript(
+          `${position}格式无效`,
+          "script.turnInvalid",
+          location,
+        );
       if (!cast.includes(turn.host))
-        throw invalidScript(`${position}的主持人不在本集名单内`);
-      const spoken = scriptText(turn.text, limits.turn, `${position}发言`);
+        throw invalidScript(
+          `${position}的主持人不在本集名单内`,
+          "script.turnHostInvalid",
+          location,
+        );
+      const spoken = scriptText(turn.text, limits.turn, location);
       if (!Array.isArray(turn.claimIds))
-        throw invalidScript(`${position}的主张引用必须是列表`);
+        throw invalidScript(
+          `${position}的主张引用必须是列表`,
+          "script.turnClaimsRequired",
+          location,
+        );
       if (turn.claimIds.some((id) => !allowed.has(id)))
-        throw invalidScript(`${position}引用了本章大纲未分配的主张`);
+        throw invalidScript(
+          `${position}引用了本章大纲未分配的主张`,
+          "script.turnClaimsInvalid",
+          location,
+        );
       return {
         id: `${chapter.id}-${turnIndex + 1}`,
         chapterId: chapter.id,
@@ -298,20 +366,36 @@ Preserve all material limits or disagreement and attribute sensitive or conteste
       const missing = cast.filter(
         (host) => !result.some((turn) => turn.host === host),
       );
-      if (missing.length)
+      if (missing.length) {
+        const hosts = missing.join("、");
         throw invalidScript(
-          `${section}缺少主持人 ${missing.join("、")} 的发言`,
+          `${section}缺少主持人 ${hosts} 的发言`,
+          "script.chapterHostsMissing",
+          { chapter: chapterNumber, hosts },
         );
+      }
     }
     if (!result.some((turn) => turn.claimIds.length))
-      throw invalidScript(`${section}至少需要一段发言引用主张`);
+      throw invalidScript(
+        `${section}至少需要一段发言引用主张`,
+        "script.chapterClaimMissing",
+        { chapter: chapterNumber },
+      );
     return result;
   });
   if (turns.length > maxTurns)
-    throw invalidScript(`全稿有 ${turns.length} 段发言，超过上限 ${maxTurns}`);
+    throw invalidScript(
+      `全稿有 ${turns.length} 段发言，超过上限 ${maxTurns}`,
+      "script.turnLimit",
+      { count: turns.length, maximum: maxTurns },
+    );
   const length = turns.reduce((sum, turn) => sum + turn.text.length, 0);
   if (length > maxChars)
-    throw invalidScript(`全稿发言长度为 ${length}，超过上限 ${maxChars}`);
+    throw invalidScript(
+      `全稿发言长度为 ${length}，超过上限 ${maxChars}`,
+      "script.lengthLimit",
+      { count: String(length), maximum: String(maxChars) },
+    );
   const units = turns.reduce(
     (sum, turn) =>
       sum +
@@ -322,14 +406,22 @@ Preserve all material limits or disagreement and attribute sensitive or conteste
   if (units < minUnits)
     throw invalidScript(
       `全稿只有 ${units} 个口播单位，至少需要 ${minUnits} 个`,
+      "script.tooFewSpokenUnits",
+      { count: units, minimum: minUnits },
     );
   const missing = cast.filter(
     (host) => !turns.some((turn) => turn.host === host),
   );
-  if (missing.length)
-    throw invalidScript(`全稿缺少主持人 ${missing.join("、")} 的发言`);
+  if (missing.length) {
+    const hosts = missing.join("、");
+    throw invalidScript(
+      `全稿缺少主持人 ${hosts} 的发言`,
+      "script.hostsMissing",
+      { hosts },
+    );
+  }
   return {
-    title: scriptText(data.title, 100, "节目标题"),
+    title: scriptText(data.title, 100),
     turns,
     model: usedModel,
   };

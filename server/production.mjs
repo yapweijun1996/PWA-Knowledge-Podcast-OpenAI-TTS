@@ -43,7 +43,11 @@ async function discover(openai, model, preferences, recent, signal) {
       (item) => item.type === "web_search_call" && item.status === "completed",
     )
   )
-    throw new PublicError("选题检索未完成。");
+    throw new PublicError(
+      "选题检索未完成。",
+      undefined,
+      "discovery.searchIncomplete",
+    );
   const answer = parts
     .map((part) => part.text)
     .join("")
@@ -53,7 +57,11 @@ async function discover(openai, model, preferences, recent, signal) {
   if (answer === "SKIP") return null;
   const match = /^(DAILY|WEEKLY)\s*\|\s*([^\n|]+)$/u.exec(answer);
   if (!match || match[2].length > limits.topic || !topicKey(match[2]))
-    throw new PublicError("选题结果格式无效。");
+    throw new PublicError(
+      "选题结果格式无效。",
+      undefined,
+      "discovery.resultInvalid",
+    );
   return { fast: match[1] === "DAILY", topic: match[2].trim() };
 }
 
@@ -106,6 +114,8 @@ export function createProduction({
         ? new Date(Math.max(now(), budgetTime, state.due)).toISOString()
         : null,
       message: state.message,
+      code: state.code,
+      params: state.params,
     };
   }
 
@@ -126,6 +136,7 @@ export function createProduction({
         throw new PublicError(
           "无法立即选题。请检查兴趣、密钥、暂存容量和最近 24 小时／7 天的制作额度。",
           409,
+          "discovery.unavailable",
         );
       return;
     }
@@ -134,6 +145,8 @@ export function createProduction({
       attempts: [...attempts, time],
       due: time + (p.cadence === "daily" ? day : week),
       message: "已保留选题额度，正在检索。",
+      code: undefined,
+      params: undefined,
     });
     const current = new AbortController();
     controller = current;
@@ -175,13 +188,22 @@ export function createProduction({
           message: "已选题并开始制作。",
         });
       } catch (error) {
-        const message = current.signal.aborted
-          ? "已停止选题，已提交的请求仍可能计费。"
+        const failure = current.signal.aborted
+          ? new PublicError(
+              "已停止选题，已提交的请求仍可能计费。",
+              undefined,
+              "discovery.cancelled",
+            )
           : error instanceof PublicError
-            ? error.message
-            : "自动选题中断，可检查网络与本机存储。";
+            ? error
+            : new PublicError(
+                "自动选题中断，可检查网络与本机存储。",
+                undefined,
+                "discovery.failed",
+              );
         try {
-          update({ message });
+          const { message, code, params } = failure;
+          update({ message, code, params });
         } catch {
           console.error("Podcast schedule state could not be saved.");
         }
@@ -207,7 +229,11 @@ export function createProduction({
     },
     setKey(key) {
       if (controller || jobs.busy)
-        throw new PublicError("请等待当前任务结束后更换密钥。", 409);
+        throw new PublicError(
+          "请等待当前任务结束后更换密钥。",
+          409,
+          "worker.keyBusy",
+        );
       credential.set(key);
     },
     setPreferences(raw, consent) {
@@ -215,10 +241,16 @@ export function createProduction({
       try {
         preferences = readPreferences(raw);
       } catch (error) {
-        throw new PublicError(error.message, 400);
+        if (error instanceof PublicError)
+          throw new PublicError(error.message, 400, error.code, error.params);
+        throw error;
       }
       if (preferences.enabled && consent !== true)
-        throw new PublicError("开启排程须确认 OpenAI 可能计费。", 400);
+        throw new PublicError(
+          "开启排程须确认 OpenAI 可能计费。",
+          400,
+          "schedule.consentRequired",
+        );
       update({
         preferences,
         ...(preferences.enabled &&
@@ -256,7 +288,7 @@ export function createCredential(environmentKey) {
       }
       const key = typeof value === "string" ? value.trim() : "";
       if (!/^sk-[A-Za-z0-9_-]{12,500}$/.test(key))
-        throw new PublicError("密钥格式无效。", 400);
+        throw new PublicError("密钥格式无效。", 400, "worker.keyInvalid");
       sessionKey = key;
     },
   };

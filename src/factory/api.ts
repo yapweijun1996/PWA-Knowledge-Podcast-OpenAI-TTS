@@ -6,7 +6,7 @@ import {
   type Locale,
   type MessageKey,
 } from "../i18n/index.ts";
-import { redact } from "./browser-key.ts";
+import { safeErrorMessage, translateError } from "../i18n/errors.ts";
 
 export class LibraryError extends Error {
   declare readonly key: MessageKey;
@@ -17,8 +17,7 @@ export class LibraryError extends Error {
   }
 }
 
-// The worker and shared record validators still use source-locale strings.
-// Recognize their exact public messages until they expose message codes.
+// Keep translating exact source messages from older worker versions.
 const sourceT = createTranslator(defaultLocale);
 const publicErrorKeys = [
   "library.error.preferences",
@@ -112,16 +111,42 @@ export function localizePublicError(message: string, translate: typeof t) {
 export class StudioError extends LibraryError {
   declare readonly status: number;
   declare readonly detail?: string;
+  declare readonly code?: string;
+  declare readonly params?: unknown;
 
-  constructor(key: MessageKey, status: number, detail?: string) {
+  constructor(
+    key: MessageKey,
+    status: number,
+    detail?: string,
+    code?: string,
+    params?: unknown,
+  ) {
     super(key);
     this.status = status;
     this.detail = detail;
-    if (detail) this.message = localizePublicError(detail, t) ?? this.message;
+    this.code = code;
+    this.params = params;
+    if (code)
+      this.message = translateError({
+        code,
+        params,
+        message: detail ?? this.message,
+      });
+    else if (detail)
+      this.message = localizePublicError(detail, t) ?? this.message;
   }
 
   localized(translate: typeof t, locale: Locale) {
     const { detail } = this;
+    if (this.code)
+      return translateError(
+        {
+          code: this.code,
+          params: this.params,
+          message: detail ?? translate(this.key),
+        },
+        translate,
+      );
     if (!detail) return translate(this.key);
     return (
       localizePublicError(detail, translate) ??
@@ -165,15 +190,12 @@ export async function studio<T>(
     throw new StudioError("library.api.requestFailed", response.status);
   });
   if (!response.ok) {
-    // Older workers expose public diagnostics as text. Keep the source-locale
-    // diagnostic for compatibility after filtering credentials.
-    const detail =
-      typeof payload?.error === "string" ? redact(payload.error) : "";
-    const safeDetail = /\bsk-[\w-]{12,}/i.test(detail) ? undefined : detail;
     throw new StudioError(
       "library.api.requestFailed",
       response.status,
-      safeDetail,
+      safeErrorMessage(payload?.error),
+      typeof payload?.code === "string" ? payload.code : undefined,
+      payload?.params,
     );
   }
   return payload as T;

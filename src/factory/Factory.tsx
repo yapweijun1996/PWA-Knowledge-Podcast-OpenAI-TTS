@@ -15,9 +15,11 @@ import {
   type Runtime,
   type Schedule,
 } from "../../shared/factory";
+import { PublicError } from "../../shared/pipeline/errors";
 import { readPreferences } from "../../shared/preferences";
 import { download } from "../audio";
 import { useI18n, type MessageKey } from "../i18n";
+import { safeErrorMessage, translateError } from "../i18n/errors";
 import { LibraryError, localizePublicError, StudioError, studio } from "./api";
 import {
   BrowserProductionError,
@@ -84,7 +86,9 @@ type Props = {
 function errorText(reason: unknown, { locale, t }: ReturnType<typeof useI18n>) {
   if (reason instanceof StudioError) return reason.localized(t, locale);
   if (reason instanceof LibraryError) return t(reason.key);
-  if (reason instanceof BrowserProductionError) return reason.message;
+  if (reason instanceof BrowserProductionError)
+    return translateError(reason.detail, t);
+  if (reason instanceof PublicError) return translateError(reason, t);
   if (reason instanceof DOMException) {
     if (reason.name === "QuotaExceededError")
       return t("library.error.storageQuota");
@@ -207,19 +211,32 @@ export function Factory({
   const job = episode?.job;
   const isBrowserCheckpoint = resumable && job?.status === "running";
   const isMissingWorkerJob = job?.message === missingWorkerMessage;
+  const jobMessage = isMissingWorkerJob
+    ? t(missingWorkerMessageKey)
+    : job && (job.code || job.message)
+      ? translateError(job, t)
+      : undefined;
   const displayedEpisode =
-    episode && job && (isBrowserCheckpoint || isMissingWorkerJob)
+    episode && job && (isBrowserCheckpoint || jobMessage !== job.message)
       ? {
           ...episode,
           job: {
             ...job,
             status: isBrowserCheckpoint ? ("interrupted" as const) : job.status,
-            message: isMissingWorkerJob ? t(missingWorkerMessageKey) : job.message,
+            message: jobMessage,
           },
         }
       : episode;
   const error = failure ? errorText(failure.reason, i18n) : "";
   const syncIssue = syncFailure ? errorText(syncFailure.reason, i18n) : "";
+  const scheduleError = schedule?.code ? translateError(schedule, t) : "";
+  const scheduleMessage = scheduleError
+    ? ""
+    : (safeErrorMessage(schedule?.message) ?? "");
+  const displayedSchedule =
+    schedule && scheduleMessage !== schedule.message
+      ? { ...schedule, message: scheduleMessage }
+      : schedule;
   const estimate = storageStatus?.estimate;
   const megabytes = (bytes: number) =>
     formatters.number(Math.round(bytes / 1_048_576), { useGrouping: false });
@@ -720,6 +737,11 @@ export function Factory({
         )}
       </div>
       <div hidden={page !== "automation"}>
+        {scheduleError && (
+          <p className="error" role="alert">
+            {scheduleError}
+          </p>
+        )}
         <ProductionSettings
           runtime={runtime}
           connected={connected}
@@ -727,7 +749,7 @@ export function Factory({
           running={!!running}
           preferences={preferences}
           setPreferences={setPreferences}
-          schedule={schedule}
+          schedule={displayedSchedule}
           onSave={(approved) =>
             void perform(async () => {
               const next = readPreferences(preferences);

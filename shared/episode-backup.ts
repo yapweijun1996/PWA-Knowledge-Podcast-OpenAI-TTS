@@ -1,3 +1,4 @@
+import { PublicError } from "./pipeline/errors.ts";
 import { episodeAssets, readEpisode } from "./episode-record.ts";
 import { validateAudio } from "./audio-record.ts";
 import type { Episode } from "./factory.ts";
@@ -22,7 +23,12 @@ export async function backupRecord(row: Archive) {
   const entries = episodeAssets(episode);
   const blobs = entries.map(({ asset }) => {
     const blob = row.assets[asset];
-    if (!blob) throw new Error("还有音频未保存到浏览器，请先同步。");
+    if (!blob)
+      throw new PublicError(
+        "还有音频未保存到浏览器，请先同步。",
+        undefined,
+        "backup.audioMissing",
+      );
     return blob;
   });
   const lengths = blobs.map((blob) => blob.size);
@@ -35,7 +41,11 @@ export async function backupRecord(row: Archive) {
     lengths.reduce((sum, length) => sum + length, 0) + json.size + 13 >
       backupLimit
   )
-    throw new Error("节目记录太大，无法导出。");
+    throw new PublicError(
+      "节目记录太大，无法导出。",
+      undefined,
+      "backup.recordTooLarge",
+    );
   const header = new TextEncoder().encode(
     magic + String(json.size).padStart(8, "0"),
   );
@@ -45,7 +55,12 @@ export async function backupRecord(row: Archive) {
 }
 
 export async function restoreRecord(file: Blob) {
-  const fail = () => new Error("备份无效、音频缺失或超过 120 MB。");
+  const fail = () =>
+    new PublicError(
+      "备份无效、音频缺失或超过 120 MB。",
+      undefined,
+      "backup.invalid",
+    );
   const headerSize = magic.length + 8;
   if (file.size > backupLimit || file.size <= headerSize) throw fail();
   const header = await file.slice(0, headerSize).text();

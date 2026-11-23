@@ -1,3 +1,4 @@
+import { PublicError } from "./pipeline/errors.ts";
 import {
   defaultPreferences,
   languages,
@@ -7,7 +8,11 @@ import {
 
 export function readPreferences(raw: unknown): Preferences {
   const fail = () => {
-    throw new Error("请检查主题兴趣、语言或制作上限。");
+    throw new PublicError(
+      "请检查主题兴趣、语言或制作上限。",
+      undefined,
+      "preferences.invalid",
+    );
   };
   if (!raw || typeof raw !== "object") return fail();
   const p = raw as Preferences;

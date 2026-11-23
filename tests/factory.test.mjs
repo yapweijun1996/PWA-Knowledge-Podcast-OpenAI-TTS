@@ -162,6 +162,71 @@ const action = (request, id, kind, revision = 1) =>
     payload: { revision, kind, consent: true },
   });
 
+test("worker JSON preserves public edit errors and interpolation parameters", async (t) => {
+  const { store, request } = harness(t);
+  const id = randomUUID();
+  await create(request, {
+    id,
+    topic: "Fixture",
+    language: "en",
+    consent: true,
+  });
+  const episode = await settled(store, id);
+  const response = await request(`/episodes/${id}`, {
+    method: "PATCH",
+    payload: {
+      revision: episode.revision,
+      title: episode.script.title,
+      voices: episode.voices,
+      texts: {},
+    },
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.data, {
+    error: "每段对话须有 1 至 450 个字符。",
+    code: "edit.turnLength",
+    params: { maximum: 450 },
+  });
+});
+
+test("worker saves coded job failures and returns them through the episode endpoint", async (t) => {
+  const { store, request } = harness(t, { invalidScript: true });
+  const id = randomUUID();
+  await create(request, {
+    id,
+    topic: "Fixture",
+    language: "en",
+    consent: true,
+  });
+  const { job } = await settled(store, id);
+  assert.equal(job.code, "script.turnClaimsInvalid");
+  assert.deepEqual(job.params, { chapter: 1, turn: 2 });
+  assert.equal(
+    job.message,
+    "脚本校验失败：第 1 章第 2 段引用了本章大纲未分配的主张。已保存先前阶段，可以重试。",
+  );
+  assert.deepEqual((await request("/episodes/" + id)).data.job, job);
+});
+
+test("worker persists a public code instead of provider diagnostics", async (t) => {
+  const { store, request } = harness(t, { failOutline: true });
+  const id = randomUUID();
+  await create(request, {
+    id,
+    topic: "Fixture",
+    language: "en",
+    consent: true,
+  });
+  await settled(store, id);
+  const { job } = (await request("/episodes/" + id)).data;
+  assert.equal(job.code, "openai.rateLimited");
+  assert.equal(
+    job.message,
+    "OpenAI 已限流或额度不足。请检查项目设置，稍后手动重试。",
+  );
+  assert.doesNotMatch(JSON.stringify(job), /diagnostics/);
+});
+
 test("studio entry aliases retain the view and episode query in redirects", async (t) => {
   const { request } = harness(t);
   const query = "?studio=factory&view=studio&episode=fixture&source=qa%20check";

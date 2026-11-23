@@ -20,6 +20,8 @@ export function createNarrator(key, Socket = WebSocket) {
       let phase = "connecting";
       const interrupted = new PublicError(
         "Realtime 连接中断。请检查 OpenAI 模型权限、额度和服务器网络，再手动重试。",
+        undefined,
+        "audio.connectionInterrupted",
       );
       const finish = (error, audio) => {
         if (phase === "closed") return;
@@ -32,7 +34,14 @@ export function createNarrator(key, Socket = WebSocket) {
       };
       const abort = () => finish(signal.reason);
       const timeout = setTimeout(
-        () => finish(new PublicError("配音超时，请手动重试。")),
+        () =>
+          finish(
+            new PublicError(
+              "配音超时，请手动重试。",
+              undefined,
+              "audio.timeout",
+            ),
+          ),
         75_000,
       );
       signal.addEventListener("abort", abort, { once: true });
@@ -79,6 +88,8 @@ export function createNarrator(key, Socket = WebSocket) {
               return finish(
                 new PublicError(
                   "Realtime 没有确认所选声音或 PCM 格式。请检查模型配置。",
+                  undefined,
+                  "audio.formatUnconfirmed",
                 ),
               );
             phase = "speaking";
@@ -113,14 +124,22 @@ export function createNarrator(key, Socket = WebSocket) {
             size += bytes.length;
             if (size > maxClipBytes)
               return finish(
-                new PublicError("单个配音片段超过时长上限。请缩短这段脚本。"),
+                new PublicError(
+                  "单个配音片段超过时长上限。请缩短这段脚本。",
+                  undefined,
+                  "audio.segmentTooLong",
+                ),
               );
             chunks.push(bytes);
           }
           if (event.type === "response.done") {
             if (event.response?.status !== "completed")
               return finish(
-                new PublicError("OpenAI 未完成此段配音。请重试，或缩短该段。"),
+                new PublicError(
+                  "OpenAI 未完成此段配音。请重试，或缩短该段。",
+                  undefined,
+                  "audio.segmentIncomplete",
+                ),
               );
             finish(null, prepareClip(Buffer.concat(chunks, size)));
           }
@@ -138,7 +157,11 @@ export function prepareClip(pcm) {
     pcm.length < bytesPerSecond / 10 ||
     pcm.length > maxClipBytes
   )
-    throw new PublicError("该配音片段没有可用的 PCM 数据。");
+    throw new PublicError(
+      "该配音片段没有可用的 PCM 数据。",
+      undefined,
+      "audio.pcmMissing",
+    );
   let peak = 0;
   const samples = pcm.length / 2;
   const fade = Math.round(sampleRate * 0.006);
@@ -151,7 +174,12 @@ export function prepareClip(pcm) {
         index * 2,
       );
   }
-  if (peak < 192) throw new PublicError("该配音片段接近静音，请手动重试。");
+  if (peak < 192)
+    throw new PublicError(
+      "该配音片段接近静音，请手动重试。",
+      undefined,
+      "audio.nearSilence",
+    );
   return pcm;
 }
 
@@ -159,7 +187,12 @@ export const duration = (pcm) => pcm.length / bytesPerSecond;
 
 export function wave(chunks) {
   const bytes = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  if (bytes > 24_000_000) throw new PublicError("成品超过 24 MB，请缩短对话。");
+  if (bytes > 24_000_000)
+    throw new PublicError(
+      "成品超过 24 MB，请缩短对话。",
+      undefined,
+      "audio.fileTooLarge",
+    );
   const header = Buffer.alloc(44);
   header.write("RIFF");
   header.writeUInt32LE(bytes + 36, 4);

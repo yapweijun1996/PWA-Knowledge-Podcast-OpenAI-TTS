@@ -55,7 +55,12 @@ export function createOpenAI(
   fetcher: typeof fetch = fetch,
 ): OpenAI {
   return async (path, body, signal, timeout = 120_000) => {
-    if (!key) throw new PublicError("请先在服务器配置 OPENAI_API_KEY。", 503);
+    if (!key)
+      throw new PublicError(
+        "请先在服务器配置 OPENAI_API_KEY。",
+        503,
+        "openai.serverKeyRequired",
+      );
     const multipart = body instanceof FormData;
     const response = await fetcher("https://api.openai.com/v1/" + path, {
       method: "POST",
@@ -70,6 +75,8 @@ export function createOpenAI(
       signal.throwIfAborted();
       throw new PublicError(
         "连接 OpenAI 失败或超时。此请求可能已计费，可手动重试。",
+        undefined,
+        "openai.timeout",
       );
     });
     if (!response.ok) {
@@ -80,22 +87,39 @@ export function createOpenAI(
     }
     return response.json().catch(() => {
       signal.throwIfAborted();
-      throw new PublicError("OpenAI 返回了无法读取的结果。");
+      throw new PublicError(
+        "OpenAI 返回了无法读取的结果。",
+        undefined,
+        "openai.responseUnreadable",
+      );
     });
   };
 }
 
 export function responseParts(response: ResponsesResult | null | undefined) {
   if (response?.status !== "completed")
-    throw new PublicError("OpenAI 未完成此阶段，可能已达到输出上限。");
+    throw new PublicError(
+      "OpenAI 未完成此阶段，可能已达到输出上限。",
+      undefined,
+      "openai.responseIncomplete",
+    );
   const parts =
     response.output?.flatMap((item) =>
       item.type === "message" ? item.content! : [],
     ) ?? [];
   if (parts.some((part) => part.type === "refusal"))
-    throw new PublicError("OpenAI 拒绝处理此主题。请检查主题内容。");
+    throw new PublicError(
+      "OpenAI 拒绝处理此主题。请检查主题内容。",
+      undefined,
+      "openai.topicRefused",
+    );
   const result = parts.filter((part) => part.type === "output_text");
-  if (!result.length) throw new PublicError("OpenAI 未返回可用内容。");
+  if (!result.length)
+    throw new PublicError(
+      "OpenAI 未返回可用内容。",
+      undefined,
+      "openai.noContent",
+    );
   return result;
 }
 
@@ -123,6 +147,10 @@ export async function structured(
     const data: unknown = JSON.parse(output);
     return { data, model: response.model ?? model };
   } catch {
-    throw new PublicError("OpenAI 没有返回有效的结构化内容。");
+    throw new PublicError(
+      "OpenAI 没有返回有效的结构化内容。",
+      undefined,
+      "openai.invalidStructuredContent",
+    );
   }
 }

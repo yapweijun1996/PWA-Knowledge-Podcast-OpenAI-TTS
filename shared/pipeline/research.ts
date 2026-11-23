@@ -37,6 +37,8 @@ Aim for ${deep ? "6 to 12" : "4 to 8"} claims with citations attached to each cl
   )
     throw new PublicError(
       "OpenAI 未完成网页搜索。请检查研究模型是否支持 web_search。",
+      undefined,
+      "research.searchIncomplete",
     );
   const evidence = collectEvidence(
     responseParts(response),
@@ -46,6 +48,8 @@ Aim for ${deep ? "6 to 12" : "4 to 8"} claims with citations attached to each cl
   if (!evidence.claims.length)
     throw new PublicError(
       "搜索没有返回可与主张关联的引用。可以重试，或用更具体的主题新建一期。",
+      undefined,
+      "research.citationsMissing",
     );
   return evidence;
 }

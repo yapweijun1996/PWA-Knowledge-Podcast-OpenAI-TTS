@@ -1,9 +1,15 @@
+import { PublicError } from "./pipeline/errors.ts";
+
 export async function validateAudio(blob: Blob, type: string) {
   if (
     blob.size < 44 ||
     blob.size > (type === "audio/wav" ? 24_000_044 : 8_000_000)
   )
-    throw new Error("音频大小不符合制作记录，请重新同步或检查备份。");
+    throw new PublicError(
+      "音频大小不符合制作记录，请重新同步或检查备份。",
+      undefined,
+      "record.audioSize",
+    );
   const header = new DataView(await blob.slice(0, 44).arrayBuffer());
   if (type === "audio/wav") {
     if (
@@ -20,11 +26,15 @@ export async function validateAudio(blob: Blob, type: string) {
       header.getUint16(34, true) !== 16 ||
       header.getUint32(24, true) !== 24000
     )
-      throw new Error("无法识别节目 WAV。");
+      throw new PublicError(
+        "无法识别节目 WAV。",
+        undefined,
+        "record.wavInvalid",
+      );
   } else if (
     header.getUint32(0) >>> 8 !== 0x494433 &&
     (header.getUint16(0) & 0xffe0) !== 0xffe0
   ) {
-    throw new Error("无法识别节目 MP3。");
+    throw new PublicError("无法识别节目 MP3。", undefined, "record.mp3Invalid");
   }
 }

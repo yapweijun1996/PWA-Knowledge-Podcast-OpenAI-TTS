@@ -1,3 +1,4 @@
+import { PublicError } from "./pipeline/errors.ts";
 import {
   activeHosts,
   episodeId,
@@ -39,7 +40,11 @@ const isURL = (raw: string) => {
 
 export function readEpisode(value: unknown): Episode {
   const invalid = () => {
-    throw new Error("节目记录格式无效或超过上限。");
+    throw new PublicError(
+      "节目记录格式无效或超过上限。",
+      undefined,
+      "record.invalid",
+    );
   };
   if (!value || typeof value !== "object") return invalid();
   const e = value as Episode;
@@ -165,7 +170,17 @@ export function readEpisode(value: unknown): Episode {
       !["running", "failed", "cancelled", "interrupted"].includes(
         e.job.status,
       ) ||
-      (e.job.message !== undefined && !text(e.job.message, 1000)))
+      (e.job.message !== undefined && !text(e.job.message, 1000)) ||
+      (e.job.code !== undefined && !text(e.job.code, 100)) ||
+      (e.job.params !== undefined &&
+        (!e.job.params ||
+          typeof e.job.params !== "object" ||
+          Array.isArray(e.job.params) ||
+          Object.entries(e.job.params).some(
+            ([name, value]) =>
+              !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
+              (typeof value !== "string" && !Number.isFinite(value)),
+          ))))
   )
     return invalid();
   if (

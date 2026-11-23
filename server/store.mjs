@@ -31,17 +31,20 @@ export function createStore(dataDir) {
   const root = resolve(dataDir);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const folder = (id) => {
-    if (!episodeId.test(id)) throw new PublicError("找不到这期节目。", 404);
+    if (!episodeId.test(id))
+      throw new PublicError("找不到这期节目。", 404, "episode.missing");
     return join(root, id);
   };
   const state = (id) => join(folder(id), "episode.json");
   const receipts = join(root, ".receipts");
   const receiptPath = (id) => {
-    if (!episodeId.test(id)) throw new PublicError("找不到这期节目。", 404);
+    if (!episodeId.test(id))
+      throw new PublicError("找不到这期节目。", 404, "episode.missing");
     return join(receipts, id + ".json");
   };
   const assetPath = (id, asset) => {
-    if (!audioFile.test(asset)) throw new PublicError("找不到此音频。", 404);
+    if (!audioFile.test(asset))
+      throw new PublicError("找不到此音频。", 404, "audio.missing");
     return join(folder(id), asset);
   };
   return {
@@ -56,7 +59,8 @@ export function createStore(dataDir) {
     },
     get(id) {
       const file = state(id);
-      if (!existsSync(file)) throw new PublicError("找不到这期节目。", 404);
+      if (!existsSync(file))
+        throw new PublicError("找不到这期节目。", 404, "episode.missing");
       return JSON.parse(readFileSync(file, "utf8"));
     },
     list() {
@@ -79,7 +83,11 @@ export function createStore(dataDir) {
         try {
           for (const [asset, bytes] of importedMedia) {
             if (!audioFile.test(asset))
-              throw new PublicError("音频文件名无效。", 400);
+              throw new PublicError(
+                "音频文件名无效。",
+                400,
+                "audio.assetNameInvalid",
+              );
             writeAtomic(join(staging, asset), bytes);
           }
           writeAtomic(join(staging, "episode.json"), JSON.stringify(episode));

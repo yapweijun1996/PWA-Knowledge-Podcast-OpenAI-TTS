@@ -10,6 +10,7 @@ import {
   type Stage,
   type Turn,
 } from "../../shared/factory.ts";
+import { PublicError } from "../../shared/pipeline/errors.ts";
 import { plans } from "../../shared/pipeline/languages.ts";
 import {
   createOpenAI,
@@ -22,10 +23,11 @@ import { researchTopic } from "../../shared/pipeline/research.ts";
 import { makeOutline, makeScript } from "../../shared/pipeline/script.ts";
 import { transcribe } from "../../shared/pipeline/transcript.ts";
 import { productionBounds, readPreferences } from "../../shared/preferences.ts";
+import { translateError } from "../i18n/errors.ts";
 import {
   createTranslator,
+  defaultLocale,
   locales,
-  t,
   type MessageKey,
 } from "../i18n/index.ts";
 import { get as getBrowserKey } from "./browser-key.ts";
@@ -65,6 +67,8 @@ const messages = {
 
 type BrowserJob = Job & { unknownPaidOutcome?: true };
 
+const sourceT = createTranslator(defaultLocale);
+
 // Older checkpoints have only display text. Keep recognizing them after a locale change.
 const unknownOutcomeMessages = new Set(
   locales.map((locale) => createTranslator(locale)(messages.unknown)),
@@ -73,20 +77,31 @@ const unknownOutcomeMessages = new Set(
 function isUnknownOutcome(job: BrowserJob | undefined) {
   return (
     job?.unknownPaidOutcome === true ||
+    job?.code === messages.unknown ||
     (job?.message !== undefined && unknownOutcomeMessages.has(job.message))
   );
 }
 
 export class BrowserProductionError extends Error {
   declare code: keyof typeof messages;
+  declare readonly detail: PublicError;
 
-  constructor(code: keyof typeof messages, cancelled = false) {
-    super(t(messages[code]));
+  constructor(
+    code: keyof typeof messages,
+    cancelled = false,
+    detail = new PublicError(
+      sourceT(messages[code]),
+      undefined,
+      messages[code],
+    ),
+  ) {
+    super(translateError(detail));
     this.name =
       cancelled || code === "cancelled"
         ? "AbortError"
         : "BrowserProductionError";
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -459,7 +474,8 @@ export function createBrowserProduction({
       await save({
         stage,
         status: "running",
-        message: t(messages.unknown),
+        message: sourceT(messages.unknown),
+        code: messages.unknown,
         unknownPaidOutcome: true,
       });
       try {
@@ -470,13 +486,19 @@ export function createBrowserProduction({
         const failure =
           error instanceof BrowserProductionError
             ? error
-            : new BrowserProductionError("invalid-result", signal.aborted);
+            : new BrowserProductionError(
+                "invalid-result",
+                signal.aborted,
+                error instanceof PublicError ? error : undefined,
+              );
         episode = structuredClone(saved!.episode);
         assets = { ...saved!.assets };
         await save({
           stage,
           status: signal.aborted ? "cancelled" : "failed",
-          message: failure.message,
+          message: failure.detail.message,
+          code: failure.detail.code,
+          params: failure.detail.params,
           ...(failure.code === "unknown" && { unknownPaidOutcome: true }),
         });
         throw failure;
@@ -655,7 +677,8 @@ export function createBrowserProduction({
         await save({
           stage: job.stage,
           status: "cancelled",
-          message: error.message,
+          message: error.detail.message,
+          code: error.detail.code,
         });
       }
       throw error;

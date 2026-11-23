@@ -21,7 +21,8 @@ const types = {
 
 function fileInfo(path) {
   const stats = statSync(path, { throwIfNoEntry: false });
-  if (!stats?.isFile()) throw new PublicError("文件不存在。", 404);
+  if (!stats?.isFile())
+    throw new PublicError("文件不存在。", 404, "worker.fileMissing");
   return stats;
 }
 
@@ -74,14 +75,14 @@ function json(res, value, status = 200) {
 
 async function readBytes(req, max) {
   if (Number(req.headers["content-length"]) > max)
-    throw new PublicError("请求内容过长。", 413);
+    throw new PublicError("请求内容过长。", 413, "worker.bodyTooLong");
   let size = 0;
   const chunks = [];
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += chunk.length;
     if (size > max) {
       req.resume();
-      throw new PublicError("请求内容过长。", 413);
+      throw new PublicError("请求内容过长。", 413, "worker.bodyTooLong");
     }
     chunks.push(chunk);
   }
@@ -90,7 +91,7 @@ async function readBytes(req, max) {
 
 async function body(req, max = 32_768) {
   if (req.headers["content-type"]?.split(";")[0] !== "application/json")
-    throw new PublicError("请求须使用 JSON。", 415);
+    throw new PublicError("请求须使用 JSON。", 415, "worker.jsonRequired");
   const deadline = setTimeout(() => req.destroy(), 20_000);
   let bytes;
   try {
@@ -104,7 +105,7 @@ async function body(req, max = 32_768) {
       throw new Error();
     return data;
   } catch {
-    throw new PublicError("无效的 JSON 请求。", 400);
+    throw new PublicError("无效的 JSON 请求。", 400, "worker.jsonInvalid");
   }
 }
 
@@ -147,7 +148,11 @@ export function podcastHTTP({
   });
   const requireDiscoveryIdle = () => {
     if (production?.busy)
-      throw new PublicError("正在自动选题，请等待完成或取消选题。", 409);
+      throw new PublicError(
+        "正在自动选题，请等待完成或取消选题。",
+        409,
+        "discovery.busy",
+      );
   };
   function bounds(p) {
     try {
@@ -155,7 +160,9 @@ export function podcastHTTP({
         readPreferences(p ?? production.status().preferences),
       );
     } catch (error) {
-      throw new PublicError(error.message, 400);
+      if (error instanceof PublicError)
+        throw new PublicError(error.message, 400, error.code, error.params);
+      throw error;
     }
   }
   let acceptingArchive = false;
@@ -175,7 +182,7 @@ export function podcastHTTP({
       try {
         const origin = boundary.checkHost(req);
         if (!req.url?.startsWith("/") || req.url.startsWith("//"))
-          throw new PublicError("路径无效。", 400);
+          throw new PublicError("路径无效。", 400, "worker.pathInvalid");
         const url = new URL(req.url, origin);
         const path = url.pathname;
         if (path === studioAPI || path.startsWith(studioAPI + "/")) {
@@ -206,7 +213,12 @@ export function podcastHTTP({
               });
             }
           }
-          if (!authorized) throw new PublicError("请先登录私有工作空间。", 401);
+          if (!authorized)
+            throw new PublicError(
+              "请先登录私有工作空间。",
+              401,
+              "worker.loginRequired",
+            );
           if (production && tail === "/key" && req.method === "PUT") {
             production.setKey((await body(req)).key);
             return json(res, {
@@ -224,7 +236,11 @@ export function podcastHTTP({
           }
           if (production && tail === "/discover" && req.method === "POST") {
             if ((await body(req)).consent !== true)
-              throw new PublicError("请确认自动选题及制作可能计费。", 400);
+              throw new PublicError(
+                "请确认自动选题及制作可能计费。",
+                400,
+                "discovery.consentRequired",
+              );
             return json(res, production.start(true), 202);
           }
           if (production && tail === "/discover" && req.method === "DELETE")
@@ -242,6 +258,7 @@ export function podcastHTTP({
                     throw new PublicError(
                       "请选择自动安排或恰好两位主持人。",
                       400,
+                      "production.hostChoice",
                     );
                   preferences.maxHosts = payload.exactHosts;
                   preferences.exactHosts = payload.exactHosts;
@@ -267,7 +284,7 @@ export function podcastHTTP({
             !episodeId.test(id ?? "") ||
             extra !== undefined
           )
-            throw new PublicError("找不到此接口。", 404);
+            throw new PublicError("找不到此接口。", 404, "worker.routeMissing");
           if (!action && req.method === "GET") return json(res, store.get(id));
           if (!action && req.method === "PATCH")
             return json(res, jobs.edit(id, await body(req)));
@@ -287,17 +304,37 @@ export function podcastHTTP({
             req.method === "POST"
           ) {
             if (req.headers["x-podcast-consent"] !== "true")
-              throw new PublicError("请先确认转录可能计费。", 400);
+              throw new PublicError(
+                "请先确认转录可能计费。",
+                400,
+                "transcript.consentRequired",
+              );
             const stamp = req.headers["x-local-stamp"];
             if (typeof stamp !== "string" || !episodeId.test(stamp))
-              throw new PublicError("本地版本无效。", 400);
+              throw new PublicError(
+                "本地版本无效。",
+                400,
+                "worker.localVersionInvalid",
+              );
             if (req.headers["content-type"] !== "application/octet-stream")
-              throw new PublicError("需要节目备份格式。", 415);
+              throw new PublicError(
+                "需要节目备份格式。",
+                415,
+                "worker.backupRequired",
+              );
             if (!production.runtime().configured)
-              throw new PublicError("请先配置密钥。", 503);
+              throw new PublicError(
+                "请先配置密钥。",
+                503,
+                "worker.keyRequired",
+              );
             requireDiscoveryIdle();
             if (acceptingArchive || jobs.busy)
-              throw new PublicError("已有任务进行中，请先同步。", 409);
+              throw new PublicError(
+                "已有任务进行中，请先同步。",
+                409,
+                "worker.syncBusy",
+              );
             acceptingArchive = true;
             try {
               const bytes = await readBytes(req, backupLimit);
@@ -305,7 +342,11 @@ export function podcastHTTP({
               try {
                 archive = await restoreRecord(new Blob([bytes]));
               } catch {
-                throw new PublicError("节目备份或音频校验失败。", 400);
+                throw new PublicError(
+                  "节目备份或音频校验失败。",
+                  400,
+                  "worker.backupInvalid",
+                );
               }
               const media = new Map();
               for (const [name, blob] of Object.entries(archive.assets)) {
@@ -356,7 +397,11 @@ export function podcastHTTP({
             const finished = store.get(id).finished;
             const asset = action === "mp3" ? finished?.mp3 : finished?.asset;
             if (!asset || asset !== url.searchParams.get("asset"))
-              throw new PublicError("找不到此成品音频。", 404);
+              throw new PublicError(
+                "找不到此成品音频。",
+                404,
+                "worker.finishedAudioMissing",
+              );
             if (url.searchParams.get("download") === "1")
               res.setHeader(
                 "Content-Disposition",
@@ -388,11 +433,15 @@ export function podcastHTTP({
             );
             return;
           }
-          throw new PublicError("找不到此接口。", 404);
+          throw new PublicError("找不到此接口。", 404, "worker.routeMissing");
         }
 
         if (!["GET", "HEAD"].includes(req.method))
-          throw new PublicError("请求方法不受支持。", 405);
+          throw new PublicError(
+            "请求方法不受支持。",
+            405,
+            "worker.methodUnsupported",
+          );
         if (path === "/" || path === studioBase.slice(0, -1)) {
           res.writeHead(302, { Location: studioBase + url.search }).end();
           return;
@@ -404,14 +453,20 @@ export function podcastHTTP({
             asset,
           )
         )
-          throw new PublicError("文件不存在。", 404);
+          throw new PublicError("文件不存在。", 404, "worker.fileMissing");
         return serveFile(req, res, resolve(dist, asset));
       } catch (error) {
         if (res.headersSent || res.destroyed) return;
-        if (error instanceof PublicError)
-          return json(res, { error: error.message }, error.status);
-        console.error("Podcast server request failed.");
-        json(res, { error: "服务器未完成请求，请检查存储后重试。" }, 500);
+        if (!(error instanceof PublicError)) {
+          console.error("Podcast server request failed.");
+          error = new PublicError(
+            "服务器未完成请求，请检查存储后重试。",
+            500,
+            "worker.storageFailed",
+          );
+        }
+        const { message, code, params, status } = error;
+        return json(res, { error: message, code, params }, status);
       }
     },
   );
