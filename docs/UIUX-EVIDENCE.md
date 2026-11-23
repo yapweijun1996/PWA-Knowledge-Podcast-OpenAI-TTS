@@ -103,3 +103,41 @@ the others). `npm test`: 199 tests, 198 passed, 1 skipped. The agent panel
 states were added to the locale sweep: English and Malay show no CJK and no
 overflow at 320 to 1440 wide and at 200 percent text. The statuses above remain
 `PASS (Chromium)` and the `NOT_RUN` items are unchanged.
+
+## Visual QA checks
+
+T63 runs in the serial Playwright `render` project on Chromium with
+SwiftShader. The test bundles the production timeline, renderer, scene registry,
+font loader and thumbnail encoder in memory. Playwright serves the bundle and
+versioned files from `public/fonts` through the test page's local routes. Every
+other route is blocked. Four reference episodes pair Mandarin, English, Malay
+and mixed text with the two scenes and two orientations. Each has three
+chapters, six turns and seeded 24 kHz PCM. The PCM includes quiet speech-like
+bursts, loud bursts, clipping and pauses. Additional short episodes put two
+chapter starts inside one rolling second in each scene and orientation.
+
+```sh
+npm run e2e:factory -- --project=render --no-deps tests/visual-qa.browser.ts
+```
+
+| Check | Automated evidence | Review limits |
+| --- | --- | --- |
+| Captions and typography | Measures the renderer's cues with the bundled faces. Checks the two-line, grapheme and pixel-width limits, illegal line edges, last-line orphans, Latin word integrity, reading rates, unchanged source text, and displayed text at sample frames. Checks font preflight and the episode-language wordmark. | Synthetic PCM supplies onsets and timing windows. Spoken-word sync and fluent review require real speech. |
+| Contrast | Observes the renderer's text positions and fonts, then draws isolated glyph masks on test canvases. For each measured run it compares core ink with the actual pre-text background in raw pixels and uses nearby, background-matched decoded pixels for the MP4 ratio. The minimum is 4.5:1 for caption, host, wordmark, chapter and progress text. | The sample covers glyph interiors with a usable nearby background. Grayscale and colour-vision simulation of host identity remain review items. |
+| Framing | Checks every reported element box and sampled glyph bounds against the product rectangle. Looks for strong decoded edges beyond the common 5% title-safe inset, allowing smooth 2D and WebGL backdrops. | A smooth, low-contrast element could escape the exterior edge test. Exact 3D subtraction would need a background-only frame entry point with the same scene, palette and frame index. YouTube overlay and device screenshots still need review. |
+| Opening and chapters | Checks the title draw on frames 0–59 in landscape and 0–44 in portrait, decoded title and caption ink at frame 0, and sampled card and caption continuity, chapter titles at their first voiced frames, `n / total` and an eligible callout's hold and clearance. | The fixture exercises one callout per episode. Topic art recognition and editorial timing remain review items. |
+| Flash safety | Samples every raw and decoded frame on a 96×54 or 54×96 grid. Uses WCAG luminance, accumulated excursions and opposing changes in rolling 30-frame windows. Tests the quarter-field area approximation and the stricter per-cell limit of three flashes. Logs saturated-red transitions separately. | Downsampling can lose smaller or shorter visual changes. The results cover the reference exports and the rapid chapter stress clips. Review of the saved reduced-motion profile and other viewing conditions remains open. |
+| Repeatability and fallback | Compares exact raw and decoded RGBA SHA-256 after a fresh page load at frames 0, 15, 30, 60, 120 and event boundaries ±1. Replays the production overlay and scene draw contracts in chronological and shuffled order and compares with the export's raw hashes. Forces WebGL startup failure and checks a playable waveform export. | The replay uses a test compositor because the encoder submits frames in order. The hashes apply within this Chromium/SwiftShader profile. Context loss, cancellation and full-episode resource use need separate evidence. |
+| Thumbnails | Encodes all three variants and checks the decoded PNGs for 1280×720 dimensions, size below 2 MB, layout and duration-badge clearance, 4.5:1 text contrast and at least 8 px of CJK ink at 160×90. It also checks the 320×180 preview. | A reviewer reads each headline and identifies the focal subject at feed sizes. |
+
+The test attaches `visual-qa-report.json` and prints a Markdown score line.
+The attachment maps all ten section 8 criteria to their rubric weights,
+automated points, status and frame evidence. It includes combined and
+per-orientation scores. The automated checks assess **62 of 100 points**.
+The remaining points cover manual or separate evidence, including scene craft,
+spoken sync and performance. The automated percentage and the independent
+review use different evidence and denominators. The spec's 85/100 release bar
+still requires the full review. [Visual design rubric](VISUAL-DESIGN-SPEC.md#8-release-rubric-and-playwright-checks)
+
+T63 Chromium execution is `NOT_RUN` in this worktree. Test discovery exercises
+project routing only.
