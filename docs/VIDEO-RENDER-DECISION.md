@@ -140,6 +140,16 @@ frames. Fixed batch boundaries keep output callback timing from changing where
 the renderer requests keyframes. Cards and the four-second interval drive
 those requests. [Queue timing regression test](../tests/video-render.test.mjs)
 
+Short exports target 2.4 Mbps for video. The renderer budgets 80% of the
+128 MiB encoded chunk limit across the planned duration, subtracts the audio
+target (64 kbps mono or 128 kbps for multiple channels), and clamps the video
+target between 900 kbps and 2.4 Mbps. The other 20% is headroom for variable
+bitrate output. The 900 kbps floor preserves the previous quality setting for
+long exports, where the estimate can consume the reserve. Actual audio and
+video chunk bytes are checked against the 128 MiB limit throughout encoding.
+If the preferred video target is unsupported, the renderer probes the same
+codec at 900 kbps before considering the optional VP9 fallback.
+
 The Studio prefers a dedicated OffscreenCanvas worker when the browser
 supports its drawing, encoding and font APIs. The existing renderer on the
 page is the fallback for browsers without that combination. Browser tests

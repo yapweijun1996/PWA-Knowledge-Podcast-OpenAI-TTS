@@ -212,7 +212,7 @@ test("Studio renders a finished episode, persists approval and exports the revie
   );
   expect(mp4Bytes).toBeGreaterThan(0);
   // Allow 10% for rate-control variation and 64 KiB for short-file mux overhead.
-  const targetBytes = (duration * (900_000 + 64_000)) / 8;
+  const targetBytes = (duration * (2_400_000 + 64_000)) / 8;
   expect(mp4Bytes).toBeLessThan(targetBytes * 1.1 + 64 * 1024);
   await expect(
     panel.getByText(/Video avc1\..*Audio Opus.*SHA-256 [0-9a-f]{12}/u),

@@ -78,7 +78,8 @@ function drawStage(
 const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
 const maxEncodedBytes = 128 * 1024 * 1024;
-const videoBitrate = 900_000;
+const minimumVideoBitrate = 900_000;
+const maximumVideoBitrate = 2_400_000;
 const keyFrameIntervalSeconds = 4;
 const audioBlockSize = 4096;
 const opusSampleRate = 48_000;
@@ -409,6 +410,15 @@ export async function renderVideo({
     throw new Error(t("video.render.noAudioEncoder"));
   if (!subtle) throw new Error(t("video.render.noHash"));
 
+  const audioBitrate = numberOfChannels === 1 ? 64_000 : 128_000;
+  // Reserve 20% of the estimated budget for variable-rate output.
+  const videoBitrate = Math.max(
+    minimumVideoBitrate,
+    Math.min(
+      maximumVideoBitrate,
+      Math.floor((maxEncodedBytes * 8 * 0.8) / duration) - audioBitrate,
+    ),
+  );
   const videoSettings = {
     width,
     height,
@@ -426,13 +436,20 @@ export async function renderVideo({
     codec: fps > 30 ? "vp09.00.41.08" : "vp09.00.40.08",
   };
   async function supportedVideoConfig(config: VideoEncoderConfig) {
-    const variable = { ...config, bitrateMode: "variable" as const };
-    for (const candidate of [variable, config]) {
-      const supported = await waitFor(
-        isSupported(() => VideoEncoderClass.isConfigSupported(candidate)),
-        stop,
-      );
-      if (supported) return candidate;
+    // Retain the previous target for encoders that reject the preferred rate.
+    const candidates =
+      videoBitrate === minimumVideoBitrate
+        ? [config]
+        : [config, { ...config, bitrate: minimumVideoBitrate }];
+    for (const candidate of candidates) {
+      const variable = { ...candidate, bitrateMode: "variable" as const };
+      for (const settings of [variable, candidate]) {
+        const supported = await waitFor(
+          isSupported(() => VideoEncoderClass.isConfigSupported(settings)),
+          stop,
+        );
+        if (supported) return settings;
+      }
     }
   }
   const avcConfig = await supportedVideoConfig(h264);
@@ -445,7 +462,7 @@ export async function renderVideo({
     codec: "mp4a.40.2",
     sampleRate: pcm.sampleRate,
     numberOfChannels,
-    bitrate: numberOfChannels === 1 ? 64_000 : 128_000,
+    bitrate: audioBitrate,
   };
   let audioCodec: "aac" | "opus" = "aac";
   const supportsAudio = (config: AudioEncoderConfig) =>

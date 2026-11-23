@@ -29,7 +29,7 @@ export const palettes: Record<PaletteId | "light", Palette> = {
     hostA: "#00392E",
     hostB: "#6150AE",
     ink: "#172238",
-    secondaryInk: "#344158",
+    secondaryInk: "#26334A",
     plate: "#F8FAFF",
     track: "#69788D",
   },

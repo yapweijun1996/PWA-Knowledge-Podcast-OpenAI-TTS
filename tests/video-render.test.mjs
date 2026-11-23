@@ -1050,7 +1050,7 @@ test("rejects when encoded output crosses the in-memory size limit", async () =>
   assert.deepEqual(trace.digests, []);
 });
 
-test("uses the quality bitrate target and a four-second keyframe interval", async () => {
+test("caps the short-export bitrate and uses a four-second keyframe interval", async () => {
   const { deps, trace } = fakeDependencies();
   await renderVideo({
     plan: {
@@ -1067,7 +1067,7 @@ test("uses the quality bitrate target and a four-second keyframe interval", asyn
       width: 1920,
       height: 1080,
       framerate: 4,
-      bitrate: 900_000,
+      bitrate: 2_400_000,
       latencyMode: "quality",
       bitrateMode: "variable",
       codec: "avc1.420028",
@@ -1076,6 +1076,27 @@ test("uses the quality bitrate target and a four-second keyframe interval", asyn
   ]);
   assert.deepEqual(trace.videoConfigs, trace.videoChecks);
   assert.deepEqual(trace.keyFrames, [0, 4_000_000, 8_000_000]);
+});
+
+test("budgets audio by channel count and retains the long-export bitrate floor", async () => {
+  for (const [duration, channels, videoBitrate, audioBitrate] of [
+    [400, 1, 2_083_483, 64_000],
+    [400, 2, 2_019_483, 128_000],
+    [1_200, 2, 900_000, 128_000],
+  ]) {
+    const { deps, trace } = fakeDependencies();
+    await renderVideo({
+      plan: { ...plan, duration, fps: 0.01 },
+      audio: {
+        sampleRate: 1_000,
+        channels: Array.from({ length: channels }, () => new Float32Array(2_000)),
+      },
+      theme: "dark",
+      deps,
+    });
+    assert.equal(trace.videoConfigs[0].bitrate, videoBitrate);
+    assert.equal(trace.audioChecks[0].bitrate, audioBitrate);
+  }
 });
 
 test("keeps H.264 when explicit variable rate control is unsupported", async () => {
@@ -1091,7 +1112,35 @@ test("keeps H.264 when explicit variable rate control is unsupported", async () 
   assert.deepEqual(trace.videoConfigs, trace.videoChecks.slice(1));
 });
 
+test("retries the baseline H.264 bitrate before considering VP9", async () => {
+  const { deps, trace } = fakeDependencies({
+    videoSupport: ({ codec, bitrate, bitrateMode }) =>
+      codec.startsWith("vp09.") ||
+      (codec.startsWith("avc1.") &&
+        bitrate === 900_000 &&
+        bitrateMode === undefined),
+  });
+  const result = await renderVideo({
+    plan: { ...plan, allowVp9: true },
+    audio,
+    theme: "dark",
+    deps,
+  });
+  assert.deepEqual(
+    trace.videoChecks.map(({ bitrate, bitrateMode }) => [bitrate, bitrateMode]),
+    [
+      [2_400_000, "variable"],
+      [2_400_000, undefined],
+      [900_000, "variable"],
+      [900_000, undefined],
+    ],
+  );
+  assert.equal(result.videoCodec, "avc1.420028");
+  assert.deepEqual(trace.videoConfigs, trace.videoChecks.slice(-1));
+});
+
 test("probes the actual configuration and uses VP9 only with an explicit opt-in", async () => {
+  const avcChecks = Array(4).fill("avc1.420028");
   const fixture = () =>
     fakeDependencies({
       videoSupport: ({ codec }) => codec.startsWith("vp09."),
@@ -1103,7 +1152,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   );
   assert.deepEqual(
     denied.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028", "avc1.420028"],
+    avcChecks,
   );
   assert.deepEqual(denied.trace.frames, []);
   assert.deepEqual(denied.trace.digests, []);
@@ -1120,7 +1169,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   );
   assert.deepEqual(
     unsupported.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028", "avc1.420028", "vp09.00.40.08", "vp09.00.40.08"],
+    [...avcChecks, ...Array(4).fill("vp09.00.40.08")],
   );
   assert.deepEqual(unsupported.trace.frames, []);
 
@@ -1139,7 +1188,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   assert.equal(result.videoCodec, "vp09.00.40.08");
   assert.deepEqual(
     allowed.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028", "avc1.420028", "vp09.00.40.08"],
+    [...avcChecks, "vp09.00.40.08"],
   );
   assert.ok(Buffer.from(await result.blob.arrayBuffer()).includes("vpcC"));
   assert.deepEqual(allowed.trace.audioChecks, [
