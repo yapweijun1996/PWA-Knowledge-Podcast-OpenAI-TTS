@@ -128,3 +128,16 @@ replaces the color clear, while the depth clear and MSAA remain enabled.
 An offline Chromium SwiftShader run with `--in-process` measured 15.8 ms
 median in both orientations and 17.1 / 17.0 ms p95 in landscape / portrait.
 The standard multiprocess timing is still unverified.
+
+### Round 4 speaking cue
+
+The active turn adds 4% to its orb's scale. PCM can add up to 1.3%, for a
+5.3% combined maximum. Reduced motion omits the turn-driven scale accent.
+The key-facing rim arc gains up to 12% in linear light, with headroom reserved
+for bright palettes. The existing contact pass adds a .003H ground stroke
+at .18 peak opacity over the contact shadow. Screen-space coverage keeps
+the stroke narrow under perspective.
+
+The scene-only pixel checks measure both hosts in all four palettes at
+960×540 and 390×694, with an additional orb-disc check downscaled to 160×90.
+The benchmark and pixel checks require a Chromium run for this revision.

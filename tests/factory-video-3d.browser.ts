@@ -450,6 +450,7 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
     const contactProbes = studio3dContactProbes(width, height);
     for (const palette of ["aurora", "sunset", "mono", "ocean"]) {
       const label = `${palette} at ${width}×${height}`;
+      // The harness draws only the scene, so the speaker chips are absent.
       // The synthetic turn plan has stable A and B samples at 1s and 2s.
       const result = await page.evaluate(measureStudio3d, {
         bundle,
@@ -482,6 +483,16 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
         ["B", bSpeaking.hosts[1], aSpeaking.hosts[1]],
       ]) {
+        expect(
+          active.disc - idle.disc,
+          `${label} host ${host} orb disc luminance gain`,
+        ).toBeGreaterThanOrEqual(0.08 * idle.disc);
+        if (width > height) {
+          expect(
+            active.thumbnailDisc - idle.thumbnailDisc,
+            `${palette} host ${host} orb disc luminance gain at 160×90`,
+          ).toBeGreaterThanOrEqual(0.08 * idle.thumbnailDisc);
+        }
         expect(active.body - idle.body, `${label} host ${host} body emphasis`).toBeGreaterThan(
           0.012,
         );
@@ -492,6 +503,24 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
           active.groundRing - idle.groundRing,
           `${label} host ${host} ground ring luminance gain`,
         ).toBeGreaterThanOrEqual(0.012);
+        for (const [probe, activeProfile] of active.groundRingProfiles.entries()) {
+          const edge = `${label} host ${host} ring inner edge at probe ${probe + 1}`;
+          const gain = activeProfile.map(
+            (value: number, row: number) =>
+              value - idle.groundRingProfiles[probe][row],
+          );
+          const peak = Math.max(...gain);
+          expect(peak, edge).toBeGreaterThanOrEqual(0.012);
+          const high = gain.findIndex((value: number) => value >= 0.9 * peak);
+          const low = gain.slice(0, high).findLastIndex(
+            (value: number) => value <= 0.1 * peak,
+          );
+          expect(low, edge).toBeGreaterThanOrEqual(0);
+          expect(
+            high - low,
+            `${edge}, 10% to 90% rise in pixels`,
+          ).toBeLessThanOrEqual(3);
+        }
         for (const [state, sample] of [
           ["active", active],
           ["idle", idle],

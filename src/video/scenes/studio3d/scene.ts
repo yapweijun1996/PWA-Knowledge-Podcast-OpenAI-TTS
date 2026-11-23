@@ -11,8 +11,8 @@ import {
   spectrumBins,
 } from "./audio-state.ts";
 import {
-  groundRingHalfWidth,
   groundRingMaxAlpha,
+  groundRingWidthH,
   haloOpacityAt,
   orbScaleAt,
   pedestalFootRadius,
@@ -170,34 +170,45 @@ function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
   });
 }
 
-function contactMaterial(accent: THREE.Color, radius: number, extent: number) {
+function contactMaterial(
+  accent: THREE.Color,
+  radius: number,
+  extent: number,
+  frameHeight: number,
+) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      accent: { value: accent },
+      accentSrgb: { value: accent.clone().convertLinearToSRGB() },
       ringOpacity: { value: 0 },
-      ringProfile: {
-        value: new THREE.Vector3(radius, groundRingHalfWidth, extent),
-      },
+      ringRadius: { value: radius },
+      planeExtent: { value: extent },
+      halfWidthPx: { value: (groundRingWidthH * frameHeight) / 2 },
     },
     vertexShader: stagePlaneVertexShader,
     fragmentShader: `
-      uniform vec3 accent;
+      uniform vec3 accentSrgb;
       uniform float ringOpacity;
-      uniform vec3 ringProfile;
+      uniform float ringRadius;
+      uniform float planeExtent;
+      uniform float halfWidthPx;
       varying vec2 planeUv;
       void main() {
-        float radius = length(planeUv * 2.0 - 1.0) * ringProfile.z;
+        float radius = length(planeUv * 2.0 - 1.0) * planeExtent;
         float shadow = 0.28 * (1.0 - smoothstep(0.0, 1.36, radius));
-        float band = 1.0 - smoothstep(0.0, ringProfile.y, abs(radius - ringProfile.x));
-        float ring = ringOpacity * band;
-        float alpha = ring + shadow * (1.0 - ring);
-        gl_FragColor = vec4(accent, alpha);
-        #include <colorspace_fragment>
-        // Composite the accent over black within the existing shadow pass.
-        gl_FragColor.rgb *= ring / max(alpha, 0.0001);
+        // Express the local distance from the ring in screen pixels so it
+        // keeps its stroke width as the floor foreshortens.
+        float radialSlope = length(vec2(dFdx(radius), dFdy(radius)));
+        float distancePx = abs(radius - ringRadius) / max(radialSlope, 0.00001);
+        float coverage = clamp(
+          halfWidthPx + 0.5 - distancePx, 0.0, min(1.0, 2.0 * halfWidthPx)
+        );
+        // Premultiplied blending dims the floor by the shadow alpha and adds
+        // the ring's light in the same pass.
+        gl_FragColor = vec4(accentSrgb * (ringOpacity * coverage), shadow);
       }
     `,
     transparent: true,
+    premultipliedAlpha: true,
     depthWrite: false,
   });
 }
@@ -275,7 +286,13 @@ const spectrumMaterial = () => new THREE.ShaderMaterial({
   depthWrite: false,
 });
 
-function orbMaterial(color: THREE.Color, faceted: boolean) {
+const rimFlareGain = 0.12;
+
+function orbMaterial(
+  color: THREE.Color,
+  faceted: boolean,
+  keyPosition: THREE.Vector3,
+) {
   const material = new THREE.MeshStandardMaterial({
     color: color.clone().multiplyScalar(0.47),
     emissive: color,
@@ -285,33 +302,46 @@ function orbMaterial(color: THREE.Color, faceted: boolean) {
     fog: false,
   });
   const rim = { value: 0 };
+  const idleRim = color.clone().multiplyScalar(0.58);
+  const activeRim = color.clone().lerp(new THREE.Color(1, 1, 1), 0.38);
+  // Reserve enough output headroom for the full linear-light flare.
+  const peak = Math.max(activeRim.r, activeRim.g, activeRim.b);
+  activeRim.multiplyScalar(1 / Math.max(1, peak * (1 + rimFlareGain)));
   material.onBeforeCompile = (shader) => {
     shader.uniforms.studioRimEmphasis = rim;
-    shader.uniforms.studioRimAccent = { value: color };
+    shader.uniforms.studioIdleRim = { value: idleRim };
+    shader.uniforms.studioActiveRim = { value: activeRim };
+    shader.uniforms.studioKeyPosition = { value: keyPosition };
     // Use the radial normal for rim placement so B keeps its shaded facets
     // and still has a continuous silhouette accent.
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `
         #include <common>
+        uniform vec3 studioKeyPosition;
         varying vec3 studioRadial;
+        varying vec2 studioLitSide;
       `)
       .replace("#include <begin_vertex>", `
         #include <begin_vertex>
         studioRadial = normalMatrix * normalize(position);
+        studioLitSide = normalize((mat3(viewMatrix) * studioKeyPosition).xy);
       `);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `
         #include <common>
         varying vec3 studioRadial;
+        varying vec2 studioLitSide;
         uniform float studioRimEmphasis;
-        uniform vec3 studioRimAccent;
+        uniform vec3 studioIdleRim;
+        uniform vec3 studioActiveRim;
       `)
       .replace("#include <opaque_fragment>", `
-        float facing = max(0.0, dot(normalize(studioRadial), normalize(vViewPosition)));
+        vec3 radial = normalize(studioRadial);
+        float facing = max(0.0, dot(radial, normalize(vViewPosition)));
         float rimMask = smoothstep(0.45, 0.72, 1.0 - facing);
-        vec3 idleRim = 0.58 * studioRimAccent;
-        vec3 activeRim = mix(studioRimAccent, vec3(1.0), 0.38);
-        vec3 rimColor = mix(idleRim, activeRim, studioRimEmphasis);
+        float litArc = smoothstep(0.88, 0.98, dot(radial.xy, studioLitSide));
+        vec3 flaredRim = studioActiveRim * (1.0 + ${rimFlareGain} * litArc);
+        vec3 rimColor = mix(studioIdleRim, flaredRim, studioRimEmphasis);
         outgoingLight = mix(outgoingLight, rimColor, rimMask);
         #include <opaque_fragment>
       `);
@@ -386,12 +416,14 @@ function buildStudio(
     fog: false,
   });
   const { pedestalRadius, pedestalHeight, groundRingRadius } = layout;
-  const contactExtent = groundRingRadius + groundRingHalfWidth;
+  // Keep the stroke and its pixel-wide transition inside the contact plane
+  // as the camera moves and the floor foreshortens in either orientation.
+  const contactExtent = groundRingRadius + (portrait ? 0.28 : 0.18);
   const contactScale = pedestalRadius * contactExtent;
   function addHost(x: number, color: THREE.Color, faceted: boolean) {
     const contact = new THREE.Mesh(
       plane,
-      contactMaterial(color, groundRingRadius, contactExtent),
+      contactMaterial(color, groundRingRadius, contactExtent, height),
     );
     contact.rotation.x = -Math.PI / 2;
     contact.position.set(x, floorY + 0.001, 0);
@@ -406,7 +438,7 @@ function buildStudio(
     pedestal.position.set(x, floorY, 0);
     scene.add(pedestal);
 
-    const { material, rim } = orbMaterial(color, faceted);
+    const { material, rim } = orbMaterial(color, faceted, key.position);
     const orb = new THREE.Mesh(
       faceted
         ? new THREE.IcosahedronGeometry(orbRadius, 2)
