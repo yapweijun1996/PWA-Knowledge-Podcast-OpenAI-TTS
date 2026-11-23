@@ -145,7 +145,7 @@ test("visual QA reader decodes frame indices and a callout cut at frame 45", asy
         return harness.runReaderSelfTest();
       }, moduleURL),
   );
-  expect(samples).toEqual([
+  expect(samples.indexed).toEqual([
     { frame: 0, index: 0, callout: false },
     { frame: 15, index: 15, callout: true },
     { frame: 14, index: 14, callout: true },
@@ -157,6 +157,7 @@ test("visual QA reader decodes frame indices and a callout cut at frame 45", asy
     { frame: 60, index: 60, callout: false },
     { frame: 89, index: 89, callout: false },
   ]);
+  expect(samples.native).toEqual(samples.indexed);
 });
 
 test("visual rubric for real Chromium MP4s and thumbnails", async ({
@@ -187,9 +188,8 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
       video?: {
         renderMs: number;
         decodeMs: number;
-        seeks: number;
-        meanSeekMs: number;
-        maxSeekMs: number;
+        frames: number;
+        sampledFrames: number;
       };
     }
   > = {};
@@ -228,6 +228,13 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
         );
         page = opened;
         await step("load page (frame n/a)", () => opened.goto(url));
+        opened.on("console", (message) => {
+          if (
+            message.type() === "info" &&
+            message.text().startsWith("Visual QA: ")
+          )
+            console.log(`${scope} ${message.text().slice(11)}`);
+        });
         await run(opened, step);
       } catch (error) {
         block(
@@ -282,9 +289,8 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
         timings[scope].video = {
           renderMs: elapsedMs.render,
           decodeMs: elapsedMs.decode,
-          seeks: decode.total,
-          meanSeekMs: decode.seekMs.mean,
-          maxSeekMs: decode.seekMs.max,
+          frames: decode.total,
+          sampledFrames: decode.sampledFrames,
         };
         // A navigation discards the document, font set, GPU scene and module
         // cache. Keep the Chromium build, graphics flags and inputs fixed.
@@ -421,7 +427,7 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   await testInfo.attach("visual-qa-report.json", {
     body: JSON.stringify(
       {
-        version: 4,
+        version: 5,
         summary,
         earned,
         assessable,
@@ -457,11 +463,11 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
         ]
       : [];
     if (timing?.video) {
-      const { renderMs, decodeMs, seeks, meanSeekMs, maxSeekMs } = timing.video;
+      const { renderMs, decodeMs, frames, sampledFrames } = timing.video;
       breakdown.push(
         `render ${(renderMs / 1000).toFixed(2)} s`,
         `decode ${(decodeMs / 1000).toFixed(2)} s`,
-        `${seeks} seeks at ${meanSeekMs.toFixed(2)} ms mean, ${maxSeekMs.toFixed(2)} ms max`,
+        `${sampledFrames} sampled of ${frames} decoded frames`,
       );
     }
     console.log(

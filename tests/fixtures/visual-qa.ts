@@ -30,6 +30,7 @@ import {
   type TimelinePlan,
 } from "../../src/video/timeline.ts";
 import { themePalette } from "../../src/video/themes.ts";
+import { readMp4Frames } from "./visual-mp4.ts";
 
 export const rubric = {
   captions: {
@@ -643,6 +644,60 @@ export function safeExterior(
   };
 }
 
+// Measure broad steps in the clean strip below the chapter-card caption. A
+// directional mean across a long band rejects dither and isolated codec noise.
+function chapterBanding(pixels: Pixels, width: number, height: number) {
+  const left = Math.ceil(0.02 * width);
+  const top = Math.ceil(0.85 * height);
+  const columns = Math.floor(0.98 * width) - left;
+  const rows = Math.floor(0.99 * height) - top;
+  const stride = columns + 1;
+  const sum = new Float64Array(stride * (rows + 1));
+  for (let y = 0; y < rows; y++) {
+    let running = 0;
+    for (let x = 0; x < columns; x++) {
+      const index = ((y + top) * width + x + left) * 4;
+      running +=
+        0.2126 * pixels[index] +
+        0.7152 * pixels[index + 1] +
+        0.0722 * pixels[index + 2];
+      sum[(y + 1) * stride + x + 1] = sum[y * stride + x + 1] + running;
+    }
+  }
+  const across = Math.max(1, Math.round(height / 270));
+  const along = Math.max(1, Math.round(height * 0.044));
+  const area = across * along;
+  const band = (x: number, y: number, w: number, h: number) =>
+    sum[(y + h) * stride + x + w] -
+    sum[y * stride + x + w] -
+    sum[(y + h) * stride + x] +
+    sum[y * stride + x];
+  let horizontal = 0;
+  for (let y = across; y <= rows - across; y++)
+    for (let x = 0; x <= columns - along; x++)
+      horizontal = Math.max(
+        horizontal,
+        Math.abs(
+          band(x, y, along, across) - band(x, y - across, along, across),
+        ),
+      );
+  let vertical = 0;
+  for (let x = across; x <= columns - across; x++)
+    for (let y = 0; y <= rows - along; y++)
+      vertical = Math.max(
+        vertical,
+        Math.abs(
+          band(x, y, across, along) - band(x - across, y, across, along),
+        ),
+      );
+  return {
+    horizontal: horizontal / area,
+    vertical: vertical / area,
+    window: { across, along },
+    region: { x: left, y: top, width: columns, height: rows },
+  };
+}
+
 // A 10-degree field is approximated by a half-width, half-height window.
 // The integral image measures every such window, including overlapping ones.
 function exceedsFieldArea(cells: Uint8Array, width: number, height: number) {
@@ -1090,7 +1145,7 @@ async function seekFrameCenter(
 }
 
 // The existing presentation-probe unit test uses this optional diagnostic.
-// The rubric and reader self-test use seekFrameCenter directly.
+// Native playback checks use seekFrameCenter directly.
 const matchesFrameTime = (frame: number, mediaTime: number) =>
   Math.abs(mediaTime - frame / fps) < 0.5 / fps;
 
@@ -1129,37 +1184,6 @@ export async function seekFrame(video: HTMLVideoElement, frame: number) {
     clearTimeout(timer);
     if (request !== undefined) video.cancelVideoFrameCallback(request);
   }
-}
-
-async function readMovieFrames(
-  video: HTMLVideoElement,
-  scope: string,
-  frames: number[],
-  exactFrames: ReadonlySet<number>,
-  readExact: (frame: number, currentTime: number) => void,
-  readFlash: (frame: number) => void,
-) {
-  let totalSeekMs = 0;
-  let maxSeekMs = 0;
-  for (const frame of frames) {
-    const started = performance.now();
-    const currentTime = await seekFrameCenter(video, frame, scope);
-    const seekMs = performance.now() - started;
-    totalSeekMs += seekMs;
-    maxSeekMs = Math.max(maxSeekMs, seekMs);
-    if (exactFrames.has(frame)) readExact(frame, currentTime);
-    readFlash(frame);
-  }
-  return {
-    total: frames.length,
-    exactFrames: exactFrames.size,
-    flashOnlyFrames: frames.length - exactFrames.size,
-    seekMs: {
-      total: totalSeekMs,
-      mean: totalSeekMs / frames.length,
-      max: maxSeekMs,
-    },
-  };
 }
 
 export async function runReaderSelfTest() {
@@ -1227,21 +1251,34 @@ export async function runReaderSelfTest() {
   }
   muxer.finalize();
   const blob = new Blob([target.buffer], { type: "video/mp4" });
-  const scope = "indexed reader self-test";
-  return withVideo(blob, scope, async (video) => {
-    const samples = [];
-    for (const frame of [0, 15, 14, 29, 30, 45, 44, 59, 60, 89]) {
-      await seekFrameCenter(video, frame, scope);
-      drawing.drawImage(video, 0, 0);
-      const { data } = drawing.getImageData(0, 0, width, height);
-      const lit = (x: number, y: number) => data[(y * width + x) * 4] > 128;
-      let index = 0;
-      for (let bit = 0; bit < 7; bit++)
-        if (lit(16 * bit + 8, 16)) index |= 1 << bit;
-      samples.push({ frame, index, callout: lit(16, 46) });
-    }
-    return samples;
+  const frames = [0, 15, 14, 29, 30, 45, 44, 59, 60, 89];
+  const requested = new Set(frames);
+  function inspect(image: CanvasImageSource, frame: number) {
+    drawing.drawImage(image, 0, 0);
+    const { data } = drawing.getImageData(0, 0, width, height);
+    const lit = (x: number, y: number) => data[(y * width + x) * 4] > 128;
+    let index = 0;
+    for (let bit = 0; bit < 7; bit++)
+      if (lit(16 * bit + 8, 16)) index |= 1 << bit;
+    return { frame, index, callout: lit(16, 46) };
+  }
+  const indexed = new Map<number, ReturnType<typeof inspect>>();
+  await readMp4Frames(blob, width, height, fps, 3 * fps, (image, frame) => {
+    if (requested.has(frame)) indexed.set(frame, inspect(image, frame));
   });
+  const native = await withVideo(
+    blob,
+    "indexed reader self-test",
+    async (video) => {
+      const samples = [];
+      for (const frame of frames) {
+        await seekFrameCenter(video, frame, "indexed reader self-test");
+        samples.push(inspect(video, frame));
+      }
+      return samples;
+    },
+  );
+  return { indexed: frames.map((frame) => indexed.get(frame)), native };
 }
 
 function freeze<T>(value: T): T {
@@ -1265,8 +1302,8 @@ async function shuffledDraws(
   const { width, height } = plan.resolution;
   const output = new OffscreenCanvas(width, height).getContext("2d", {
     alpha: false,
+    willReadFrequently: true,
   })!;
-  const readback = context(width, height);
   const overlay = prepareOverlay(output, plan);
   const selected = getScene(options.scene);
   const scene = await selected.create(studio);
@@ -1332,8 +1369,7 @@ async function shuffledDraws(
         overlay.drawStageFade(frame, paletteId);
       }
       overlay.draw(frame, paletteId, hostDrawn);
-      readback.drawImage(output.canvas, 0, 0);
-      return sha256(readback.getImageData(0, 0, width, height).data);
+      return sha256(output.getImageData(0, 0, width, height).data);
     }
     const shuffled = frames
       .filter((_, index) => index % 2 === 1)
@@ -1378,7 +1414,6 @@ export async function verifyShuffledDraws(
 
 export async function runVisualCase(options: VisualCase) {
   const started = performance.now();
-  const scope = `${options.scene}/${options.orientation}/${options.language}`;
   const {
     episode,
     plan: mutablePlan,
@@ -1496,12 +1531,16 @@ export async function runVisualCase(options: VisualCase) {
       boundaries.filter((frame) => frame >= stressStart),
     ),
   );
+  const chapters = plan.scenes.filter((scene) => scene.kind === "chapter");
+  const bandingFrames = new Set(
+    chapters.map(({ start, end }) => Math.floor(((start + end) / 2) * fps)),
+  );
   const frames = frameSet([...boundaries, titleHold], frameCount, [
     frameCount - 1,
+    ...bandingFrames,
     ...cues.map(({ start, end }) => Math.floor(((start + end) / 2) * fps)),
   ]);
   const frameLookup = new Set(frames);
-  const chapters = plan.scenes.filter((scene) => scene.kind === "chapter");
   const flashBoundaries = [
     titleHold,
     ...chapterStartFrames,
@@ -1595,15 +1634,22 @@ export async function runVisualCase(options: VisualCase) {
     pairs: number[];
   };
   const observations = new Map<number, CapturedText[]>();
+  const rawBanding = new Map<number, ReturnType<typeof chapterBanding>>();
+  const bandingEvidence: {
+    frame: number;
+    raw: ReturnType<typeof chapterBanding>;
+    decoded: ReturnType<typeof chapterBanding>;
+  }[] = [];
   let index = 0;
-  let hasExportCanvas = false;
+  let output: OffscreenCanvasRenderingContext2D;
   const VideoFrameReader = observeVideoFrames((canvas) => {
     flash.raw.add(index, flash.sample(canvas));
     if (frameLookup.has(index)) {
-      readback.drawImage(canvas, 0, 0);
-      const { data } = readback.getImageData(0, 0, width, height);
+      const { data } = output.getImageData(0, 0, width, height);
       if (hashFrames.has(index)) rawHashes.set(index, sha256(data));
       rawExterior.set(index, safeExterior(data, titleSafe, width, height));
+      if (bandingFrames.has(index))
+        rawBanding.set(index, chapterBanding(data, width, height));
       observations.set(
         index,
         pendingText.map((probe) => ({
@@ -1627,17 +1673,22 @@ export async function runVisualCase(options: VisualCase) {
     deps: {
       VideoFrame: VideoFrameReader,
       createCanvas(w, h) {
-        if (hasExportCanvas) return document.createElement("canvas");
-        hasExportCanvas = true;
+        if (output) return document.createElement("canvas");
         const canvas = new OffscreenCanvas(w, h);
-        const drawing = canvas.getContext("2d", { alpha: false })!;
-        observeText(drawing, (text, x, y, maxWidth) => {
+        // The final compositing surface is read on every frame by the rubric.
+        // Keep it CPU-backed to avoid synchronous GPU readbacks of the 2D
+        // overlay. The Studio 3D scene still renders with WebGL.
+        output = canvas.getContext("2d", {
+          alpha: false,
+          willReadFrequently: true,
+        })!;
+        observeText(output, (text, x, y, maxWidth) => {
           if (!text?.trim()) return;
-          const role = textRole(geometry, drawing, x, y);
+          const role = textRole(geometry, output, x, y);
           if (role === "title") titleFrames.add(index);
           if (!frameLookup.has(index)) return;
           const probe =
-            role && makeProbe(drawing, role, text, x, y, maxWidth, masks);
+            role && makeProbe(output, role, text, x, y, maxWidth, masks);
           if (probe) pendingText.push(probe);
         });
         return canvas;
@@ -1645,6 +1696,9 @@ export async function runVisualCase(options: VisualCase) {
     },
   });
   const renderMs = performance.now() - renderStarted;
+  console.info(
+    `Visual QA: rendered ${frameCount} frames in ${(renderMs / 1000).toFixed(2)} s`,
+  );
   if (
     rendered.sceneId !== options.scene ||
     rendered.sceneNotices.length ||
@@ -1670,7 +1724,7 @@ export async function runVisualCase(options: VisualCase) {
 
   const frameEvidence: {
     frame: number;
-    currentTime: number;
+    ptsSeconds: number;
     exterior: {
       raw: ReturnType<typeof safeExterior>;
       decoded: ReturnType<typeof safeExterior>;
@@ -1706,202 +1760,205 @@ export async function runVisualCase(options: VisualCase) {
     throw new Error(
       `Expected H.264 for the decoded checks, received ${rendered.videoCodec}`,
     );
-  async function readVideo(video: HTMLVideoElement) {
-    if (video.videoWidth !== width || video.videoHeight !== height)
-      throw new Error(
-        `Decoded dimensions ${video.videoWidth}×${video.videoHeight} do not match ${width}×${height}`,
-      );
-    function readExact(frame: number, currentTime: number) {
-      readback.drawImage(video, 0, 0);
-      const { data } = readback.getImageData(0, 0, width, height);
-      if (hashFrames.has(frame)) decodedHashes.set(frame, sha256(data));
-      const raw = rawExterior.get(frame)!;
-      const decoded = safeExterior(data, titleSafe, width, height);
-      exteriorEdges.raw = Math.max(exteriorEdges.raw, raw.total);
-      exteriorEdges.decoded = Math.max(exteriorEdges.decoded, decoded.total);
-      exteriorEdges.decodedLargestComponent = Math.max(
-        exteriorEdges.decodedLargestComponent,
-        decoded.largestComponent,
-      );
-      if (raw.total || decoded.connectedPixels)
+  function readExact(image: VideoFrame, frame: number) {
+    readback.drawImage(image, 0, 0);
+    const { data } = readback.getImageData(0, 0, width, height);
+    if (hashFrames.has(frame)) decodedHashes.set(frame, sha256(data));
+    if (bandingFrames.has(frame))
+      bandingEvidence.push({
+        frame,
+        raw: rawBanding.get(frame)!,
+        decoded: chapterBanding(data, width, height),
+      });
+    const raw = rawExterior.get(frame)!;
+    const decoded = safeExterior(data, titleSafe, width, height);
+    exteriorEdges.raw = Math.max(exteriorEdges.raw, raw.total);
+    exteriorEdges.decoded = Math.max(exteriorEdges.decoded, decoded.total);
+    exteriorEdges.decodedLargestComponent = Math.max(
+      exteriorEdges.decodedLargestComponent,
+      decoded.largestComponent,
+    );
+    if (raw.total || decoded.connectedPixels)
+      add({
+        criterion: "framing",
+        frame,
+        detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component)`,
+      });
+    const observed = observations.get(frame) ?? [];
+    const textEvidence = observed.map(({ role, text, raw, pairs, bounds }) => {
+      const decoded = decodedInk(data, pairs);
+      const criterion =
+        role === "title" || role === "callout" ? "opening" : "contrast";
+      measuredRoles.add(role);
+      if (!contains(safe, bounds, 1))
         add({
           criterion: "framing",
           frame,
-          detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component)`,
+          detail: `${role} ink exceeds the product rectangle: ${text}`,
         });
-      const observed = observations.get(frame) ?? [];
-      const textEvidence = observed.map(
-        ({ role, text, raw, pairs, bounds }) => {
-          const decoded = decodedInk(data, pairs);
-          const criterion =
-            role === "title" || role === "callout" ? "opening" : "contrast";
-          measuredRoles.add(role);
-          if (!contains(safe, bounds, 1))
-            add({
-              criterion: "framing",
-              frame,
-              detail: `${role} ink exceeds the product rectangle: ${text}`,
-            });
-          if (!contains(titleSafe, bounds, 1))
-            add({
-              criterion: "framing",
-              frame,
-              detail: `${role} ink exceeds title-safe: ${text}`,
-            });
-          if (raw.min !== null) minimumRaw = Math.min(minimumRaw, raw.min);
-          if (decoded.min !== null)
-            minimumDecoded = Math.min(minimumDecoded, decoded.min);
-          const previous = roleContrast.get(role);
-          roleContrast.set(role, {
-            raw: Math.min(previous?.raw ?? Infinity, raw.min ?? Infinity),
-            decoded: Math.min(
-              previous?.decoded ?? Infinity,
-              decoded.min ?? Infinity,
-            ),
-          });
-          if (
-            raw.pixels < 8 ||
-            decoded.pixels < 8 ||
-            raw.min === null ||
-            raw.min < 4.5 ||
-            decoded.min === null ||
-            decoded.min < 4.5
-          ) {
-            add({
-              criterion,
-              frame,
-              detail: `${role} ${JSON.stringify(text)} raw/decoded ratios ${raw.min?.toFixed(2) ?? "missing"}/${decoded.min?.toFixed(2) ?? "missing"}, ${raw.pixels}/${decoded.pixels} samples`,
-            });
-          }
-          return { role, text, bounds, raw, decoded };
-        },
-      );
-      const forRole = (role: TextRole) =>
-        textEvidence.filter((run) => run.role === role);
-      const hasInk = (role: TextRole) =>
-        forRole(role).some(
-          ({ decoded }) => decoded.pixels >= 8 && (decoded.min ?? 0) >= 4.5,
-        );
-      const matching = (role: TextRole, lines: string[]) =>
-        JSON.stringify(forRole(role).map(({ text }) => text)) ===
-        JSON.stringify(lines);
-      const matchesCardText = (role: "title" | "chapter", title: string) =>
-        forRole(role)
-          .map(({ text }) => text)
-          .join("")
-          .replace(/\s+/gu, "") === title.replace(/\s+/gu, "");
-      const chapter = chapterStartFrames.findLastIndex(
-        (start) => frame >= start,
-      );
-      const expectedTitle = frame < titleHold;
-      const chapterCard = chapters.find(
-        ({ start, end }) =>
-          frame >= firstFrame(start) && frame < firstFrame(end),
-      );
-      const expectedChapter = Boolean(chapterCard);
-      const activeCue = cues.find(
-        ({ start, end }) =>
-          frame >= firstFrame(start) && frame < firstFrame(end),
-      );
+      if (!contains(titleSafe, bounds, 1))
+        add({
+          criterion: "framing",
+          frame,
+          detail: `${role} ink exceeds title-safe: ${text}`,
+        });
+      if (raw.min !== null) minimumRaw = Math.min(minimumRaw, raw.min);
+      if (decoded.min !== null)
+        minimumDecoded = Math.min(minimumDecoded, decoded.min);
+      const previous = roleContrast.get(role);
+      roleContrast.set(role, {
+        raw: Math.min(previous?.raw ?? Infinity, raw.min ?? Infinity),
+        decoded: Math.min(
+          previous?.decoded ?? Infinity,
+          decoded.min ?? Infinity,
+        ),
+      });
       if (
-        hasInk("title") !== expectedTitle ||
-        Boolean(forRole("title").length) !== expectedTitle ||
-        (expectedTitle && !matchesCardText("title", content.title))
-      )
-        add({
-          criterion: "opening",
-          frame,
-          detail: `opening title ink expected ${expectedTitle}`,
-        });
-      if (
-        hasInk("chapter") !== expectedChapter ||
-        Boolean(forRole("chapter").length) !== expectedChapter ||
-        (chapterCard && !matchesCardText("chapter", chapterCard.title))
-      )
-        add({
-          criterion: "opening",
-          frame,
-          detail: `chapter title ink expected ${expectedChapter}`,
-        });
-      if (
-        chapter >= 0 &&
-        (!matching("progress", [`${chapter + 1} / ${windows.length}`]) ||
-          !hasInk("progress"))
-      )
-        add({
-          criterion: "opening",
-          frame,
-          detail: `missing or incorrect chapter progress ${chapter + 1} / ${windows.length}`,
-        });
-      if (!matching("wordmark", [expectedWordmark]) || !hasInk("wordmark"))
-        add({
-          criterion: "typography",
-          frame,
-          detail: `expected decoded ${wordmarkLocale} wordmark ${JSON.stringify(expectedWordmark)}, drew ${JSON.stringify(forRole("wordmark").map(({ text }) => text))}`,
-        });
-      if (
-        !matching("caption", activeCue?.lines ?? []) ||
-        Boolean(activeCue) !== hasInk("caption")
-      )
-        add({
-          criterion: "captions",
-          frame,
-          detail: "visible caption differs from measured cue",
-        });
-      if (frame === 0 && !hasInk("caption"))
-        add({
-          criterion: "opening",
-          frame,
-          detail: "opening caption ink missing",
-        });
-      const calloutExpected = callouts.some(
-        ({ start, end }) =>
-          frame >= firstFrame(start) && frame < firstFrame(end),
-      );
-      if (hasInk("callout") !== calloutExpected)
-        add({
-          criterion: "opening",
-          frame,
-          detail: `callout ink expected ${calloutExpected}`,
-        });
-      const calloutInk = forRole("callout");
-      if (
-        calloutInk.some(({ bounds }) =>
-          [geometry.caption, ...geometry.hostChips].some(
-            (box) =>
-              bounds.x < box.x + box.width &&
-              bounds.x + bounds.width > box.x &&
-              bounds.y < box.y + box.height &&
-              bounds.y + bounds.height > box.y,
-          ),
-        )
+        raw.pixels < 8 ||
+        decoded.pixels < 8 ||
+        raw.min === null ||
+        raw.min < 4.5 ||
+        decoded.min === null ||
+        decoded.min < 4.5
       ) {
         add({
-          criterion: "opening",
+          criterion,
           frame,
-          detail: "callout ink overlaps a caption or host chip",
+          detail: `${role} ${JSON.stringify(text)} raw/decoded ratios ${raw.min?.toFixed(2) ?? "missing"}/${decoded.min?.toFixed(2) ?? "missing"}, ${raw.pixels}/${decoded.pixels} samples`,
         });
       }
-      frameEvidence.push({
+      return { role, text, bounds, raw, decoded };
+    });
+    const forRole = (role: TextRole) =>
+      textEvidence.filter((run) => run.role === role);
+    const hasInk = (role: TextRole) =>
+      forRole(role).some(
+        ({ decoded }) => decoded.pixels >= 8 && (decoded.min ?? 0) >= 4.5,
+      );
+    const matching = (role: TextRole, lines: string[]) =>
+      JSON.stringify(forRole(role).map(({ text }) => text)) ===
+      JSON.stringify(lines);
+    const matchesCardText = (role: "title" | "chapter", title: string) =>
+      forRole(role)
+        .map(({ text }) => text)
+        .join("")
+        .replace(/\s+/gu, "") === title.replace(/\s+/gu, "");
+    const chapter = chapterStartFrames.findLastIndex((start) => frame >= start);
+    const expectedTitle = frame < titleHold;
+    const chapterCard = chapters.find(
+      ({ start, end }) => frame >= firstFrame(start) && frame < firstFrame(end),
+    );
+    const expectedChapter = Boolean(chapterCard);
+    const activeCue = cues.find(
+      ({ start, end }) => frame >= firstFrame(start) && frame < firstFrame(end),
+    );
+    if (
+      hasInk("title") !== expectedTitle ||
+      Boolean(forRole("title").length) !== expectedTitle ||
+      (expectedTitle && !matchesCardText("title", content.title))
+    )
+      add({
+        criterion: "opening",
         frame,
-        currentTime,
-        exterior: { raw, decoded },
-        expectedTitle,
-        chapter: chapter + 1,
-        text: textEvidence,
+        detail: `opening title ink expected ${expectedTitle}`,
+      });
+    if (
+      hasInk("chapter") !== expectedChapter ||
+      Boolean(forRole("chapter").length) !== expectedChapter ||
+      (chapterCard && !matchesCardText("chapter", chapterCard.title))
+    )
+      add({
+        criterion: "opening",
+        frame,
+        detail: `chapter title ink expected ${expectedChapter}`,
+      });
+    if (
+      chapter >= 0 &&
+      (!matching("progress", [`${chapter + 1} / ${windows.length}`]) ||
+        !hasInk("progress"))
+    )
+      add({
+        criterion: "opening",
+        frame,
+        detail: `missing or incorrect chapter progress ${chapter + 1} / ${windows.length}`,
+      });
+    if (!matching("wordmark", [expectedWordmark]) || !hasInk("wordmark"))
+      add({
+        criterion: "typography",
+        frame,
+        detail: `expected decoded ${wordmarkLocale} wordmark ${JSON.stringify(expectedWordmark)}, drew ${JSON.stringify(forRole("wordmark").map(({ text }) => text))}`,
+      });
+    if (
+      !matching("caption", activeCue?.lines ?? []) ||
+      Boolean(activeCue) !== hasInk("caption")
+    )
+      add({
+        criterion: "captions",
+        frame,
+        detail: "visible caption differs from measured cue",
+      });
+    if (frame === 0 && !hasInk("caption"))
+      add({
+        criterion: "opening",
+        frame,
+        detail: "opening caption ink missing",
+      });
+    const calloutExpected = callouts.some(
+      ({ start, end }) => frame >= firstFrame(start) && frame < firstFrame(end),
+    );
+    if (hasInk("callout") !== calloutExpected)
+      add({
+        criterion: "opening",
+        frame,
+        detail: `callout ink expected ${calloutExpected}`,
+      });
+    const calloutInk = forRole("callout");
+    if (
+      calloutInk.some(({ bounds }) =>
+        [geometry.caption, ...geometry.hostChips].some(
+          (box) =>
+            bounds.x < box.x + box.width &&
+            bounds.x + bounds.width > box.x &&
+            bounds.y < box.y + box.height &&
+            bounds.y + bounds.height > box.y,
+        ),
+      )
+    ) {
+      add({
+        criterion: "opening",
+        frame,
+        detail: "callout ink overlaps a caption or host chip",
       });
     }
-    return readMovieFrames(
-      video,
-      scope,
-      decodedFrames,
-      frameLookup,
-      readExact,
-      (frame) => flash.decoded.add(frame, flash.sample(video)),
-    );
+    frameEvidence.push({
+      frame,
+      ptsSeconds: image.timestamp / 1_000_000,
+      exterior: { raw, decoded },
+      expectedTitle,
+      chapter: chapter + 1,
+      text: textEvidence,
+    });
   }
   const decodeStarted = performance.now();
-  const decode = await withVideo(rendered.blob, scope, readVideo);
+  const decodedFrameSet = new Set(decodedFrames);
+  const total = await readMp4Frames(
+    rendered.blob,
+    width,
+    height,
+    fps,
+    frameCount,
+    (image, frame) => {
+      if (frameLookup.has(frame)) readExact(image, frame);
+      if (decodedFrameSet.has(frame))
+        flash.decoded.add(frame, flash.sample(image));
+    },
+  );
+  const decode = {
+    total,
+    sampledFrames: decodedFrames.length,
+    exactFrames: frameLookup.size,
+    flashOnlyFrames: decodedFrames.length - frameLookup.size,
+  };
   const decodeMs = performance.now() - decodeStarted;
   const hashes: FrameHashes = Object.fromEntries(
     await Promise.all(
@@ -1965,6 +2022,7 @@ export async function runVisualCase(options: VisualCase) {
         byRole: Object.fromEntries(roleContrast),
       },
       exteriorEdges,
+      chapterBanding: bandingEvidence,
       frameEvidence: frameEvidence.sort((a, b) => a.frame - b.frame),
       flash: { ...flash.evidence, decodedFrames },
     },
@@ -2145,12 +2203,16 @@ export async function runFallback(orientation: Orientation) {
     deps: {
       createCanvas(width, height) {
         const canvas = new OffscreenCanvas(width, height);
+        // The fallback output keeps the same 2D backend as the rubric.
         const getContext = canvas.getContext.bind(canvas);
         Object.defineProperty(canvas, "getContext", {
-          value: (kind: string, options: unknown) =>
+          value: (kind: string, options: CanvasRenderingContext2DSettings) =>
             kind === "webgl2"
               ? null
-              : Reflect.apply(getContext, canvas, [kind, options]),
+              : Reflect.apply(getContext, canvas, [
+                  kind,
+                  { ...options, willReadFrequently: true },
+                ]),
         });
         return canvas;
       },
