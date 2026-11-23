@@ -1,4 +1,5 @@
 import { useI18n } from "../i18n";
+import { episodeLanguageTags } from "./Evidence";
 import {
   audioClock,
   episodeStatuses,
@@ -22,6 +23,7 @@ export function EpisodeCard({
   const { t, formatters } = useI18n();
   const { episode, status, audioStatus, stage, audio } = entry;
   const title = episodeTitle(episode);
+  const lang = episodeLanguageTags[episode.language];
   const metaId = `episode-card-meta-${episode.id}`;
   const statusLabel = t(episodeStatuses[status]);
   return (
@@ -30,10 +32,7 @@ export function EpisodeCard({
         {episode.language}
       </div>
       <div className="library-card-content">
-        <h2
-          lang={episode.language === "sg" ? undefined : episode.language}
-          dir="auto"
-        >
+        <h2 lang={lang} dir="auto">
           <button
             type="button"
             className="library-card-open"
@@ -47,7 +46,7 @@ export function EpisodeCard({
           </button>
         </h2>
         {episode.topic !== title && (
-          <p className="library-card-topic" dir="auto">
+          <p className="library-card-topic" lang={lang} dir="auto">
             {episode.topic}
           </p>
         )}
@@ -91,6 +90,7 @@ export function EpisodeCard({
             type="button"
             className="library-card-audio"
             aria-label={t("library.card.openAudioFor", { title })}
+            data-user-content-label=""
             aria-controls="factory-selection"
             disabled={busy}
             onClick={() => onOpen(episode.id, "audio-title")}

@@ -1,4 +1,8 @@
 export default [
+  ["settings.key.show", "Tunjukkan kunci API"],
+  ["settings.key.hide", "Sembunyikan kunci API"],
+  ["settings.action.working", "Tunggu sehingga operasi semasa selesai."],
+  ["settings.browserKey.acknowledge", "Akui risiko kunci API sebelum menetapkan kunci."],
   ["settings.appearance.title", "Rupa aplikasi"],
   ["settings.appearance.theme", "Tema"],
   ["settings.appearance.system", "Ikut tetapan sistem"],

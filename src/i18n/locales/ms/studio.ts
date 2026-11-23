@@ -1,4 +1,7 @@
 export default [
+  ["studio.intake.wait", "Tunggu sehingga ruang kerja selesai bersedia atau memproses."],
+  ["studio.intake.needsTopic", "Masukkan topik podcast untuk meneruskan."],
+  ["studio.intake.needsConsent", "Berikan persetujuan untuk meneruskan sesi ini."],
   ["studio.availability.offline", "Anda di luar talian"],
   [
     "studio.availability.offlineHint",

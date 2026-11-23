@@ -1,4 +1,7 @@
 export default [
+  ["studio.intake.wait", "请等待工作区完成准备或处理。"],
+  ["studio.intake.needsTopic", "请填写播客主题后继续。"],
+  ["studio.intake.needsConsent", "请同意本次请求后继续。"],
   ["studio.availability.offline", "当前离线"],
   ["studio.availability.offlineHint", "可以先填写主题。联网后再提交。"],
   ["studio.availability.browserKeyMissing", "尚未设置浏览器密钥"],

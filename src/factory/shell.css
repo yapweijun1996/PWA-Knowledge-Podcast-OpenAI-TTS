@@ -4,7 +4,10 @@
 }
 
 .factory-shell .factory-shell-layout {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+  scroll-padding-block-end: var(--space-2);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "header" "navigation" "content";
@@ -13,8 +16,11 @@
 
 .factory-shell {
   --gutter: var(--space-3);
-  min-height: 100vh;
-  min-height: 100dvh;
+  --playback-safe-area: env(safe-area-inset-bottom, 0px);
+  --playback-bar-height: calc(3.5rem + var(--playback-safe-area));
+  block-size: 100vh;
+  block-size: 100dvh;
+  padding-block-end: var(--playback-bar-height);
   background: var(--bg);
   color: var(--text);
   font: var(--type-body) / var(--line-body) var(--type-family);
@@ -44,6 +50,12 @@
   padding: 0;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.factory-shell .factory-skip:focus {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--target-size);
 }
 
 .factory-shell .factory-bar,
@@ -163,7 +175,7 @@
   inline-size: min(100%, 86rem);
   margin-inline: auto;
   padding: var(--space-5) max(var(--gutter), env(safe-area-inset-right))
-    max(var(--space-5), env(safe-area-inset-bottom))
+    var(--space-5)
     max(var(--gutter), env(safe-area-inset-left));
 }
 

@@ -106,6 +106,15 @@ export function BrowserContinuation({
 }) {
   const { t } = useI18n();
   const [consent, setConsent] = useState(false);
+  const blockReason = disabled
+    ? workerAvailability === "offline"
+      ? "studio.continuation.offline"
+      : !keySet
+        ? "studio.continuation.keyHint"
+        : "studio.intake.wait"
+    : !consent
+      ? "studio.intake.needsConsent"
+      : undefined;
   return (
     <section className="factory-panel" aria-labelledby="browser-resume-title">
       <h2 id="browser-resume-title">{t("studio.continuation.title")}</h2>
@@ -140,9 +149,15 @@ export function BrowserContinuation({
           />
           {t("studio.continuation.consent")}
         </label>
+        {blockReason && (
+          <p className="muted" id="browser-resume-blocked">
+            {t(blockReason)}
+          </p>
+        )}
         <button
           className="primary"
-          disabled={disabled || !consent}
+          disabled={!!blockReason}
+          aria-describedby={blockReason ? "browser-resume-blocked" : undefined}
           onClick={() => {
             setConsent(false);
             onResume();
@@ -189,6 +204,15 @@ export function StudioIntake({
   const { t, formatters } = useI18n();
   const [status, guidance] = availabilityCopy[availability];
   const ready = availability === "ready" || availability === "ready-browser";
+  const blockReason = busy
+    ? "studio.intake.wait"
+    : !ready
+      ? status
+      : !topic.trim()
+        ? "studio.intake.needsTopic"
+        : !consent
+          ? "studio.intake.needsConsent"
+          : undefined;
 
   return (
     <div className="studio-intake">
@@ -278,13 +302,22 @@ export function StudioIntake({
             />
             {t("studio.intake.consent")}
           </label>
-          <button
-            className="primary"
-            aria-describedby="studio-availability"
-            disabled={!ready || busy || !consent || !topic.trim()}
-          >
-            {t("studio.intake.submit")}
-          </button>
+          <div className="factory-submit">
+            {blockReason && (
+              <p className="muted" id="studio-submit-blocked">
+                {t(blockReason)}
+              </p>
+            )}
+            <button
+              className="primary"
+              aria-describedby={
+                blockReason ? "studio-submit-blocked" : undefined
+              }
+              disabled={!!blockReason}
+            >
+              {t("studio.intake.submit")}
+            </button>
+          </div>
         </form>
       </section>
       <aside
