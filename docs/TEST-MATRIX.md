@@ -1,5 +1,16 @@
 # Test and device matrix
 
+## November 23 follow-up
+
+| Environment | Observed result |
+| --- | --- |
+| Native Safari 27.2 on macOS 27.2 | A 10-second local fixture encoded as 1920×1080 H.264 and AAC, loaded bundled fonts and played and sought in the native media element. [Codec evidence](VIDEO-RENDER-DECISION.md#desktop-safari-rendering) |
+| Ubuntu ARM64 Chromium 156, `af0dd0d` | Visual QA passed all seven fixtures and 62 automated points, including exact decoded frames and both fallback orientations. [Visual QA](VISUAL-QA.md) |
+| macOS Chromium export and review | Studio renders on the dedicated worker, cancels without storing partial output, retains the prior approval on a rejected storage write, and exports the measured timed caption track with its approved video. [Export cases](../tests/factory-video.browser.ts) · [Portrait captions](../tests/factory-video-options.browser.ts) |
+| Physical iOS and Android | Sign-off remains open in [Target compatibility](#target-compatibility). |
+
+## Earlier checks
+
 Evidence date 2026-11-23, Node.js 24, macOS, Playwright Chromium 156 (and Google
 Chrome 158 for codec probes), `main` at `d4ebde6` plus the documentation update.
 The browser suite uses the Factory fixture server (`dist-private`) and mocked

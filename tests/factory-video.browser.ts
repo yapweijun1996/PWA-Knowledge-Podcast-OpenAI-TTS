@@ -326,6 +326,7 @@ test("Studio renders a finished episode, persists approval and exports the revie
   expect(download.suggestedFilename()).toBe("publish-package.zip");
   const files = zipFiles(await buffer(await download.createReadStream()));
   expect([...files.keys()].sort()).toEqual([
+    "captions.srt",
     "chapters.txt",
     "checklist.md",
     "description.txt",
@@ -335,6 +336,9 @@ test("Studio renders a finished episode, persists approval and exports the revie
     "video.mp4",
   ]);
   expect(files.get("video.mp4")!.length).toBe(mp4Bytes);
+  expect(files.get("captions.srt")?.toString()).toMatch(
+    /^1\r?\n00:00:00,000 --> 00:00:\d{2},\d{3}\r?\n/u,
+  );
   expect(files.get("thumbnail.png")!.subarray(0, 8)).toEqual(
     Buffer.from("89504e470d0a1a0a", "hex"),
   );

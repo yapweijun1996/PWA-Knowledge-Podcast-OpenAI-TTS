@@ -393,7 +393,8 @@ dropped from the critical path.
   into the UI. Revisit only if the owner asks for in-app upload.
 - [x] **T38 — Publish package export** (S). Export, per episode, the MP4, a
   title, a description with chapter lines (first at 0:00), tags, a thumbnail
-  image, and a short manual-upload checklist including YouTube's disclosure
+  image, a timed `captions.srt` file from measured narration when available,
+  and a short manual-upload checklist including YouTube's disclosure
   for AI-generated or synthetic content. Acceptance: one download (zip or
   separate files) from the Studio; chapters match the timeline; no network.
 

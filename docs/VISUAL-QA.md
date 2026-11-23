@@ -88,3 +88,10 @@ not mark the design accepted until the rubric and an independent review both pas
 Real GPUs and other drivers (pixel hashes may differ), Safari and phones, motion quality judged by eye,
 long episodes, audio-visual sync against real speech, YouTube's own caption and chapter handling, and any
 claim about retention or click-through.
+
+The round 3 Linux ARM64 Chromium run at `af0dd0d` passed all seven visual
+fixtures and 62 of 62 automated points. Each full video fixture decoded the
+534-frame MP4, with total fixture times of 47.48, 51.66, 74.40 and 61.08
+seconds. This run used the independent local Linux environment. GitHub
+Actions records the release verification on its own runner.
+[Core release workflow](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45191682709)
