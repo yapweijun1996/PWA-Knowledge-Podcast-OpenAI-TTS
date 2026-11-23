@@ -466,3 +466,28 @@ white and hard to read, so check contrast and add the reason next to the button;
 reviewed yet.
 
   _(done 2026-11-23: evidence rows filled for what ran; real iOS, Safari, VoiceOver, field Web Vitals stay NOT_RUN)_
+### M7. Animation (owner question 2026-11-23: Three.js, "67JS", Godot)
+
+Current state: Canvas 2D only (`src/video/draw.ts`, `drawFrame(ctx, plan, audio, t, theme)`),
+deterministic `t = i / fps`, WebCodecs, MP4 mux. No Three.js, p5 or Godot code.
+Plan: a scene plugin interface (a scene is a pure function of plan, audio and `t`),
+the waveform as the first scene, Three.js as a lazily loaded second scene, and
+AI-directed storyboards as strict JSON that parametrises pre-written scenes (the
+agent never ships code to run in the page). Godot stays an optional local export.
+"67JS" is unidentified; research is in progress (see the report when merged).
+
+- [x] **T49 — Video polish from the first real trial** _(done 2026-11-23: bitrate
+  900 kbit/s halves the MP4 (22.8 to 13.8 MiB for a 124 s synthetic episode,
+  29 to about 14 MiB expected for the trial), balanced CJK wrapping, tracking
+  parameters stripped; 32 of 32 browser tests pass)_
+- [ ] **T50 — Scene plugin interface** (M). Refactor `drawFrame` into a registry of
+  scenes (`waveform` first), selected by id in the plan and the Video panel.
+- [ ] **T51 — Three.js audio-reactive scene spike** (L). In progress: standalone
+  harness in `spikes/three-scene`; measure frame time, memory, determinism and
+  WebCodecs capture in real Chromium before any integration.
+- [ ] **T52 — Storyboard tool** (L). Agent tool that produces a strict JSON
+  storyboard (per chapter mood, palette, visual metaphor, callouts, camera) from
+  the script; validated and editable in the UI.
+- [ ] **T53 — Library adapters** (S, only if the owner confirms what "67JS" is).
+Known visual follow-up: at some moments the waveform renders as a flat dotted
+line with bars only at its right end; review the amplitude window in T50.
