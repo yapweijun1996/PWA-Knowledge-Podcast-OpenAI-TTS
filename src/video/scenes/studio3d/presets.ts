@@ -1,21 +1,14 @@
+import { paletteIds, palettes, type PaletteId } from "../../design/palettes.ts";
+import type { Orientation } from "../../design/tokens.ts";
+
 export const studio3dSceneId = "studio3d";
 
-const palettes = {
-  aurora: { floor: 0x101826, horizon: 0x273859, a: 0x83e2ce, b: 0xbca4ff },
-  sunset: { floor: 0x201b2a, horizon: 0x493653, a: 0xffc58b, b: 0xf29ede },
-  mono: { floor: 0x17191c, horizon: 0x464b52, a: 0xecf0f3, b: 0xb1b9c4 },
-  ocean: { floor: 0x071e28, horizon: 0x144c67, a: 0x60e4ea, b: 0x76abff },
-} as const;
-
-const cameraLabels = {
+export const cameraLabels = {
   drift: "video.studio3d.camera.drift",
   orbit: "video.studio3d.camera.orbit",
   static: "video.studio3d.camera.static",
   "push-in": "video.studio3d.camera.pushIn",
 } as const;
-
-type PaletteId = keyof typeof palettes;
-type CameraPresetId = keyof typeof cameraLabels;
 
 export const paletteLabels = {
   aurora: "video.studio3d.palette.aurora",
@@ -23,18 +16,33 @@ export const paletteLabels = {
   mono: "video.studio3d.palette.mono",
   ocean: "video.studio3d.palette.ocean",
 } as const satisfies Record<PaletteId, string>;
-export { cameraLabels };
+
+const moods = {
+  calm: 0.7,
+  curious: 1,
+  urgent: 1.15,
+  warm: 0.8,
+  serious: 0.55,
+} as const;
+
+type MoodId = keyof typeof moods;
+type CameraPresetId = keyof typeof cameraLabels;
+export const defaultStudio3dMood = "calm";
 
 export type Studio3dSettings = {
   paletteId: PaletteId;
   cameraPresetId: CameraPresetId;
   intensity: number;
+  moodId?: MoodId;
+  reducedMotion?: boolean;
 };
 
 export type Studio3dOptions = {
   paletteId?: string;
   cameraPresetId?: string;
   intensity?: number;
+  moodId?: string;
+  reducedMotion?: boolean;
 };
 
 export type Studio3dNotice = "unknown-palette" | "unknown-camera";
@@ -42,15 +50,22 @@ export type Studio3dNotice = "unknown-palette" | "unknown-camera";
 export const defaultStudio3dSettings: Readonly<Studio3dSettings> = {
   paletteId: "aurora",
   cameraPresetId: "drift",
-  intensity: 1,
+  intensity: 0.55,
 };
+
+function clampIntensity(intensity: number = defaultStudio3dSettings.intensity) {
+  return Number.isNaN(intensity)
+    ? defaultStudio3dSettings.intensity
+    : Math.max(0, Math.min(1, intensity));
+}
 
 export function resolveStudio3dOptions(options: Studio3dOptions = {}) {
   const settings = { ...defaultStudio3dSettings };
   const notices: Studio3dNotice[] = [];
-  const { paletteId, cameraPresetId, intensity } = options;
+  const { paletteId, cameraPresetId, intensity, moodId, reducedMotion } =
+    options;
   if (paletteId !== undefined) {
-    if (Object.hasOwn(palettes, paletteId))
+    if (paletteIds.some((id) => id === paletteId))
       settings.paletteId = paletteId as PaletteId;
     else notices.push("unknown-palette");
   }
@@ -59,8 +74,14 @@ export function resolveStudio3dOptions(options: Studio3dOptions = {}) {
       settings.cameraPresetId = cameraPresetId as CameraPresetId;
     else notices.push("unknown-camera");
   }
-  if (typeof intensity === "number" && !Number.isNaN(intensity))
-    settings.intensity = Math.max(0, Math.min(1, intensity));
+  if (typeof intensity === "number")
+    settings.intensity = clampIntensity(intensity);
+  if (moodId !== undefined)
+    settings.moodId = Object.hasOwn(moods, moodId)
+      ? (moodId as MoodId)
+      : defaultStudio3dMood;
+  if (typeof reducedMotion === "boolean")
+    settings.reducedMotion = reducedMotion;
   return { settings, notices };
 }
 
@@ -68,26 +89,64 @@ export function getPalette(id: PaletteId) {
   return palettes[id];
 }
 
-export function cameraPoseAt(preset: CameraPresetId, time: number) {
-  let position: [number, number, number];
-  switch (preset) {
-    case "static":
-      position = [0, 3.25, 9.15];
-      break;
-    case "orbit": {
-      const angle = 0.3 * Math.sin(0.35 * time);
-      position = [9.15 * Math.sin(angle), 3.25, 9.15 * Math.cos(angle)];
-      break;
+export function motionMultipliers(moodId: MoodId = "curious", intensity = 1) {
+  const mood = moods[moodId];
+  return {
+    audio: Math.min(1, mood * clampIntensity(intensity)),
+    camera: Math.min(1, mood),
+  };
+}
+
+export const cameraFov = 38;
+export const cameraDistance = 10;
+const radians = Math.PI / 180;
+const target = [0, 0, 0] as const;
+
+export function cameraPoseAt(
+  preset: CameraPresetId,
+  time: number,
+  moodId: MoodId = "curious",
+  orientation: Orientation = "landscape",
+  reducedMotion = false,
+) {
+  let yaw = 0;
+  let pitch = 8 * radians;
+  let distance = cameraDistance;
+  const excursion =
+    motionMultipliers(moodId).camera * (orientation === "portrait" ? 0.65 : 1);
+  if (!reducedMotion) {
+    switch (preset) {
+      case "static":
+        break;
+      case "orbit":
+        yaw += 7 * radians * excursion * Math.sin((2 * Math.PI * time) / 56);
+        break;
+      case "push-in": {
+        const progress = Math.max(0, Math.min(1, (time - 2) / 12));
+        const eased = progress ** 3 * (10 + progress * (-15 + 6 * progress));
+        distance *= 1 - 0.04 * excursion * eased;
+        break;
+      }
+      default: {
+        const phase = (2 * Math.PI * time) / 36;
+        yaw += 4 * radians * excursion * Math.sin(phase);
+        pitch += 1.25 * radians * excursion * Math.sin(phase);
+      }
     }
-    case "push-in":
-      position = [0, 3.25, 7.85 + 1.3 * Math.exp(-0.16 * time)];
-      break;
-    default:
-      position = [
-        0.8 * Math.sin(0.55 * time),
-        3.25 + 0.2 * Math.sin(0.37 * time),
-        8.8 + 0.35 * Math.cos(0.44 * time),
-      ];
   }
-  return { position, target: [0, -0.15, 0] as const };
+
+  const sinYaw = Math.sin(yaw);
+  const cosYaw = Math.cos(yaw);
+  const sinPitch = Math.sin(pitch);
+  const cosPitch = Math.cos(pitch);
+  const back = [sinYaw * cosPitch, sinPitch, cosYaw * cosPitch] as const;
+  const right = [cosYaw, 0, -sinYaw] as const;
+  const up = [-sinYaw * sinPitch, cosPitch, -cosYaw * sinPitch] as const;
+  const position = [
+    distance * back[0],
+    distance * back[1],
+    distance * back[2],
+  ] as const;
+
+  return { position, target, distance, back, right, up };
 }
