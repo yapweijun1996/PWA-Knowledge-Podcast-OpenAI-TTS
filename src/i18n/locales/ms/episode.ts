@@ -158,4 +158,6 @@ export default [
   ["episode.evidence.outline", "Rangka episod berserta sumber"],
   ["episode.evidence.chapters", { other: "{count} bab" }],
   ["episode.evidence.segmentSources", "Sumber untuk segmen ini"],
+  ["episode.video.title", "Video"],
+  ["episode.video.stale", "Video ini sudah lapuk. Skrip atau audio akhir telah berubah."],
 ] as const;

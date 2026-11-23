@@ -24,6 +24,7 @@ import { episodeState, type AudioCheck } from "./library-model";
 import { formatPlaybackClock, type Playback } from "./playback";
 import { useCheckedWav } from "./useLibraryAudio";
 import { playbackTrack } from "./usePlayback";
+import { VideoPanel } from "./VideoPanel";
 import "./episode.css";
 
 export type Kind = "draft" | "audio" | "transcript";
@@ -507,6 +508,9 @@ export function EpisodeWorkspace({
             </div>
           )}
         </section>
+      )}
+      {finished && (
+        <VideoPanel episode={episode} audio={currentAudio ? savedAudio : null} />
       )}
       <Evidence episode={episode} />
       {script && planned && (

@@ -7,6 +7,26 @@ export type AgentArtifact = {
   revision: number;
   sourceStamp: string;
   blob: Blob;
+  metadata?: {
+    studioVideo?: {
+      sha256: string;
+      durationSeconds: number;
+      videoCodec: string;
+      audioCodec: "aac" | "opus";
+      theme: "light" | "dark";
+      timeline: {
+        estimated: boolean;
+        chapters: { title: string; start: number; timestamp: string }[];
+      };
+      review: {
+        title: string;
+        summary: string;
+        tags: string;
+        chapterTitles: string[];
+        status: "pending" | "approved" | "rejected";
+      };
+    };
+  };
 };
 
 export interface AgentArtifactStore {

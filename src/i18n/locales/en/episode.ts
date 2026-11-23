@@ -182,4 +182,6 @@ export default [
     { one: "{count} chapter", other: "{count} chapters" },
   ],
   ["episode.evidence.segmentSources", "Sources for this segment"],
+  ["episode.video.title", "Video"],
+  ["episode.video.stale", "This video is out of date. The script or final audio has changed."],
 ] as const;

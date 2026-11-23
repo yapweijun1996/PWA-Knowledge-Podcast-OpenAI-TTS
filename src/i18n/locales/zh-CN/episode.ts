@@ -122,4 +122,6 @@ export default [
   ["episode.evidence.outline", "有据可查的节目大纲"],
   ["episode.evidence.chapters", { other: "{count} 章" }],
   ["episode.evidence.segmentSources", "此段来源"],
+  ["episode.video.title", "视频"],
+  ["episode.video.stale", "视频已过时。脚本或成品音频已更改。"],
 ] as const;
