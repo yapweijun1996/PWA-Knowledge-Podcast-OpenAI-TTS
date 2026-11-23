@@ -1,0 +1,66 @@
+# Visual QA: how the video design is checked
+
+The visual design ([VISUAL-DESIGN-SPEC.md](VISUAL-DESIGN-SPEC.md)) is accepted only through evidence.
+Three layers, each catching different failures. A layer passing never substitutes for another.
+
+| Layer | What it proves | What it cannot prove | Run it |
+| --- | --- | --- | --- |
+| 1. Unit tests | Layout boxes, wrapping rules, caption timing, palettes, envelopes and camera maths are correct as pure functions. | That real pixels, fonts or encoders behave. | `npm test` |
+| 2. Browser rubric (`tests/visual-qa.browser.ts`) | Real Chromium renders real MP4s (waveform and Studio 3D, landscape and portrait, Mandarin, English, Malay, mixed text) with the bundled fonts; decoded frames are measured against the spec's section 8 gates and a machine-readable score report is attached. | Taste, motion feel, real GPUs, other browsers. | `npm run e2e:factory -- --no-deps --project=render tests/visual-qa.browser.ts` (several minutes; runs alone because software WebGL saturates the CPU) |
+| 3. Independent visual review | A reviewer who did not build the design looks at real rendered frames and scores them against the rubric. | Anything not visible in stills: motion, determinism, performance. | See below. |
+
+## The gates the browser rubric enforces
+
+| Criterion | Gate (hard unless marked) |
+| --- | --- |
+| Captions | At most two lines; per-line limits from the tokens; no line ends with a CJK function word (的 地 得 了 着 过 和 与 在 对 把 被 从 向 为 以 及 或 而) or starts with 呢 吗 吧 啊 嘛 啦 or a closing mark; no single-character last line; Latin words whole; cues cover the turn text with no lost words; reading rate within the caption-timing ceilings. |
+| Contrast | Every checked text element reaches 4.5:1 in the raw frame **and** in the frame decoded from the H.264 MP4. Small text is measured after compression because that is what viewers see. |
+| Framing | Element boxes inside the spec's safe rectangle for each orientation; no decoded ink outside the title-safe rectangle (.05 .05 .95 .95). |
+| Typography | Bundled faces loaded, no missing glyphs after NFC normalisation, wordmark in the episode language. |
+| Opening and chapters | Caption and title ink at frame 0; title hold 2.0 s landscape and 1.5 s portrait; chapter cards on the first voiced frame; correct `n / total` progress. |
+| Flash safety | General-flash and red-flash counts over the area rule must be at most 3 per rolling second. The cell-level count is a diagnostic reported as a warning with its value (soft limit 10 per second). |
+| Determinism | SHA-256 of frames 0, 15, 30, 60, 120 and event boundaries identical across fresh runs and shuffled draw order, for each scene and orientation. |
+| Thumbnails | 1280x720, under 2 MB, headline inside its box, 4.5:1 contrast, duration-badge area clear, 160x90 ink height at least 8 px for CJK. |
+
+Decisions that shaped the gates (2026-11-23):
+
+- **Flash:** the hard gate follows WCAG 2.3.1, which counts only flashes covering a quarter of a 10-degree
+  field. The waveform's small bars change at syllable rate (cell count 6 per second) while the field count
+  is 0; counting cells as failures would forbid every audio-reactive visual. The cell count stays visible.
+- **Wordmark:** it follows the episode language (`播客工作室`, `Podcast Studio`, `Studio Podkes`). The first
+  implementation always rendered English; the browser rubric found it.
+- **Small text:** primary ink, weight 800 and larger sizes, because secondary ink measured 6.78:1 raw but 3.82:1
+  after H.264.
+- **Text normalisation:** all visible text is normalised to NFC before measuring, drawing and the font
+  check, so decomposed accents do not report missing glyphs.
+- **Default scene:** waveform until Studio 3D passes the same review.
+
+## Independent review procedure
+
+1. Render sample frames with the real renderer and fonts:
+   `node scripts/visual-review/frames.mjs <output-dir> '<jobs-json>' thumbs`
+   (jobs are objects such as `{"name":"land-3d","width":1920,"height":1080,"scene":"studio3d","frames":[0.4,10,17.8]}`;
+   sample chapter cards at the first voiced frame, not inside the 0.23 s pause between turns).
+2. Give the PNGs to a reviewer that did not build the design (for example a read-only Codex run with the
+   images attached, `gpt-6.2-sol` at `xhigh`) together with section 8 of the spec. The reviewer must score
+   only what is visible, mark motion, determinism, performance and caption sync NOT_ASSESSABLE, list defects
+   with image, region and a concrete fix, and say which scene should be the default.
+3. Pass: at least 85 percent of the assessable points and every hard gate. Record the report in this
+   folder (round 1 is [VISUAL-REVIEW-ROUND1.md](VISUAL-REVIEW-ROUND1.md)).
+
+## History and status
+
+| Date | Event | Result |
+| --- | --- | --- |
+| 2026-11-23 | Round 1 independent review of the first implementation | **57 percent** of 69 assessable points: the opening title hold was missing, captions broke at unnatural places, 3D showed banding and weak speaker emphasis, portrait left the lower half empty, the wordmark did not match the thumbnails. |
+| 2026-11-23 | Browser rubric first run | 47 percent. Real findings: wordmark not localised in the render path, small text below 4.5:1 after H.264, flash semantics, a too-fast caption fixture. |
+| 2026-11-23 | After fixes, second browser rubric run | 35 percent, dominated by harness frame misalignment (decoded ratio exactly 1.00) and one real finding (decomposed accents reported as missing glyphs). Harness and NFC fixes were in progress when this was written. |
+
+**Status: the visual design has not passed its acceptance bar.** Update this table with each run; do
+not mark the design accepted until the rubric and an independent review both pass.
+
+## Not verified
+
+Real GPUs and other drivers (pixel hashes may differ), Safari and phones, motion quality judged by eye,
+long episodes, audio-visual sync against real speech, YouTube's own caption and chapter handling, and any
+claim about retention or click-through.
