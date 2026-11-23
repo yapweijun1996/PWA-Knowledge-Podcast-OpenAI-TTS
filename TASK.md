@@ -482,12 +482,15 @@ agent never ships code to run in the page). Godot stays an optional local export
   parameters stripped; 32 of 32 browser tests pass)_
 - [ ] **T50 — Scene plugin interface** (M). Refactor `drawFrame` into a registry of
   scenes (`waveform` first), selected by id in the plan and the Video panel.
-- [ ] **T51 — Three.js audio-reactive scene spike** (L). In progress: standalone
-  harness in `spikes/three-scene`; measure frame time, memory, determinism and
-  WebCodecs capture in real Chromium before any integration.
+- [x] **T51 — Three.js audio-reactive scene spike** (L). _(done 2026-11-23: median
+  26.7 ms per 1080p frame on software WebGL, identical frame hashes across runs and
+  between main thread and worker, H.264 encode works; see docs/ANIMATION-DECISION.md.
+  Memory, real GPUs, Safari and phones UNVERIFIED.)_
 - [ ] **T52 — Storyboard tool** (L). Agent tool that produces a strict JSON
   storyboard (per chapter mood, palette, visual metaphor, callouts, camera) from
   the script; validated and editable in the UI.
+- [ ] **T54 — Crucible ("67JS") spike** (M). Same fixture and measurements as T51 in
+  `spikes/crucible-scene`; decide Crucible versus hand-written Three.js scenes.
 - [ ] **T53 — Library adapters** (S, only if the owner confirms what "67JS" is).
 Known visual follow-up: at some moments the waveform renders as a flat dotted
 line with bars only at its right end; review the amplitude window in T50.
