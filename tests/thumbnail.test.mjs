@@ -27,6 +27,7 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
   const calls = [];
   const states = [];
   let transform = [1, 1, 0, 0];
+  let clipBounds = [-Infinity, -Infinity, Infinity, Infinity];
   let path;
 
   function bounds(old, [x, y, right, bottom]) {
@@ -43,13 +44,21 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
     calls.push([kind, coords, colors]);
     return { colors, addColorStop: (...stop) => colors.push(stop) };
   }
+  function clipped([left, top, right, bottom]) {
+    return [
+      Math.max(left, clipBounds[0]),
+      Math.max(top, clipBounds[1]),
+      Math.min(right, clipBounds[2]),
+      Math.min(bottom, clipBounds[3]),
+    ];
+  }
   return {
     calls,
     save() {
-      states.push(transform);
+      states.push([transform, clipBounds]);
     },
     restore() {
-      transform = states.pop();
+      [transform, clipBounds] = states.pop();
     },
     translate(x, y) {
       const [sx, sy, tx, ty] = transform;
@@ -79,9 +88,10 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
     closePath() {},
     clip() {
       calls.push(["clip", path]);
+      clipBounds = clipped(path);
     },
     fill() {
-      calls.push(["paint", this.fillStyle, path]);
+      calls.push(["paint", this.fillStyle, clipped(path)]);
     },
     stroke() {
       const [sx, sy] = transform;
@@ -91,7 +101,7 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
       calls.push([
         "paint",
         this.strokeStyle,
-        [x - deltaX, y - deltaY, right + deltaX, bottom + deltaY],
+        clipped([x - deltaX, y - deltaY, right + deltaX, bottom + deltaY]),
       ]);
     },
     fillRect(x, y, w, h) {
@@ -279,6 +289,38 @@ test("keeps both host silhouettes inside their art box with a 16–24 px gap", (
   }
 });
 
+test("closes the headline-to-art gap by 12 px in the thumbnail composition", () => {
+  const original = recordingContext();
+  drawHostPair(original, graphicBounds["host-pair"], palettes.aurora, true);
+  const context = recordingContext();
+  const result = drawThumbnail(context, {
+    variant: "host-pair",
+    headline: "邻里怎样共享空间",
+    language: "zh",
+  });
+  const silhouette = (calls, accent) =>
+    calls.find(([kind, fill]) =>
+      kind === "paint" &&
+      (fill === accent || fill?.colors?.some(([, color]) => color === accent)),
+    )[2];
+  const a = silhouette(context.calls, palettes.aurora.hostA);
+  const b = silhouette(context.calls, palettes.aurora.hostB);
+  const originalA = silhouette(original.calls, palettes.aurora.hostA);
+  const originalB = silhouette(original.calls, palettes.aurora.hostB);
+  const headlineRight = Math.max(
+    ...result.layoutMetadata.headlineBounds.map((box) => box[2]),
+  );
+  const gap = a[0] - headlineRight;
+  assert.ok(gap > 0);
+  assert.equal(originalA[0] - headlineRight - gap, 12);
+  assert.equal(originalB[0] - b[0], 12);
+  assert.ok(b[0] - a[2] >= 16 && b[0] - a[2] <= 24);
+  assert.equal(
+    thumbnailChecks(result.layoutMetadata).inkHeight160x90.passed,
+    true,
+  );
+});
+
 test("balances the six, six and eight character line limits without an orphan", () => {
   for (const variant of ["topic-graphic", "host-pair", "headline"]) {
     const size = variant === "headline" ? 8 : 6;
@@ -360,7 +402,7 @@ test("prefers a complete title claim and keeps the approved topic-graphic headli
   assert.equal(deriveThumbnailHeadline(housingTitle, "zh-CN", false), "组屋如何混居");
   for (const [variant, expected] of [
     ["topic-graphic", "组屋如何混居"],
-    ["headline", "组屋混居并非偶然"],
+    ["headline", "组屋混居靠设计"],
   ]) {
     assert.equal(drawThumbnail(recordingContext(), {
       title: housingTitle,
@@ -369,7 +411,7 @@ test("prefers a complete title claim and keeps the approved topic-graphic headli
     }).headline, expected);
   }
   for (const [title, locale, expected] of [
-    [housingTitle, "zh-CN", "组屋混居并非偶然"],
+    [housingTitle, "zh-CN", "组屋混居靠设计"],
     ["邻里如何建立信任？共享空间让居民更亲近", "zh-CN", "共享空间让居民更亲近"],
     ["Housing: Homes build trust", "en", "Homes build trust"],
     ["Can housing build trust? Shared spaces change lives", "en", "Shared spaces change lives"],
@@ -405,6 +447,50 @@ test("prefers a complete title claim and keeps the approved topic-graphic headli
         .value,
     );
   }
+});
+
+test("uses a localized housing claim from topic keywords only when the headline has no override", () => {
+  for (const [locale, topicKeywords, expected] of [
+    ["zh-CN", "住房政策", "组屋混居靠设计"],
+    ["en", "Housing policy", "Mixed housing by design"],
+    ["ms", "Dasar perumahan", "Perumahan campuran dengan reka bentuk"],
+  ]) {
+    const result = drawThumbnail(recordingContext(), {
+      variant: "headline",
+      locale,
+      title: "Designing our neighbourhoods",
+      topicKeywords,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.headline, expected);
+    assert.equal(result.lines.join(locale === "zh-CN" ? "" : " "), expected);
+    assert.equal(validateThumbnailHeadline(expected, locale).value, expected);
+    if (locale === "zh-CN") {
+      assert.ok(result.fontSize >= 86);
+      const { decorationBounds, headlineBounds } = result.layoutMetadata;
+      assert.equal(decorationBounds[1], 0.33 * 720);
+      assert.ok(
+        Math.abs(headlineBounds[0][1] - decorationBounds[3] - 21.6) < 0.01,
+      );
+    }
+    assert.equal(
+      thumbnailChecks(result.layoutMetadata).inkHeight160x90.passed,
+      true,
+    );
+  }
+  assert.equal(
+    drawThumbnail(recordingContext(), {
+      variant: "headline",
+      title: "Housing policy",
+      headline: "Homes build trust",
+      locale: "en",
+    }).headline,
+    "Homes build trust",
+  );
+  assert.equal(
+    validateThumbnailHeadline("Perumahan campuran dengan reka baharu", "ms").error,
+    thumbnailHeadlineErrors.latinTooLong,
+  );
 });
 
 test("all variants default to the video palette and follow the episode wordmark language", () => {
@@ -494,6 +580,32 @@ test("draws repeatable topic graphics with seed-dependent window lighting", () =
   );
 });
 
+test("paints an opaque foreground wall over rear windows before applying the side tint", () => {
+  const palette = palettes.aurora;
+  for (const reduced of [false, true]) {
+    const context = recordingContext();
+    drawTopicGraphic(
+      context,
+      "housing-blocks",
+      graphicBounds["topic-graphic"],
+      palette,
+      0,
+      reduced,
+    );
+    // This point intersects a lit rear window and the foreground side, past
+    // the side's own inset windows.
+    const colors = context.calls.flatMap(([kind, color, box]) => {
+      if (kind !== "paint" || !inside([976, 308, 976, 308], box)) return [];
+      return [color];
+    });
+    assert.deepEqual(colors.slice(-3), [
+      palette.hostB,
+      palette.plate,
+      palette.hostA + "50",
+    ]);
+  }
+});
+
 test("composites weak colours to 4.5:1 and keeps all palette gradient samples legible", () => {
   assert.equal(thumbnailContrastRatio("#000000", "#FFFFFF"), 21);
   for (const [ink, backdrop] of [
@@ -558,6 +670,52 @@ function fakeCanvas(sizes) {
 }
 
 const mockFonts = async () => ({ notices: [], missingCharacters: [] });
+
+test("passes the export palette through every package variant unless the caller overrides it", async () => {
+  const episode = {
+    topic: "Public housing",
+    language: "en",
+    script: { title: "The long upload title" },
+  };
+  for (const variant of ["topic-graphic", "host-pair", "headline"]) {
+    for (const [planPalette, videoPaletteId, override, expected] of [
+      [undefined, undefined, {}, "aurora"],
+      ["sunset", undefined, {}, "sunset"],
+      ["sunset", "light", {}, "light"],
+      ["sunset", "light", { paletteId: "ocean" }, "ocean"],
+      ["sunset", undefined, { theme: "light" }, "light"],
+    ]) {
+      const canvas = fakeCanvas([128]);
+      await buildPublishPackage({
+        episode,
+        plan: { chapters: [], estimated: true, paletteId: planPalette },
+        videoPaletteId,
+        thumbnail: { variant, ...override },
+        thumbnailCanvas: canvas,
+        loadThumbnailFonts: mockFonts,
+      });
+      const gradient = canvas.context.calls.find(([kind]) => kind === "linear");
+      const stops = gradient[2].filter(([offset]) =>
+        [0, 0.55, 1].includes(offset),
+      );
+      assert.deepEqual(
+        stops.map(([, color]) => color.toLowerCase()),
+        palettes[expected].stops.map((color) => color.toLowerCase()),
+        `${variant} in ${expected}`,
+      );
+      if (variant === "headline") {
+        assert.equal(
+          canvas.context.calls
+            .filter(([kind]) => kind === "text")
+            .slice(1)
+            .map(([, value]) => value)
+            .join(" "),
+          "Mixed housing by design",
+        );
+      }
+    }
+  }
+});
 
 test("inherits the video palette in the publish package and simplifies the PNG once at 2 MB", async () => {
   const canvas = fakeCanvas([thumbnailByteLimit, thumbnailByteLimit - 1]);

@@ -166,6 +166,7 @@ function housingBlocks(
       ],
       accent + "9C",
     );
+    // Each tower occludes the one behind it. Shade the side over a solid face.
     polygon(
       ctx,
       [
@@ -174,8 +175,10 @@ function housingBlocks(
         [x + w + depth, y + h - rise],
         [x + w, y + h],
       ],
-      accent + "50",
+      palette.plate,
     );
+    ctx.fillStyle = accent + "50";
+    ctx.fill();
     ctx.fillStyle = palette.plate;
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = accent + "44";

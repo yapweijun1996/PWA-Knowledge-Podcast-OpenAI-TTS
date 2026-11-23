@@ -159,6 +159,7 @@ export type ThumbnailResult =
 const contrastFloor = 4.5;
 const stops = [0, 0.55, 1] as const;
 const { width, height } = thumbnailSize;
+const hostPairShiftPx = 12;
 
 type RGB = readonly [number, number, number];
 
@@ -366,13 +367,11 @@ function prepareThumbnail(options: ThumbnailOptions) {
   const defaultWordmark =
     createTranslator(wordmarkLocale)("video.wordmark").normalize("NFC");
   const headline =
-    customHeadline ??
-    deriveThumbnailHeadline(
-      title ?? "",
-      locale,
-      variant === "headline",
-    )?.normalize("NFC") ??
-    null;
+    (customHeadline ??
+      (variant === "headline" && graphic === "housing-blocks"
+        ? createTranslator(locale)("publish.thumbnail.housingClaim")
+        : deriveThumbnailHeadline(title ?? "", locale, variant === "headline")))
+      ?.normalize("NFC") ?? null;
   const label = options.wordmark?.normalize("NFC").trim() ?? "";
   const limit = isCjkHeadline(label)
     ? designTokens.landscape.text.wordmark[1]
@@ -573,8 +572,15 @@ function drawPreparedThumbnail(
     if (graphicBox) {
       if (variant === "topic-graphic" && graphic)
         drawTopicGraphic(ctx, graphic, graphicBox, palette, seed, reduced);
-      if (variant === "host-pair")
-        drawHostPair(ctx, graphicBox, palette, reduced);
+      if (variant === "host-pair") {
+        const [left, top, right, bottom] = graphicBox;
+        drawHostPair(
+          ctx,
+          [left - hostPairShiftPx, top, right - hostPairShiftPx, bottom],
+          palette,
+          reduced,
+        );
+      }
     } else {
       ctx.fillStyle = palette.hostA;
       ctx.fillRect(ruleLeft, ruleTop, ruleWidth, ruleHeight);

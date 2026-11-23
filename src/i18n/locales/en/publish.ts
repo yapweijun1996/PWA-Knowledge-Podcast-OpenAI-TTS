@@ -64,7 +64,7 @@ export default [
   ["publish.thumbnail.variantHeadline", "Headline"],
   ["publish.thumbnail.untitledHeadline", "Untitled episode"],
   ["publish.thumbnail.housingHeadline", "How HDB Mixes Neighbours"],
-  ["publish.thumbnail.housingClaim", "HDB Integration by Design"],
+  ["publish.thumbnail.housingClaim", "Mixed housing by design"],
   ["publish.thumbnail.emptyHeadline", "Enter a thumbnail headline."],
   ["publish.thumbnail.invalidHeadline", "Use plain text on one line for the thumbnail headline."],
   ["publish.thumbnail.cjkHeadlineTooShort", "Use at least 6 characters for a CJK thumbnail headline."],

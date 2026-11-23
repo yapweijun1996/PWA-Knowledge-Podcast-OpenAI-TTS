@@ -13,6 +13,7 @@ import {
   resolveThumbnailVariant,
   type ThumbnailCanvas,
   type ThumbnailOptions,
+  type ThumbnailPaletteId,
   type ThumbnailVariant,
 } from "./thumbnail.ts";
 import { publishLocales } from "./thumbnail-headline.ts";
@@ -28,6 +29,8 @@ type PublishInput = {
   episode: Episode;
   plan: TimelinePlan;
   videoBlob?: Blob;
+  /** Effective video palette when available from the render receipt. */
+  videoPaletteId?: ThumbnailPaletteId;
   thumbnailBlob?: Blob;
   thumbnail?: Omit<ThumbnailOptions, "title" | "language">;
   thumbnailCanvas?: ThumbnailCanvas;
@@ -190,6 +193,7 @@ export function buildPublishPackage({
   episode,
   plan,
   videoBlob,
+  videoPaletteId = themePalette("dark", plan.paletteId),
   thumbnailBlob,
   thumbnail,
   thumbnailCanvas,
@@ -220,7 +224,9 @@ export function buildPublishPackage({
     ...thumbnail,
     paletteId:
       thumbnail?.paletteId ??
-      themePalette(thumbnail?.theme ?? "dark", plan.paletteId),
+      (thumbnail?.theme
+        ? themePalette(thumbnail.theme, plan.paletteId)
+        : videoPaletteId),
   };
   const { variant } = resolveThumbnailVariant(thumbnailOptions);
   const chapters = plan.chapters.map(({ timestamp, title }, index) => ({
