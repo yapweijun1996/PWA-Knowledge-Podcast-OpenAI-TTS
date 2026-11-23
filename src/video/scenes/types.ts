@@ -1,6 +1,8 @@
+import { t } from "../../i18n/index.ts";
 import type { PcmAudio } from "../pcm.ts";
 import type { VideoTheme } from "../themes.ts";
 import type { TimelinePlan, VideoTurn } from "../timeline.ts";
+import type { Studio3dNotice } from "./studio3d/presets.ts";
 
 export type SceneCanvas = OffscreenCanvas | HTMLCanvasElement;
 export type SceneContext =
@@ -17,6 +19,21 @@ export type DrawingContext = Pick<
 >;
 export type TextLayoutCache = Map<string, string[]>;
 
+export type SceneNotice =
+  | {
+      reason: "unknown-scene" | "webgl-unavailable";
+      fallbackSceneId: string;
+      chapterId?: string;
+    }
+  | { reason: Studio3dNotice };
+
+export class WebglContextLostError extends Error {
+  constructor() {
+    super(t("video.render.webglContextLost"));
+    this.name = "WebglContextLostError";
+  }
+}
+
 type SceneInputs = {
   readonly canvas: SceneCanvas;
   readonly plan: TimelinePlan;
@@ -26,6 +43,8 @@ type SceneInputs = {
 
 export type VideoSceneEnvironment = SceneInputs & {
   readonly signal: AbortSignal;
+  /** Fail the render even when the scene is not currently drawing. */
+  readonly fail: (error: Error) => void;
 };
 
 export type VideoSceneFrame = SceneInputs & {
@@ -52,8 +71,10 @@ export type VideoSceneFrame = SceneInputs & {
 export interface VideoScene {
   readonly id: string;
   readonly kind: "2d" | "webgl";
-  /** Honor the signal during asynchronous initialization. */
-  init(env: VideoSceneEnvironment): Promise<void> | void;
+  /** Honor cancellation and report WebGL startup failure for 2D fallback. */
+  init(
+    env: VideoSceneEnvironment,
+  ): Promise<void | "webgl-unavailable"> | void | "webgl-unavailable";
   draw(frame: VideoSceneFrame): void;
   /** Release resources even when initialization was interrupted. */
   dispose(): void;

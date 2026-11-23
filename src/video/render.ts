@@ -1,4 +1,3 @@
-import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { hosts } from "../../shared/factory.ts";
 import { t } from "../i18n/index.ts";
 import {
@@ -9,9 +8,15 @@ import {
 } from "./overlay.ts";
 import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
 import { defaultSceneId, getScene } from "./scenes/registry.ts";
+import {
+  resolveStudio3dOptions,
+  studio3dSceneId,
+  type Studio3dOptions,
+} from "./scenes/studio3d/presets.ts";
 import type {
   SceneCanvas,
   SceneContext,
+  SceneNotice,
   VideoScene,
   VideoSceneFrame,
 } from "./scenes/types.ts";
@@ -43,6 +48,7 @@ type RenderOptions = {
   audio: VideoAudio;
   theme: VideoTheme;
   sceneId?: string;
+  studio3d?: Studio3dOptions;
   /** Fraction from 0 to 1. The final 1 follows muxing and hashing. */
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
@@ -54,12 +60,6 @@ type EncoderQueue = Pick<
   "encodeQueueSize" | "addEventListener" | "removeEventListener"
 >;
 
-type SceneNotice = {
-  reason: "unknown-scene";
-  fallbackSceneId: string;
-  chapterId?: string;
-};
-
 function drawTurnFrame(
   context: SceneContext,
   scene: VideoScene,
@@ -67,10 +67,11 @@ function drawTurnFrame(
   speakerLabel: string,
 ) {
   const { canvas, plan, theme, textLayouts, turn, time } = frame;
+  const overlayTheme = scene.id === studio3dSceneId ? "dark" : theme;
   let labelDrawn = false;
   function drawLabel() {
     if (labelDrawn) return;
-    drawSpeakerLabel(context, plan, theme, speakerLabel);
+    drawSpeakerLabel(context, plan, overlayTheme, speakerLabel);
     labelDrawn = true;
   }
   drawBackground(context, plan, theme);
@@ -86,7 +87,7 @@ function drawTurnFrame(
     context.drawImage(canvas, 0, 0);
   }
   drawLabel();
-  drawCaption(context, plan, theme, textLayouts, turn, time);
+  drawCaption(context, plan, overlayTheme, textLayouts, turn, time);
 }
 
 const maxQueueSize = 4;
@@ -231,6 +232,7 @@ export async function renderVideo({
   audio,
   theme,
   sceneId = defaultSceneId,
+  studio3d,
   onProgress,
   signal,
   deps = {},
@@ -292,6 +294,13 @@ export async function renderVideo({
         resolveScene(scene.sceneId, scene.chapterId),
       );
   }
+  const studio = [defaultScene, ...chapterOverrides.values()].some(
+    (scene) => scene.id === studio3dSceneId,
+  )
+    ? resolveStudio3dOptions(studio3d)
+    : undefined;
+  if (studio) sceneNotices.push(...studio.notices.map((reason) => ({ reason })));
+  let effectiveSceneId = defaultScene.id;
   const chapterScenes = new Map<string, string>();
   const activeScenes = new Map<
     string,
@@ -379,21 +388,85 @@ export async function renderVideo({
   const defaultAudioDuration =
     audioCodec === "opus" ? opusFrameDuration : micros(1024 / sampleRate);
 
-  function makeCanvas() {
-    const canvas = deps.createCanvas
-      ? deps.createCanvas(width, height)
-      : Canvas
-        ? new Canvas(width, height)
-        : globalThis.document?.createElement("canvas");
-    if (!canvas) throw new Error(t("video.render.noCanvas"));
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
+  function makeCanvas(width: number, height: number, preferDom = false) {
+    const dom = () => globalThis.document?.createElement("canvas");
+    const offscreen = () => Canvas && new Canvas(width, height);
+    const { createCanvas } = deps;
+    const factories = createCanvas
+      ? [() => createCanvas(width, height)]
+      : preferDom
+        ? [dom, offscreen]
+        : [offscreen, dom];
+    for (const create of factories) {
+      try {
+        const canvas = create();
+        if (!canvas) continue;
+        canvas.width = width;
+        canvas.height = height;
+        return canvas;
+      } catch {
+        // Canvas construction can fail in either runtime.
+      }
+    }
   }
-  const canvas = makeCanvas();
+  function supportsWebgl2() {
+    try {
+      const probe = makeCanvas(1, 1, true);
+      const gl = probe?.getContext("webgl2", { antialias: true, alpha: false });
+      if (!gl || gl.isContextLost()) return false;
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const canvas = makeCanvas(width, height);
+  if (!canvas) throw new Error(t("video.render.noCanvas"));
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) throw new Error(t("video.render.noDrawingContext"));
 
+  async function initScene(
+    selected: ReturnType<typeof getScene>,
+    exportCanvas: SceneCanvas,
+  ): Promise<{ scene: VideoScene; canvas: SceneCanvas }> {
+    let layer: SceneCanvas | undefined = exportCanvas;
+    if (selected.kind === "webgl") {
+      const { requiresWebgl2 } = selected;
+      layer =
+        !requiresWebgl2 || supportsWebgl2()
+          ? makeCanvas(width, height, requiresWebgl2)
+          : undefined;
+    }
+    if (layer) {
+      const scene = await waitFor(
+        Promise.resolve(selected.create(studio?.settings)),
+        stop,
+      );
+      const active = { scene, canvas: layer };
+      activeScenes.set(selected.id, active);
+      stop.throwIfAborted();
+      const result = await scene.init({
+        canvas: layer,
+        plan,
+        audio: pcm,
+        theme,
+        signal: stop,
+        fail: (error) => failure.abort(error),
+      });
+      stop.throwIfAborted();
+      if (result !== "webgl-unavailable") return active;
+      activeScenes.delete(selected.id);
+      scene.dispose();
+    }
+    const fallback =
+      activeScenes.get(defaultSceneId) ??
+      (await initScene(getScene(defaultSceneId), exportCanvas));
+    activeScenes.set(selected.id, fallback);
+    return fallback;
+  }
+
+  const { ArrayBufferTarget, Muxer } = await waitFor(import("mp4-muxer"), stop);
+  stop.throwIfAborted();
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
     target,
@@ -514,21 +587,22 @@ export async function renderVideo({
       const time = index / fps;
       const turn = latestStarted(plan.scenes, time);
       if (turn?.kind === "turn") {
-        const selected = chapterOverrides.get(turn.chapterId) ?? defaultScene;
-        let active = activeScenes.get(selected.id);
-        if (!active) {
-          const scene = selected.create();
-          const layer = scene.kind === "webgl" ? makeCanvas() : canvas;
-          active = { scene, canvas: layer };
-          activeScenes.set(selected.id, active);
-          await scene.init({
-            canvas: layer,
-            plan,
-            audio: pcm,
-            theme,
-            signal: stop,
-          });
-          stop.throwIfAborted();
+        const override = chapterOverrides.get(turn.chapterId);
+        const selected = override ?? defaultScene;
+        const active =
+          activeScenes.get(selected.id) ?? (await initScene(selected, canvas));
+        if (selected.id !== active.scene.id) {
+          const firstUse = override
+            ? !chapterScenes.has(turn.chapterId)
+            : effectiveSceneId === selected.id;
+          if (firstUse) {
+            sceneNotices.push({
+              reason: "webgl-unavailable",
+              fallbackSceneId: active.scene.id,
+              ...(override ? { chapterId: turn.chapterId } : {}),
+            });
+          }
+          if (!override) effectiveSceneId = active.scene.id;
         }
         chapterScenes.set(turn.chapterId, active.scene.id);
         drawTurnFrame(
@@ -628,7 +702,8 @@ export async function renderVideo({
       fps,
       videoCodec: videoConfig.codec,
       audioCodec,
-      sceneId: defaultScene.id,
+      sceneId: effectiveSceneId,
+      ...(studio ? { studio3d: studio.settings } : {}),
       chapterScenes: [...chapterScenes].map(([chapterId, sceneId]) => ({
         chapterId,
         sceneId,
@@ -639,7 +714,9 @@ export async function renderVideo({
     if (videoEncoder && videoEncoder.state !== "closed") videoEncoder.close();
     if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
     await Promise.all(
-      [...activeScenes.values()].map(async ({ scene }) => scene.dispose()),
+      [...new Set(activeScenes.values())].map(async ({ scene }) =>
+        scene.dispose(),
+      ),
     );
   }
 }

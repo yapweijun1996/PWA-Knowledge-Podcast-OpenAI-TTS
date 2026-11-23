@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
+import { t } from "../src/i18n/index.ts";
 import { drawFrame } from "../src/video/draw.ts";
 import { renderVideo } from "../src/video/render.ts";
 import { registerScene } from "../src/video/scenes/registry.ts";
+import { WebglContextLostError } from "../src/video/scenes/types.ts";
 import { videoThemes } from "../src/video/themes.ts";
 
 const plan = {
@@ -557,6 +559,116 @@ test("disposes a scene when its asynchronous initialization is cancelled", async
   assert.equal(disposed, 1);
   assert.deepEqual(trace.closed, ["video", "audio"]);
   assert.equal(trace.frames.length, 2);
+  assert.deepEqual(trace.digests, []);
+});
+
+test("a failed Studio 3D probe falls back once and receipts record preset substitutions", async () => {
+  const { deps } = fakeDependencies();
+  const makeCanvas = deps.createCanvas;
+  let probes = 0;
+  deps.createCanvas = (width, height) => {
+    if (width !== 1 || height !== 1) return makeCanvas();
+    return {
+      getContext(kind) {
+        assert.equal(kind, "webgl2");
+        probes++;
+        throw new Error("Fixture WebGL2 failure");
+      },
+    };
+  };
+  const result = await renderVideo({
+    plan,
+    audio,
+    theme: "dark",
+    sceneId: "studio3d",
+    studio3d: { paletteId: "missing", cameraPresetId: "missing", intensity: 5 },
+    deps,
+  });
+  assert.equal(probes, 1);
+  assert.equal(result.sceneId, "waveform");
+  assert.deepEqual(result.studio3d, { paletteId: "aurora", cameraPresetId: "drift", intensity: 1 });
+  assert.deepEqual(result.chapterScenes, [
+    { chapterId: "one", sceneId: "waveform" },
+    { chapterId: "two", sceneId: "waveform" },
+  ]);
+  assert.deepEqual(result.sceneNotices, [
+    { reason: "unknown-palette" },
+    { reason: "unknown-camera" },
+    { reason: "webgl-unavailable", fallbackSceneId: "waveform" },
+  ]);
+});
+
+test("a layer context creation failure falls back after a successful capability probe", async () => {
+  const { deps } = fakeDependencies();
+  const makeCanvas = deps.createCanvas;
+  let releasedProbes = 0;
+  let failedLayers = 0;
+  deps.createCanvas = (width, height) => {
+    if (width === 1 && height === 1) {
+      return {
+        getContext: () => ({
+          isContextLost: () => false,
+          getExtension: () => ({ loseContext: () => releasedProbes++ }),
+        }),
+      };
+    }
+    const canvas = makeCanvas();
+    canvas.getContext = (kind) => {
+      if (kind === "2d") return canvas.context;
+      failedLayers++;
+      return null;
+    };
+    return canvas;
+  };
+  const chapterId = "two";
+  const result = await renderVideo({
+    plan: {
+      ...plan,
+      scenes: plan.scenes.map((scene) =>
+        scene.kind === "chapter" && scene.chapterId === chapterId
+          ? { ...scene, sceneId: "studio3d" }
+          : scene),
+    },
+    audio,
+    theme: "dark",
+    deps,
+  });
+  assert.equal(releasedProbes, 1);
+  assert.equal(failedLayers, 1);
+  assert.deepEqual(result.sceneNotices, [
+    { reason: "webgl-unavailable", fallbackSceneId: "waveform", chapterId },
+  ]);
+  assert.deepEqual(result.chapterScenes.at(-1), { chapterId, sceneId: "waveform" });
+});
+
+test("reported WebGL context loss aborts the whole render and skips hashing", async () => {
+  const { deps, trace } = fakeDependencies({ queued: true });
+  const id = "test-context-loss";
+  let loseContext;
+  let disposed = false;
+  registerScene({
+    id,
+    kind: "webgl",
+    label: "video.scene.studio3d",
+    create: () => ({
+      id,
+      kind: "webgl",
+      init({ fail }) {
+        loseContext = () => fail(new WebglContextLostError());
+      },
+      draw() {},
+      dispose() { disposed = true; },
+    }),
+  });
+  await assert.rejects(renderVideo({
+    plan, audio, theme: "dark", sceneId: id, deps,
+    onProgress() { loseContext?.(); },
+  }), {
+    name: "WebglContextLostError",
+    message: t("video.render.webglContextLost"),
+  });
+  assert.equal(disposed, true);
+  assert.deepEqual(trace.closed, ["video", "audio"]);
   assert.deepEqual(trace.digests, []);
 });
 

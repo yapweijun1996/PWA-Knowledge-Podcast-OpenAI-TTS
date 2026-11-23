@@ -10,6 +10,14 @@ import { buildPublishPackage, publishLocales } from "../publish/package.ts";
 import { probeVideoSupport } from "../video/capabilities.ts";
 import { renderVideo } from "../video/render.ts";
 import { defaultSceneId, getScene } from "../video/scenes/registry.ts";
+import {
+  defaultStudio3dSettings,
+  resolveStudio3dOptions,
+  studio3dSceneId,
+  type Studio3dOptions,
+  type Studio3dSettings,
+} from "../video/scenes/studio3d/presets.ts";
+import { WebglContextLostError } from "../video/scenes/types.ts";
 import type { VideoTheme } from "../video/themes.ts";
 import { buildTimeline, type TimelinePlan } from "../video/timeline.ts";
 import { redact } from "./browser-key.ts";
@@ -40,7 +48,10 @@ export function isCurrentVideo(
   artifact: AgentArtifact,
   source?: Source,
   sceneId?: string,
+  studio3d?: Studio3dSettings,
 ) {
+  const saved =
+    artifact.metadata?.studioVideo?.studio3d ?? defaultStudio3dSettings;
   return (
     !!source &&
     artifact.kind === "video" &&
@@ -48,7 +59,12 @@ export function isCurrentVideo(
     artifact.revision === source.revision &&
     artifact.sourceStamp === source.sourceStamp &&
     artifact.id === videoArtifactKey(source) &&
-    (sceneId === undefined || savedVideoSceneId(artifact) === sceneId)
+    (sceneId === undefined || savedVideoSceneId(artifact) === sceneId) &&
+    (sceneId !== studio3dSceneId ||
+      studio3d === undefined ||
+      (studio3d.paletteId === saved.paletteId &&
+        studio3d.cameraPresetId === saved.cameraPresetId &&
+        studio3d.intensity === saved.intensity))
   );
 }
 
@@ -363,6 +379,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
   const [support, setSupport] = useState<boolean>();
   const [theme, setTheme] = useState<VideoTheme>("dark");
   const [sceneId, setSceneId] = useState<string>(defaultSceneId);
+  const [studio3d, setStudio3dSettings] = useState(defaultStudio3dSettings);
   const [stored, setStored] = useState<{
     revision: number;
     asset?: string;
@@ -392,7 +409,8 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
       : undefined;
   const savedArtifact = snapshot?.artifact;
   const sceneStale =
-    !!savedArtifact && !isCurrentVideo(savedArtifact, snapshot?.source, sceneId);
+    !!savedArtifact &&
+    !isCurrentVideo(savedArtifact, snapshot?.source, sceneId, studio3d);
   const artifact = sceneStale ? undefined : savedArtifact;
 
   useEffect(() => {
@@ -444,6 +462,9 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
             setStored({ ...input, source, artifact: saved as VideoArtifact });
             setTheme(saved.metadata.studioVideo.theme);
             setSceneId(getScene(savedVideoSceneId(saved)).id);
+            setStudio3dSettings(
+              resolveStudio3dOptions(saved.metadata.studioVideo.studio3d).settings,
+            );
           } else {
             const stale = await hasPreviousVideo(id);
             if (!load.signal.aborted) setStored({ ...input, source, stale });
@@ -460,6 +481,10 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
       activeSave.current = null;
     };
   }, [id, revision, asset, blob, loadingAudio]);
+
+  function setStudio3d(options: Studio3dOptions) {
+    setStudio3dSettings(resolveStudio3dOptions(options).settings);
+  }
 
   async function start() {
     const source = snapshot?.source;
@@ -517,6 +542,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         audio: pcm,
         theme,
         sceneId,
+        studio3d,
         signal,
         onProgress(fraction) {
           // The renderer reserves the last fraction for muxing and hashing.
@@ -550,10 +576,18 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
       failure = "video.panel.saveFailed";
       await browserAgentArtifacts.put(next, signal);
       signal.throwIfAborted();
+      if (receipt.sceneId !== sceneId) setSceneId(receipt.sceneId);
       setStored({ revision, asset, blob, source, artifact: next });
       setState({ phase: "done" });
-    } catch {
-      if (!signal.aborted) setState({ phase: "failed", message: failure });
+    } catch (error) {
+      if (!signal.aborted)
+        setState({
+          phase: "failed",
+          message:
+            error instanceof WebglContextLostError
+              ? "video.render.webglContextLost"
+              : failure,
+        });
       else if (activeRender.current === controller)
         setState({ phase: "cancelled" });
     } finally {
@@ -606,6 +640,8 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     setTheme,
     sceneId,
     setSceneId,
+    studio3d,
+    setStudio3d,
     sceneStale,
     artifact,
     state,
