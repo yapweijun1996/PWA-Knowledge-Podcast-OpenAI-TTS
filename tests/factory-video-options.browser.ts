@@ -27,7 +27,7 @@ const episode: Episode = {
   script: {
     model: "fixture",
     title,
-    turns: [{ id: "turn", chapterId: "intro", host: "A", text }],
+    turns: [{ id: "turn", chapterId: "intro", host: "A", text, claimIds: [] }],
   },
   render: {
     revision: 1,

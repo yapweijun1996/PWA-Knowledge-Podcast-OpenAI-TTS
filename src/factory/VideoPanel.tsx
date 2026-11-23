@@ -133,7 +133,7 @@ function useThumbnailPreview(
         if (!context) throw new Error("Thumbnail canvas unavailable");
         const { input } = thumbnail;
         const wordmark = createTranslator(input.locale)(
-          "publish.thumbnail.wordmark",
+          "publish.thumbnail.wordmark.studio",
         );
         const { missingCharacters } = await ensureVideoFonts({
           texts: thumbnail.error ? [wordmark] : [input.headline, wordmark],
