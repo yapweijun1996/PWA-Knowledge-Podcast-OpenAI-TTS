@@ -9,6 +9,7 @@ import {
   ensureThumbnailContrast,
   resolveThumbnailVariant,
   thumbnailByteLimit,
+  thumbnailChecks,
   thumbnailContrastRatio,
   thumbnailHeadlineErrors,
   thumbnailSize,
@@ -17,11 +18,12 @@ import {
 } from "../src/publish/thumbnail.ts";
 import {
   chooseTopicGraphic,
+  drawHostPair,
   drawTopicGraphic,
 } from "../src/publish/topic-graphics.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 
-function recordingContext({ hanEm = 1, latinEm = 0.55 } = {}) {
+function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {}) {
   const calls = [];
   const states = [];
   let transform = [1, 1, 0, 0];
@@ -135,8 +137,8 @@ function recordingContext({ hanEm = 1, latinEm = 0.55 } = {}) {
         width,
         actualBoundingBoxLeft: 1,
         actualBoundingBoxRight: width,
-        actualBoundingBoxAscent: size * 0.8,
-        actualBoundingBoxDescent: size * 0.12,
+        actualBoundingBoxAscent: size * (text === "x" ? xHeightEm : 0.8),
+        actualBoundingBoxDescent: text === "x" ? 0 : size * 0.12,
       };
     },
     createLinearGradient(...args) {
@@ -187,7 +189,7 @@ test("places actual text and all key ink inside the variant, inset and badge bou
     const [[, , markFont, markColor, markBounds], ...headlines] = text;
     assert.equal(markBounds[0], 80);
     assert.equal(markBounds[1], 72);
-    assert.match(markFont, /^800 20\.88px/u);
+    assert.match(markFont, /^600 15\.84px/u);
     assert.equal(markColor, palettes[paletteId].secondaryInk);
     for (const [, , font, color, box] of headlines) {
       assert.match(font, /^800 97\.92px/u);
@@ -213,8 +215,67 @@ test("places actual text and all key ink inside the variant, inset and badge bou
       assert.ok(inside(box, graphicBounds[variant] ?? textBounds[variant]));
     if (variant === "headline") {
       assert.equal(keyInk.length, 1);
-      assert.equal(keyInk[0][2][3], 150 + 0.009 * 720);
+      assert.equal(keyInk[0][2][1], 0.33 * 720);
+      assert.equal(keyInk[0][2][3], (0.33 * 720) + (0.009 * 720));
+      assert.ok(headlines[0][4][1] - keyInk[0][2][3] >= 21.5);
     }
+
+    const { layoutMetadata } = result;
+    assert.deepEqual(layoutMetadata.wordmarkBounds, markBounds);
+    assert.deepEqual(layoutMetadata.headlineBounds, headlines.map((draw) => draw[4]));
+    const checks = thumbnailChecks(layoutMetadata);
+    assert.equal(checks.bounds, true);
+    assert.equal(checks.contrast.passed, true);
+    assert.equal(checks.badgeClearance, true);
+    assert.equal(checks.inkHeight160x90.minimum, 8);
+    assert.ok(checks.inkHeight160x90.pixels >= 8);
+    assert.equal(checks.inkHeight160x90.passed, true);
+  }
+});
+
+test("scores actual Latin x-height, low contrast, overflowing ink and badge collisions", () => {
+  const context = recordingContext();
+  const { layoutMetadata, fontSize } = drawThumbnail(context, {
+    headline: "Homes build trust",
+    language: "en",
+    variant: "headline",
+  });
+  assert.deepEqual(thumbnailChecks(layoutMetadata).inkHeight160x90, {
+    pixels: fontSize * 0.536 / 8,
+    minimum: 6,
+    passed: true,
+  });
+  const collision = thumbnailChecks({
+    ...layoutMetadata,
+    decorationBounds: [1020, 570, 1180, 630],
+    backdropColors: [layoutMetadata.headlineInk],
+    inkHeight: 47,
+  });
+  assert.deepEqual(collision, {
+    bounds: false,
+    contrast: { ratio: 1, passed: false },
+    badgeClearance: false,
+    inkHeight160x90: { pixels: 5.875, minimum: 6, passed: false },
+  });
+  assert.deepEqual(thumbnailChecks({ ...layoutMetadata, inkHeight: null }).inkHeight160x90, {
+    pixels: null,
+    minimum: 6,
+    passed: false,
+  });
+});
+
+test("keeps both host silhouettes inside their art box with a 16–24 px gap", () => {
+  const context = recordingContext();
+  drawHostPair(context, graphicBounds["host-pair"], palettes.aurora, true);
+  const paints = context.calls.filter(([kind]) => kind === "paint");
+  const [, , a] = paints.find(([, color]) => color === palettes.aurora.hostA);
+  const [, , b] = paints.find(([, color]) => color === palettes.aurora.hostB);
+  const gap = b[0] - a[2];
+  assert.ok(gap >= 16 && gap <= 24, `Silhouette gap: ${gap}px`);
+  for (const box of [a, b]) {
+    assert.ok(inside(box, graphicBounds["host-pair"]));
+    assert.ok((box[2] - box[0]) / 8 >= 22);
+    assert.ok((box[3] - box[1]) / 8 >= 22);
   }
 });
 
@@ -294,9 +355,25 @@ test("validates headline limits as words and graphemes in Chinese, English and M
   }
 });
 
-test("derives the approved housing headline and prefers complete natural clauses", () => {
+test("prefers a complete title claim and keeps the approved topic-graphic headline", () => {
+  const housingTitle = "组屋里的混居，是怎么被设计出来的";
+  assert.equal(deriveThumbnailHeadline(housingTitle, "zh-CN", false), "组屋如何混居");
+  for (const [variant, expected] of [
+    ["topic-graphic", "组屋如何混居"],
+    ["headline", "组屋混居并非偶然"],
+  ]) {
+    assert.equal(drawThumbnail(recordingContext(), {
+      title: housingTitle,
+      language: "zh",
+      variant,
+    }).headline, expected);
+  }
   for (const [title, locale, expected] of [
-    ["组屋里的混居，是怎么被设计出来的", "zh-CN", "组屋如何混居"],
+    [housingTitle, "zh-CN", "组屋混居并非偶然"],
+    ["邻里如何建立信任？共享空间让居民更亲近", "zh-CN", "共享空间让居民更亲近"],
+    ["Housing: Homes build trust", "en", "Homes build trust"],
+    ["Can housing build trust? Shared spaces change lives", "en", "Shared spaces change lives"],
+    ["Dasar perumahan: Ruang bersama membina komuniti", "ms", "Ruang bersama membina komuniti"],
     [
       "邻里怎样共享空间，来自不同社区的居民参与调查",
       "zh-CN",
@@ -327,6 +404,33 @@ test("derives the approved housing headline and prefers complete natural clauses
       validateThumbnailHeadline(deriveThumbnailHeadline("", locale), locale)
         .value,
     );
+  }
+});
+
+test("all variants default to the video palette and follow the episode wordmark language", () => {
+  for (const variant of ["topic-graphic", "host-pair", "headline"]) {
+    for (const [language, locale, expected] of [
+      ["zh", "en", "播客工作室"],
+      ["en", "ms", "Podcast Studio"],
+      ["ms", "zh-CN", "Studio Podkes"],
+      ["sg", "zh-CN", "Podcast Studio"],
+      [undefined, "ms", "Studio Podkes"],
+    ]) {
+      const context = recordingContext();
+      const result = drawThumbnail(context, {
+        variant,
+        topicGraphic: "open-book",
+        headline: "Shared Spaces",
+        language,
+        locale,
+      });
+      assert.equal(result.variant, variant);
+      assert.equal(context.calls.find(([kind]) => kind === "text")[1], expected);
+      assert.equal(
+        result.layoutMetadata.backdropColors[0].toLowerCase(),
+        palettes.aurora.stops[0].toLowerCase(),
+      );
+    }
   }
 });
 
@@ -455,7 +559,7 @@ function fakeCanvas(sizes) {
 
 const mockFonts = async () => ({ notices: [], missingCharacters: [] });
 
-test("encodes the selected PNG in the publish package and simplifies it once at 2 MB", async () => {
+test("inherits the video palette in the publish package and simplifies the PNG once at 2 MB", async () => {
   const canvas = fakeCanvas([thumbnailByteLimit, thumbnailByteLimit - 1]);
   const result = await buildPublishPackage({
     episode: {
@@ -463,15 +567,14 @@ test("encodes the selected PNG in the publish package and simplifies it once at 
       language: "en",
       script: { title: "The long upload title" },
     },
-    plan: { chapters: [], estimated: true },
+    plan: { chapters: [], estimated: true, paletteId: "sunset" },
     thumbnail: {
       variant: "headline",
       headline: "Homes for Everyone",
-      paletteId: "sunset",
     },
     thumbnailCanvas: canvas,
     loadThumbnailFonts: async ({ texts }) => {
-      assert.equal(texts[0], "Homes for Everyone");
+      assert.deepEqual(texts, ["Homes for Everyone", "Podcast Studio", "Podcast Studio"]);
       return mockFonts();
     },
   });

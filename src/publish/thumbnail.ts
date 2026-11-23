@@ -9,6 +9,7 @@ import { wrapText } from "../text/wrap.ts";
 import { palettes } from "../video/design/palettes.ts";
 import { designTokens } from "../video/design/tokens.ts";
 import { ensureVideoFonts, videoFont } from "../video/fonts/loader.ts";
+import { themePalette } from "../video/themes.ts";
 import {
   cjkHeadlineLength,
   deriveThumbnailHeadline,
@@ -24,6 +25,7 @@ import {
   chooseTopicGraphic,
   drawHostPair,
   drawTopicGraphic,
+  type GraphicBox,
   type GraphicContext,
   type TopicGraphic,
 } from "./topic-graphics.ts";
@@ -49,8 +51,10 @@ export const thumbnailDesign = {
   headlineSizeH: 0.136,
   headlineMinSizeH: 0.119,
   headlineLeading: 1.1,
-  wordmarkSizeH: 0.029,
+  wordmarkSizeH: designTokens.landscape.typeH.wordmark,
+  accentRuleY: 0.33,
   accentRuleH: 0.009,
+  accentRuleGapH: 0.03,
   maxLines: 2,
   layouts: {
     "topic-graphic": {
@@ -116,13 +120,31 @@ type HeadlineLayout = {
   x: number;
   baselines: number[];
   fontSize: number;
+  bounds: GraphicBox[];
+  inkHeight: number | null;
 };
+
+export type ThumbnailLayoutMetadata = {
+  variant: ThumbnailVariant;
+  headlineBounds: readonly GraphicBox[];
+  wordmarkBounds: GraphicBox;
+  decorationBounds: GraphicBox;
+  headlineInk: string;
+  wordmarkInk: string;
+  backdropColors: readonly string[];
+  /** Native-pixel height of the shortest CJK line, or Latin x-height. */
+  inkHeight: number | null;
+  script: "cjk" | "latin";
+};
+
 export type ThumbnailResult =
   | {
       variant: ThumbnailVariant;
       headline: ThumbnailHeadline;
       lines: string[];
       fontSize: number;
+      /** Available from the full canvas renderer. */
+      layoutMetadata?: ThumbnailLayoutMetadata;
       needsShorterHeadline: false;
       error?: never;
     }
@@ -182,6 +204,58 @@ export function thumbnailContrastRatio(first: string, second: string) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
+/** Score canvas geometry and gradient-stop contrast without sampling pixels. */
+export function thumbnailChecks(layoutMetadata: ThumbnailLayoutMetadata) {
+  const {
+    variant,
+    headlineBounds,
+    wordmarkBounds,
+    decorationBounds,
+    headlineInk,
+    wordmarkInk,
+    backdropColors,
+    script,
+    inkHeight,
+  } = layoutMetadata;
+  const { text, graphic } = thumbnailDesign.layouts[variant];
+  const [left, top] = thumbnailDesign.inset;
+  const safe = [left, top, width - left, height - top] as const;
+  const [badgeLeft, badgeTop] = thumbnailDesign.durationBadgeExclusion;
+  const keyBounds = [...headlineBounds, wordmarkBounds, decorationBounds];
+  const inside = (box: GraphicBox, area: GraphicBox) =>
+    box[0] >= area[0] &&
+    box[1] >= area[1] &&
+    box[2] <= area[2] &&
+    box[3] <= area[3];
+  const ratio =
+    backdropColors.length === 0
+      ? 0
+      : Math.min(
+          ...backdropColors.flatMap((color) => [
+            thumbnailContrastRatio(headlineInk, color),
+            thumbnailContrastRatio(wordmarkInk, color),
+          ]),
+        );
+  const minimum = script === "cjk" ? 8 : 6;
+  const pixels = inkHeight === null ? null : inkHeight * (90 / height);
+  return {
+    bounds:
+      headlineBounds.length > 0 &&
+      headlineBounds.every((box) => inside(box, text)) &&
+      inside(decorationBounds, graphic ?? text) &&
+      keyBounds.every((box) => inside(box, safe)),
+    contrast: { ratio, passed: ratio >= contrastFloor },
+    badgeClearance: keyBounds.every(
+      (box) => box[2] <= badgeLeft * width || box[3] <= badgeTop * height,
+    ),
+    inkHeight160x90: {
+      pixels,
+      minimum,
+      passed: pixels !== null && pixels >= minimum,
+    },
+  };
+}
+
 /** Composite neutral colour into the backdrop until the ink clears the floor. */
 export function ensureThumbnailContrast(ink: string, backdrop: string) {
   const lightInk =
@@ -227,9 +301,18 @@ function thumbnailBackdrop(
   palette: (typeof palettes)[ThumbnailPaletteId],
   reduced: boolean,
 ) {
-  if (reduced) return backdropColor(palette, palette.stops[1]);
+  if (reduced) {
+    const fill = backdropColor(palette, palette.stops[1]);
+    return { fill, colors: [fill] };
+  }
 
   const gradient = ctx.createLinearGradient(0, 0, width, 0);
+  const colors: string[] = [];
+  const addStop = (offset: number, color: string) => {
+    const adjusted = backdropColor(palette, color);
+    gradient.addColorStop(offset, adjusted);
+    colors.push(adjusted);
+  };
   const channels = palette.stops.map((stop) => rgb(stop).map(linear));
   // Canvas interpolates its stops in sRGB. Subdivide the two linear-light spans.
   for (let span = 0; span < 2; span++) {
@@ -240,14 +323,11 @@ function thumbnailBackdrop(
           srgb(channel + (channels[span + 1][i] - channel) * progress),
         ),
       );
-      gradient.addColorStop(
-        stops[span] + (stops[span + 1] - stops[span]) * progress,
-        backdropColor(palette, color),
-      );
+      addStop(stops[span] + (stops[span + 1] - stops[span]) * progress, color);
     }
   }
-  gradient.addColorStop(1, backdropColor(palette, palette.stops[2]));
-  return gradient;
+  addStop(1, palette.stops[2]);
+  return { fill: gradient, colors };
 }
 
 export function resolveThumbnailVariant(options: ThumbnailOptions) {
@@ -274,9 +354,19 @@ function prepareThumbnail(options: ThumbnailOptions) {
     (options.language && publishLocales[options.language]) ??
     defaultLocale;
   const { variant, graphic } = resolveThumbnailVariant(options);
-  const translate = createTranslator(locale);
+  const wordmarkLocale = options.language
+    ? publishLocales[options.language]
+    : locale;
+  const defaultWordmark = createTranslator(wordmarkLocale)(
+    "publish.thumbnail.wordmark.studio",
+  );
   const headline =
-    options.headline ?? deriveThumbnailHeadline(options.title ?? "", locale);
+    options.headline ??
+    deriveThumbnailHeadline(
+      options.title ?? "",
+      locale,
+      variant === "headline",
+    );
   const label = options.wordmark?.trim() ?? "";
   const limit = isCjkHeadline(label)
     ? designTokens.landscape.text.wordmark[1]
@@ -284,23 +374,47 @@ function prepareThumbnail(options: ThumbnailOptions) {
   const wordmark =
     label &&
     !/[<>\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(label) &&
-    headlineGraphemes(label, locale).length <= limit
+    headlineGraphemes(label, wordmarkLocale).length <= limit
       ? label
-      : translate("publish.thumbnail.wordmark");
+      : defaultWordmark;
   const palette =
-    palettes[
-      options.paletteId ?? (options.theme === "light" ? "light" : "aurora")
-    ];
+    palettes[options.paletteId ?? themePalette(options.theme ?? "dark")];
   return {
     variant,
     graphic,
     locale,
     headline,
     wordmark,
+    defaultWordmark,
     palette,
     seed: options.seed ?? 0,
   };
 }
+
+function inkBounds(
+  metrics: TextMetrics,
+  x: number,
+  baseline: number,
+  size: number,
+): GraphicBox {
+  return [
+    x - (metrics.actualBoundingBoxLeft ?? 0),
+    baseline - (metrics.actualBoundingBoxAscent ?? size * 0.82),
+    x + (metrics.actualBoundingBoxRight ?? metrics.width),
+    baseline + (metrics.actualBoundingBoxDescent ?? size * 0.18),
+  ];
+}
+
+const [ruleLeft] = thumbnailDesign.inset;
+const ruleTop = thumbnailDesign.accentRuleY * height;
+const ruleWidth = 94;
+const ruleHeight = thumbnailDesign.accentRuleH * height;
+const accentRule = [
+  ruleLeft,
+  ruleTop,
+  ruleLeft + ruleWidth,
+  ruleTop + ruleHeight,
+] as const;
 
 function fitHeadline(
   ctx: TextContext,
@@ -313,6 +427,10 @@ function fitHeadline(
     cjkPerLine,
   } = thumbnailDesign.layouts[variant];
   const maxWidth = right - left;
+  const inkStart =
+    variant === "headline"
+      ? accentRule[3] + thumbnailDesign.accentRuleGapH * height
+      : top;
   const cjk = isCjkHeadline(headline);
   const min = thumbnailDesign.headlineMinSizeH * height;
   const max = thumbnailDesign.headlineSizeH * height;
@@ -366,14 +484,31 @@ function fitHeadline(
       );
       if (
         requiredWidth + offset <= maxWidth &&
-        inkBottom - inkTop <= bottom - top
+        inkBottom - inkTop <= bottom - inkStart
       ) {
-        const baseline = (top + bottom - inkTop - inkBottom) / 2;
+        const baseline =
+          variant === "headline"
+            ? inkStart - inkTop
+            : (top + bottom - inkTop - inkBottom) / 2;
+        const x = left + offset;
+        const baselines = lines.map((_, i) => baseline + i * leading);
+        const inkMetrics = cjk ? measures : [ctx.measureText("x")];
+        const inkHeight = Math.min(
+          ...inkMetrics.map(
+            (metrics) =>
+              (metrics.actualBoundingBoxAscent ?? NaN) +
+              (metrics.actualBoundingBoxDescent ?? NaN),
+          ),
+        );
         return {
           lines,
-          x: left + offset,
-          baselines: lines.map((_, i) => baseline + i * leading),
+          x,
+          baselines,
           fontSize: size,
+          bounds: measures.map((metrics, i) =>
+            inkBounds(metrics, x, baselines[i], size),
+          ),
+          inkHeight: Number.isFinite(inkHeight) ? inkHeight : null,
         };
       }
     }
@@ -386,8 +521,16 @@ function drawPreparedThumbnail(
   prepared: ReturnType<typeof prepareThumbnail>,
   reduced: boolean,
 ): ThumbnailResult {
-  const { variant, graphic, palette, locale, headline, wordmark, seed } =
-    prepared;
+  const {
+    variant,
+    graphic,
+    palette,
+    locale,
+    headline,
+    wordmark,
+    defaultWordmark,
+    seed,
+  } = prepared;
   const { graphic: graphicBox } = thumbnailDesign.layouts[variant];
   ctx.save();
   try {
@@ -399,24 +542,24 @@ function drawPreparedThumbnail(
       ? fitHeadline(ctx, validation.value, locale, variant)
       : null;
 
-    ctx.fillStyle = thumbnailBackdrop(ctx, palette, reduced);
+    const backdrop = thumbnailBackdrop(ctx, palette, reduced);
+    ctx.fillStyle = backdrop.fill;
     ctx.fillRect(0, 0, width, height);
 
     const [left, top] = thumbnailDesign.inset;
     const wordmarkSize = thumbnailDesign.wordmarkSizeH * height;
-    ctx.font = videoFont(designTokens.common.weight.thumbnail, wordmarkSize);
+    ctx.font = videoFont(designTokens.common.weight.wordmark, wordmarkSize);
     const maxWordmarkWidth = width * designTokens.common.wordmarkMaxWidthW[0];
     const safeLabel =
       ctx.measureText(wordmark).width <= maxWordmarkWidth
         ? wordmark
-        : createTranslator(locale)("publish.thumbnail.wordmark");
+        : defaultWordmark;
     const mark = ctx.measureText(safeLabel);
+    const markX = left + Math.max(0, mark.actualBoundingBoxLeft ?? 0);
+    const markBaseline =
+      top + (mark.actualBoundingBoxAscent ?? wordmarkSize * 0.82);
     ctx.fillStyle = palette.secondaryInk;
-    ctx.fillText(
-      safeLabel,
-      left + Math.max(0, mark.actualBoundingBoxLeft ?? 0),
-      top + (mark.actualBoundingBoxAscent ?? wordmarkSize * 0.82),
-    );
+    ctx.fillText(safeLabel, markX, markBaseline);
 
     if (graphicBox) {
       if (variant === "topic-graphic" && graphic)
@@ -425,7 +568,7 @@ function drawPreparedThumbnail(
         drawHostPair(ctx, graphicBox, palette, reduced);
     } else {
       ctx.fillStyle = palette.hostA;
-      ctx.fillRect(left, 150, 94, thumbnailDesign.accentRuleH * height);
+      ctx.fillRect(ruleLeft, ruleTop, ruleWidth, ruleHeight);
     }
 
     if (!layout || !validation?.value) {
@@ -451,6 +594,17 @@ function drawPreparedThumbnail(
       headline: validation.value,
       lines: layout.lines,
       fontSize: layout.fontSize,
+      layoutMetadata: {
+        variant,
+        headlineBounds: layout.bounds,
+        wordmarkBounds: inkBounds(mark, markX, markBaseline, wordmarkSize),
+        decorationBounds: graphicBox ?? accentRule,
+        headlineInk: palette.ink,
+        wordmarkInk: palette.secondaryInk,
+        backdropColors: backdrop.colors,
+        inkHeight: layout.inkHeight,
+        script: isCjkHeadline(validation.value) ? "cjk" : "latin",
+      },
       needsShorterHeadline: false,
     };
   } finally {
@@ -554,7 +708,7 @@ export async function encodeThumbnail(
   loadFonts = ensureVideoFonts,
 ): Promise<Blob> {
   const prepared = prepareThumbnail(options);
-  const { headline, locale, wordmark } = prepared;
+  const { headline, locale, wordmark, defaultWordmark } = prepared;
   if (headline === null)
     throw new ThumbnailError(
       thumbnailHeadlineErrors.needsShorterHeadline,
@@ -564,11 +718,7 @@ export async function encodeThumbnail(
   if (error) throw new ThumbnailError(error, locale);
 
   const { missingCharacters } = await loadFonts({
-    texts: [
-      headline,
-      wordmark,
-      createTranslator(locale)("publish.thumbnail.wordmark"),
-    ],
+    texts: [headline, wordmark, defaultWordmark],
   });
   if (missingCharacters.length)
     throw new ThumbnailError("publish.thumbnail.fontUnavailable", locale);
