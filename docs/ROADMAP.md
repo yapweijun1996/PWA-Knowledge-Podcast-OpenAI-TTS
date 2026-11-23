@@ -15,10 +15,10 @@ Evidence date 2026-11-23. Counts and commands are in [TEST-MATRIX](TEST-MATRIX.m
 | M1 · Video, T32 to T36 and T49 | **Done.** Timeline, renderer with Opus fallback, Episode video panel (render, preview, review, approve, download), smaller MP4, balanced CJK wrapping. | Memory limits, other browsers and devices. |
 | M2 · Manual publish package, T38 | **Done.** ZIP with video, metadata, thumbnail and checklist; tracking parameters stripped. T37 upload parked. | YouTube acceptance of Opus-in-MP4 and the disclosure wording (owner at upload time). |
 | M3 · Agent, T39 | **Done in the page.** Agent panel with consent dialog, log and cancel. pi bridge is a spike. | Real model-driven runs; pi model-initiated tool calls. |
-| M4 · Optional worker, T40 and T41 | **Worker done and optional; Godot not started.** | Unattended production on the target host. |
+| M4 · Optional worker, T40 and T41 | **Worker shipped and verified on macOS.** Keep the browser exporter and use Godot Movie Maker for future Godot-authored scenes. | Unattended production on the target host. |
 | M5 · Release hardening, T42 and T43 | **Partly done.** CI gates, checklists updated; clean-clone verification used before pushes. | Real devices, installed PWA, VoiceOver, field Web Vitals (`NOT_RUN`). |
 | M6 · i18n and UI/UX, T44 to T48 | **Done.** 0 hard-coded CJK fragments, 121 backend error codes, 12-case sweep. | Native review of sensitive English and Malay copy. |
-| M7 · Animation, T50 to T56 | **In progress.** T50 scene interface, T51 and T54 spikes done. T55 Three.js scene, visual design system, T52 AI storyboard and T56 optional Crucible scene are open. | Memory, real GPUs, Safari, phones. |
+| M7 · Animation, T50 to T56 | **Waveform, Studio 3D and chapter storyboards shipped.** Round 3 passed independent static review. The optional Crucible scene remains in qualification. | Memory, real GPUs, Safari, phones. |
 
 ## Rules every milestone keeps
 

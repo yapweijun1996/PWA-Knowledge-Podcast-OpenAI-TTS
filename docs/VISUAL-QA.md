@@ -37,30 +37,23 @@ Decisions that shaped the gates (2026-11-23):
 
 ## Decoding, flash sampling and timing
 
-The reader attaches a visible, paused, muted video and seeks to
-`(i + 0.5) / fps` for each sampled frame. After `seeked`, it checks the
-requested time against `currentTime` within 1 ms and draws the frame. The reader
-self-test checks 10 decoded indices, including adjacent seeks in both
-directions and the two sides of the callout end boundary.
+The visual suite demuxes the actual H.264 MP4 and decodes it once in
+presentation order. It checks the track frame count, dimensions, and each
+sample's timestamp. The frame-indexed test compares decoded indices with the
+native media element, including the callout boundary at frame 45.
 
-The flash pass samples a 160×90 landscape grid or a 90×160 portrait grid. It
-checks all raw frames and seeks all decoded frames within eight source frames
-of a chapter, title hold or speaker and PCM level transition, throughout the
-rapid chapter tail, and at every full-resolution rubric sample. It seeks every
-second frame elsewhere. The rolling window spans 30 source frames. At 15
-samples per second a sustained three-flash-per-second pattern has about five
-samples per cycle. Four regularly spaced flashes per second can also be
-detected when each bright and dark excursion lasts at least two source frames.
-Isolated one-frame decoded flashes outside the dense windows can fall between
-samples. The raw pass retains full-rate coverage throughout.
+Flash analysis samples a 160×90 landscape grid or a 90×160 portrait grid. It
+checks all raw frames and uses every decoded frame within eight source frames
+of a chapter, title hold or speaker or PCM transition, as well as the rapid
+chapter tail and every full-resolution rubric sample. It samples every second
+decoded frame elsewhere. A one-frame decoded flash outside these windows can
+fall between samples. The raw pass keeps full-rate coverage.
 
-Media loads and seeks have 5 s watchdogs. Each reference episode has a 120 s
-budget shared across its evaluation steps, with a 40 s runtime target.
-Thumbnails and each fallback example have 30 s budgets. The rubric attaches
-individual fixture scores and timing even if a fixture is blocked, then fails
-the test if any required evidence is missing or a gate failed. It prints render,
-decode, fresh-draw and overall times with the seek count and mean and maximum
-seek cost for each reference episode that completes decoding.
+The rubric keeps a 120 s deadline per video fixture and a 30 s deadline for
+each thumbnail or fallback fixture. It records partial results and fails if
+a required check or fixture fails. It measures opaque glyph interiors in the
+raw and decoded frames against the same 4.5:1 contrast threshold. Parallel
+render jobs share a single Playwright worker to avoid starving those fixtures.
 
 ## Independent review procedure
 
@@ -73,7 +66,7 @@ seek cost for each reference episode that completes decoding.
    only what is visible, mark motion, determinism, performance and caption sync NOT_ASSESSABLE, list defects
    with image, region and a concrete fix, and say which scene should be the default.
 3. Pass: at least 85 percent of the assessable points and every hard gate. Record the report in this
-   folder (round 1 is [VISUAL-REVIEW-ROUND1.md](VISUAL-REVIEW-ROUND1.md)).
+   folder (see the [round 3 result](VISUAL-REVIEW-ROUND3.md)).
 
 ## History and status
 

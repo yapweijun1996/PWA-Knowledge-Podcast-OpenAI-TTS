@@ -66,14 +66,29 @@ Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion toolin
    but about four times slower per frame, very new, and its JSON format permits
    shaders and external assets. **Decision (manager, before the owner's confirmation):
    production scenes are hand-written Three.js and Crucible stays a reference.**
-   Because the owner confirmed Crucible is the library they meant, it is offered
-   as an optional, lazily loaded `crucible` scene (T56) behind the same strict
-   storyboard subset and the same scene interface, never as the only path. The
-   owner can overturn the default.
+   T56 remains behind the production quality gate. Confirming the library
+   identity established which adapter to qualify. The frame-time results
+   below govern whether it becomes an available scene.
 4. The AI agent directs scenes through a strict JSON storyboard that selects
    pre-written, parameterised scenes. It never ships code to run in the page.
 5. Godot stays out of the browser path; at most an optional local export.
 6. A scene plugin interface (T50) comes first so these can coexist.
+
+## Crucible qualification (T56)
+
+The 2026-11-23 qualification used Crucible 0.22.0, Chromium 156 and ANGLE
+Vulkan SwiftShader on macOS 27.2 with other render tests active. Each
+orientation used native 1080p, 10 warm-up frames and 36 timed draws with
+2D compositing and a synchronous one-pixel readback. The lean LDR recipe
+with one sample and no bloom reached **566.6 / 811.6 ms** median / p95 in
+landscape and **793.4 / 1047.9 ms** in portrait. A modified light-shading
+profile also missed the budget in two runs. Its frame hashes at 0, 15 and 30
+matched between repeats in each orientation, with zero external requests.
+
+Keep the spike outside the production scene list. A production candidate
+must meet the 40 ms median and 60 ms p95 budgets in both orientations,
+retain deterministic frame output and pass the visual review. The earlier
+T54 measurements timed a different workload. [Design and performance gates](VISUAL-DESIGN-SPEC.md#5-studio-3d-art-direction-and-motion)
 
 ## Godot export decision (T40)
 

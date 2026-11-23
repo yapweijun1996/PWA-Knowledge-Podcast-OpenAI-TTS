@@ -58,6 +58,7 @@ before starting another run.
 | `research_topic`         | Paid    | Takes `topic` and saves initial and cross-checked research in a new episode.                      |
 | `write_script`           | Paid    | Takes a researched `episodeId` and saves the outline and script.                                  |
 | `narrate_episode`        | Paid    | Takes a scripted `episodeId` and saves audio and transcription.                                   |
+| `draft_storyboard` | Paid | Saves a draft from the selected episode’s current script after separate consent. |
 | `render_video`           | Free    | Takes an `episodeId` with current WAV audio and measured turn timings and saves an MP4.           |
 | `export_publish_package` | Free    | Takes a rendered `episodeId` and saves a ZIP with the MP4, thumbnail and manual-upload materials. |
 
@@ -66,3 +67,17 @@ Guarded Playwright cases cover the Studio workflow with mocked Responses
 turns, plus the locale and layout sweep. Browser execution, real provider
 usage, browser codec and artifact persistence through the Studio agent,
 and model-initiated pi tool calls remain **UNVERIFIED**.
+
+
+## Storyboard review
+
+Open the episode and find Storyboard in the Video panel once the script is
+available. Create a manual draft or ask the Studio agent to draft one for that
+episode. The agent displays a separate estimate and requests consent before
+sending script material to OpenAI. The draft stays local and is bound to the
+current script revision. It can select built-in scenes, palettes, moods and
+camera presets, with bounded plain-text callouts.
+
+Review and apply the draft before rendering. A script revision requires a new
+draft. Applying a storyboard makes the previous video preview and its approval
+stale until a new render is reviewed. [Editor](../src/factory/StoryboardEditor.tsx) · [Draft validation](../src/video/storyboard.ts)

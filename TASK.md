@@ -363,13 +363,16 @@ Status words: `[ ]` open, `[x]` done.
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
   _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
-- [ ] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
+- [x] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
   captions** for the first release (avatars and 3D scenes come later). Two
-  themes. Acceptance: screenshot review at 1440 and 390 widths.
-- [ ] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
+  themes. Waveform stays the default. The browser tests cover both themes,
+  and the visual review covers landscape and portrait. [Review](docs/VISUAL-REVIEW-ROUND3.md)
+- [x] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
   stepping, progress, cancel, memory and storage limits, MP4 stored in
   IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
-  cancel and reload recovery, quota-exceeded handling.
+  cancel and reload recovery, quota-exceeded handling. The browser can fall
+  back to the page renderer if the worker lacks required capabilities.
+  [Render tests](tests/factory-video.browser.ts)
 - [x] **T36 — Video review** (M). Preview, edit title, description, chapters and
   thumbnail, then approve or reject. Acceptance: browser test for approve and
   reject; nothing is uploaded without approval.
@@ -486,9 +489,10 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
   26.7 ms per 1080p frame on software WebGL, identical frame hashes across runs and
   between main thread and worker, H.264 encode works; see docs/ANIMATION-DECISION.md.
   Memory, real GPUs, Safari and phones UNVERIFIED.)_
-- [ ] **T52 — Storyboard tool** (L). Agent tool that produces a strict JSON
+- [x] **T52 — Storyboard tool** (L). Agent tool that produces a strict JSON
   storyboard (per chapter mood, palette, visual metaphor, callouts, camera) from
-  the script; validated and editable in the UI.
+  the script. A separate consent gates the drafting tool. Review and apply the
+  draft in the episode before rendering. [Workflow](docs/AGENT.md)
 - [x] **T54 — Crucible ("67JS") spike** (M). _(done 2026-11-23: deterministic, 113 ms per frame versus 26.7 ms for hand-written Three.js; decision recorded in docs/ANIMATION-DECISION.md)_ Same fixture and measurements as T51 in
   `spikes/crucible-scene`; decide Crucible versus hand-written Three.js scenes.
 - [x] **T53 — Identify and evaluate the library adapter** (S). The owner
@@ -508,7 +512,8 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
   URLs, no scripts), pinned to an exact version, with the T54 safety review
   repeated against the installed code and the frame-time and hash gates from
   T51 and T54. Default stays the hand-written Three.js scene unless the owner
-  chooses otherwise.
+  chooses otherwise. The current qualification missed both frame-time gates.
+  [Measured result](docs/ANIMATION-DECISION.md#crucible-qualification-t56)
 
 ### Visual design implementation (owner delegated style; spec: docs/VISUAL-DESIGN-SPEC.md)
 
@@ -520,10 +525,11 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
 - [x] **T62 Studio panel for the new options** (M): orientation (16:9 or 9:16), palette, mood,
   reduced-motion export, thumbnail variant and headline fields, and preview
   guides. [Panel options tests](tests/factory-video-options.browser.ts)
-- [ ] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
+- [x] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
   orphan characters, flash limit, hash determinism, per spec section 8.
-- [ ] **T64 Visual review** (manager): real landscape and portrait frames and thumbnails, an
+- [x] **T64 Visual review** (manager): real landscape and portrait frames and thumbnails, an
   independent reviewer scoring the 100-point rubric, up to three rework rounds.
+  Round 3 exceeded the 85% static review gate. [Review](docs/VISUAL-REVIEW-ROUND3.md)
 - [x] **T65 Bundle size** (S). The app loads the renderer, font coverage, 3D scene,
   and video tools on demand. The PWA still precaches their assets for offline
   use. [Render hook](src/factory/useVideoRender.ts) · [Agent hook](src/factory/useAgent.ts)
