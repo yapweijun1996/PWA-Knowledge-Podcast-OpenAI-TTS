@@ -1,6 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { build } from "vite";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
@@ -21,11 +23,7 @@ const language = "zh";
 const english = createTranslator("en");
 const chinese = createTranslator("zh-CN");
 
-async function openFinishedEpisode(
-  page: Page,
-  context: BrowserContext,
-  baseURL: string,
-) {
+async function guardFixtureNetwork(context: BrowserContext, baseURL: string) {
   const unexpected: string[] = [];
   const origin = new URL(baseURL).origin;
   await context.route("**/*", async (route) => {
@@ -41,7 +39,15 @@ async function openFinishedEpisode(
       await route.abort();
     }
   });
+  return unexpected;
+}
 
+async function openFinishedEpisode(
+  page: Page,
+  context: BrowserContext,
+  baseURL: string,
+) {
+  const unexpected = await guardFixtureNetwork(context, baseURL);
   await page.addInitScript(() =>
     localStorage.setItem("podcast-ui-locale", "en"),
   );
@@ -528,60 +534,94 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
   expect(unexpected).toEqual([]);
 });
 
-test("a rejected video write preserves the last approved export", async ({
-  page,
-  context,
+function videoDigest(preview: Locator) {
+  return preview.evaluate(async (element) => {
+    const response = await fetch((element as HTMLVideoElement).src);
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      await response.arrayBuffer(),
+    );
+    return Array.from(new Uint8Array(digest));
+  });
+}
+
+test("a storage quota failure preserves the last approved export", async ({
+  playwright,
   baseURL,
 }) => {
   test.setTimeout(120_000);
-  const { panel, render, unexpected } = await openFinishedEpisode(
-    page,
-    context,
-    baseURL!,
-  );
-  await render.click();
-  const preview = panel.locator("video");
-  await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
-  const approve = panel.getByRole("button", {
-    name: english("publish.review.approve"),
-    exact: true,
-  });
-  const download = panel.getByRole("button", {
-    name: english("publish.review.downloadPackage"),
-  });
-  await approve.click();
-  await expect(download).toBeEnabled();
-  const title = panel.getByLabel(english("publish.review.title"));
-  const originalTitle = await title.inputValue();
-  const palette = panel.getByLabel(english("video.panel.theme"));
-  const originalPalette = await palette.inputValue();
-  await palette.selectOption(originalPalette === "sunset" ? "aurora" : "sunset");
-  await expect(download).toBeHidden();
-  await page.evaluate(() => {
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = function (value, key) {
-      if (this.name === "artifacts" && value?.kind === "video") {
-        const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
-        // Roll back the pending transaction as the browser would on quota failure.
-        queueMicrotask(() => this.transaction.abort());
-        return request;
-      }
-      return key === undefined ? put.call(this, value) : put.call(this, value, key);
-    };
-  });
+  const profile = await mkdtemp(resolve(tmpdir(), "factory-video-quota-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      baseURL,
+    });
+    const page = await context.newPage();
+    const { panel, render, unexpected } = await openFinishedEpisode(
+      page,
+      context,
+      baseURL!,
+    );
+    await render.click();
+    const preview = panel.locator("video");
+    await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
+    const originalDigest = await videoDigest(preview);
+    const titleLabel = english("publish.review.title");
+    const originalTitle = await panel.getByLabel(titleLabel).inputValue();
+    const paletteLabel = english("video.panel.theme");
+    const originalPalette = await panel.getByLabel(paletteLabel).inputValue();
+    const downloadName = english("publish.review.downloadPackage");
+    await panel
+      .getByRole("button", {
+        name: english("publish.review.approve"),
+        exact: true,
+      })
+      .click();
+    await expect(
+      panel.getByRole("button", { name: downloadName }),
+    ).toBeEnabled();
+    expect(unexpected).toEqual([]);
 
-  await render.click();
-  await expect(
-    panel.getByText(english("video.panel.saveFailed")),
-  ).toBeVisible({ timeout: 45_000 });
-  await expect(download).toBeHidden();
-
-  await page.reload();
-  await expect(preview).toHaveAttribute("src", /^blob:/);
-  await expect(title).toHaveValue(originalTitle);
-  await expect(palette).toHaveValue(originalPalette);
-  await expect(download).toBeEnabled();
-  expect(unexpected).toEqual([]);
+    // Start a fresh browser so IndexedDB cannot use the previous quota reservation.
+    await context.close();
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      baseURL,
+    });
+    const reopenedRequests = await guardFixtureNetwork(context, baseURL!);
+    const reopened = await context.newPage();
+    const cdp = await context.newCDPSession(reopened);
+    const origin = new URL(baseURL!).origin;
+    await cdp.send("Storage.overrideQuotaForOrigin", { origin, quotaSize: 1 });
+    await reopened.goto(`/?view=studio&episode=${episodeId}`);
+    const videoPanel = reopened.getByRole("region", {
+      name: english("episode.video.title"),
+    });
+    const download = videoPanel.getByRole("button", { name: downloadName });
+    await expect(download).toBeEnabled();
+    const palette = videoPanel.getByLabel(paletteLabel);
+    await palette.selectOption(
+      originalPalette === "sunset" ? "aurora" : "sunset",
+    );
+    await expect(download).toBeHidden();
+    await videoPanel
+      .getByRole("button", { name: english("video.panel.render") })
+      .click();
+    await expect(
+      videoPanel.getByText(english("video.panel.saveFailed")),
+    ).toBeVisible({ timeout: 45_000 });
+    await expect(download).toBeHidden();
+    await reopened.reload();
+    await expect(videoPanel.getByLabel(titleLabel)).toHaveValue(originalTitle);
+    await expect(palette).toHaveValue(originalPalette);
+    await expect(download).toBeEnabled();
+    const savedPreview = videoPanel.locator("video");
+    await expect(savedPreview).toHaveAttribute("src", /^blob:/);
+    expect(await videoDigest(savedPreview)).toEqual(originalDigest);
+    expect(reopenedRequests).toEqual([]);
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
 });
 
 test("cancelling a real render after frames are submitted leaves no saved video", async ({

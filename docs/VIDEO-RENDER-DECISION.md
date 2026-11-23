@@ -121,6 +121,29 @@ spectrum.
   isolation requirements if using a threaded build. If testing local worker
   ffmpeg, confirm installation and media handoff with the same fixture.
 
+## Desktop long-episode measurement
+
+On macOS 27.2, native Chrome 158 rendered a local ten-minute Studio 3D
+fixture at 1920×1080 and 30 fps in 91.5 seconds. The MP4 contained H.264
+video and mono Opus audio generated from a local signal. Chrome played the
+opening and sought to three seconds. With network access disabled, the
+probe saved the 107,258,112-byte Blob to IndexedDB, closed the database,
+reopened it and read back the same SHA-256 as the render receipt
+(`2cb08f637509089c8a7a942984b8880b604623deba2162e7c35e65334178eba0`).
+
+Across 734 process samples during rendering and the playback check, the
+largest renderer RSS rose from 110 MiB to an observed peak of 632 MiB. GPU
+process RSS rose from 90 to 124 MiB. Sampling ended before the storage and
+hash checks. These measurements cover a desktop page-context render. Physical
+phone export, mobile memory pressure and offline installed-app recovery on
+those devices still require field verification.
+
+A separate Chromium Studio test saves and approves a video, then reopens the
+same browser profile with a one-byte origin quota before opening IndexedDB.
+It attempts to render and save another palette, checks the visible save error,
+and reloads the episode. The approved export remains available and its MP4
+digest matches the original. [Studio storage regression](../tests/factory-video.browser.ts)
+
 ## Desktop Safari rendering
 
 Safari 27.2 on macOS 27.2 rendered the local 10-second 1920×1080 fixture at

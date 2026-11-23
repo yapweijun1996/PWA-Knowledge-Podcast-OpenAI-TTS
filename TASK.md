@@ -429,6 +429,10 @@ dropped from the critical path.
   content and licensing checks for AI-generated media. [Episode sign-off](docs/V2-PRODUCTION-CHECKLIST.md)
 - [ ] **T43 — Real-device and offline verification** (M). Phones and Safari,
   storage quota with large video blobs, offline Library after upload.
+  Desktop Chrome persisted a ten-minute 1080p MP4 offline and read back its
+  full digest. A Chromium Studio regression exercises a real origin quota
+  failure on replacement of an approved video. Physical phone coverage remains
+  open. [Desktop measurements](docs/VIDEO-RENDER-DECISION.md#desktop-long-episode-measurement)
 
 Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
 T31, then T33 to T36, then T38, T39, then T40 to T43 (T37 is parked).
