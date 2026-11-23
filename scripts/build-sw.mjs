@@ -1,6 +1,11 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, relative } from "node:path";
+import {
+  matchesVideoFontIntegrity,
+  videoFontAssets,
+  videoFontManifest,
+} from "../src/video/fonts/manifest.ts";
 
 async function files(dir) {
   const result = [];
@@ -19,13 +24,23 @@ const paths = (await files(dist))
 const hash = createHash("sha256");
 hash.update(await readFile("scripts/build-sw.mjs"));
 const assets = [];
+const fontShards = new Map(videoFontManifest.shards.map((shard) => [`fonts/${shard.file}`, shard]));
 for (const path of paths) {
   const data = await readFile(path);
   hash.update(data);
-  assets.push({ path: "./" + relative(dist, path), sha256: digest(data) });
+  const assetPath = relative(dist, path);
+  const sha256 = digest(data);
+  const font = fontShards.get(assetPath);
+  if (font && !matchesVideoFontIntegrity(font, data, sha256))
+    throw new Error(`Built font does not match the manifest: ${assetPath}`);
+  assets.push({ path: `./${assetPath}`, sha256 });
 }
 const index = assets.find((asset) => asset.path === "./index.html");
 if (!index) throw new Error("Missing built index.html");
+const precachePaths = new Set(assets.map(({ path }) => path));
+for (const path of videoFontAssets) {
+  if (!precachePaths.has(`./${path}`)) throw new Error(`Missing built font asset: ${path}`);
+}
 assets.push({ path: "./", sha256: index.sha256 });
 const version = hash.digest("hex").slice(0, 16);
 const sw = `

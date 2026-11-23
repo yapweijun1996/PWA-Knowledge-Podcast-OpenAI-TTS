@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { videoFontAssets } from "../src/video/fonts/manifest.ts";
 
 const archive = resolve(process.argv[2]);
 const root = await mkdtemp(join(tmpdir(), "podcast-release-"));
@@ -46,20 +47,27 @@ try {
   assert.equal(runtime.configured, false);
   const shell = await fetch(url);
   assert.equal(shell.status, 200);
-  assert.match(await shell.text(), /manifest.webmanifest/);
+  const html = await shell.text();
+  assert.match(html, /manifest.webmanifest/);
+  assert.match(html.replaceAll("&#39;", "'"), /\bfont-src 'self';/);
   const sw = await fetch(new URL("sw.js", shell.url));
   assert.equal(sw.status, 200);
   const serviceWorker = await sw.text();
   assert.match(serviceWorker, /addEventListener\('install'/);
   const precache = JSON.parse(serviceWorker.match(/^const ASSETS = (.+);$/m)[1]);
+  const precachePaths = new Set(precache.map(({ path }) => path));
+  for (const path of videoFontAssets)
+    assert.ok(precachePaths.has(`./${path}`), `Missing precached font asset: ${path}`);
   for (const asset of precache) {
     const response = await fetch(new URL(asset.path, sw.url));
     assert.equal(response.status, 200, asset.path);
     const bytes = Buffer.from(await response.arrayBuffer());
     assert.equal(createHash("sha256").update(bytes).digest("hex"), asset.sha256, asset.path);
+    if (asset.path.endsWith(".woff2"))
+      assert.equal(response.headers.get("content-type"), "font/woff2", asset.path);
   }
   console.log(
-    "Packaged worker served its private shell, service worker and keyless session.",
+    "Packaged worker served its private shell, precached fonts and keyless session.",
   );
 } finally {
   if (worker && worker.exitCode === null && !worker.signalCode)

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, readFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { videoFontAssets } from "../src/video/fonts/manifest.ts";
 
 const archive = process.argv[2] ?? "dist-worker/knowledge-podcast-worker.tar.gz";
 const html = readFileSync("dist-private/index.html", "utf8");
@@ -10,6 +11,11 @@ const bundles = Array.from(
 );
 if (![".js", ".css"].every((suffix) => bundles.some((file) => file.endsWith(suffix))))
   throw new Error("Missing private application bundle in the built shell");
+// Include lazy Vite chunks as well as the entry points referenced by HTML.
+const builtBundles = readdirSync("dist-private/assets")
+  .filter((name) => /^[\w-]+\.(?:js|css)$/.test(name))
+  .sort()
+  .map((name) => `dist-private/assets/${name}`);
 
 // Package only named runtime files, even when the working tree contains operator data.
 const files = [
@@ -17,7 +23,8 @@ const files = [
   "deploy/WORKER.md",
   ...["index.html", "sw.js", "manifest.webmanifest", "icon.svg", "icon-192.png",
       "icon-512.png", "pcm-capture-worklet.js"].map((file) => "dist-private/" + file),
-  ...bundles,
+  ...new Set([...bundles, ...builtBundles]),
+  ...videoFontAssets.map((file) => `dist-private/${file}`),
   ...["audio", "http", "jobs", "main", "mp3", "production", "session", "store",
       "worker-lock"].map((file) => "server/" + file + ".mjs"),
   ...["audio-record", "edit", "episode-backup", "episode-record", "factory",

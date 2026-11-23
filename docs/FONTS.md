@@ -10,11 +10,40 @@ reasoning: [VISUAL-DESIGN-SPEC.md](VISUAL-DESIGN-SPEC.md) section 3.
 | `noto-sans-sc-core-v1.woff2` | Noto Sans SC, weights 600 to 800 (variable `wght`), GB2312 level 1 (3,755 hanzi), CJK and full-width punctuation, digits, ASCII | 904 KiB |
 | `noto-sans-sc-l2-v1.woff2` | Same font, GB2312 level 2 (3,008 hanzi), loaded only when a script needs them | 801 KiB |
 | `noto-sans-latin-v1.woff2` | Noto Sans, weights 600 to 800, Basic Latin, Latin-1, Latin Extended-A, general punctuation | 29 KiB |
-| `coverage-sc-core.txt`, `coverage-sc-l2.txt` | The exact characters each shard contains | |
+| `coverage-sc-core.txt`, `coverage-sc-l2.txt` | The listed SC characters. The core font also covers printable ASCII. | |
 | `OFL-NotoSansSC.txt`, `OFL-NotoSans.txt` | Licence and copyright notices (must ship with the fonts) | |
 
-Characters outside these shards fall back to the system font; the renderer must
-record a notice in the render receipt because those frames are not portable.
+## Loading and offline cache
+
+`ensureVideoFonts({ texts, signal })` loads the core and Latin faces and requests
+the level-2 face only when the text needs it. It registers the weight range
+600–800 with the document or worker font set and awaits `fonts.ready`. Each
+font set shares successful loads, including concurrent calls. An aborted caller
+stops waiting while any shared load can still finish. A failed load can be
+retried during a later preflight.
+
+`missingCharacters(texts)` checks the bundled coverage synchronously. The
+loader embeds UTF-8 coverage snapshots as Base64 so native Node imports and
+browser preflight both work without a text request or a Vite-only loader.
+The asset test compares the snapshots with `public/fonts/`, checks the actual
+WOFF2 character maps, and verifies the font sizes and hashes against the
+versioned manifest. Regenerate a snapshot with `Buffer.from(coverageText,
+"utf8").toString("base64")` when its source list changes.
+
+An uncovered character uses a system fallback and can vary by machine. The
+preflight returns its code points in `missingCharacters` with
+`font.missingCharacters`. It reports failed faces as `font.shardUnavailable.<id>`
+and an unavailable font API as `font.apiUnavailable`. Receipts can retain the
+codes. UI consumers should translate them through the message catalogue.
+
+Vite copies all seven files into `fonts/`. The service worker precaches them
+under the app base so rare-name exports can load level 2 offline after the
+service worker installs. The font files account for **1,775,496 bytes** and the
+coverage lists plus licenses add **29,423 bytes**, for **1,804,919 bytes** of
+asset payload per release cache, about **1.72 MiB**. The private worker package
+includes them and serves WOFF2 as `font/woff2` under the existing `font-src 'self'`
+CSP. The supplied level-2 asset is about 801 KiB. Resharding it to satisfy the
+design spec's 256 KiB per-shard budget is separate asset work.
 
 ## Provenance and how they were made (2026-11-23)
 

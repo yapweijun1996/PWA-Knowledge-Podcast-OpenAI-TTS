@@ -14,6 +14,8 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
   ".webmanifest": "application/manifest+json",
   ".wav": "audio/wav",
   ".mp3": "audio/mpeg",
@@ -449,7 +451,7 @@ export function podcastHTTP({
         const asset = path.slice(studioBase.length) || "index.html";
         if (
           !path.startsWith(studioBase) ||
-          !/^(?:assets\/[\w-]+\.(?:js|css)|index\.html|manifest\.webmanifest|icon(?:-192|-512)?\.(?:png|svg)|sw\.js|pcm-capture-worklet\.js)$/.test(
+          !/^(?:assets\/[\w-]+\.(?:js|css)|fonts\/(?:noto-sans(?:-sc-(?:core|l2)|-latin)-v\d+\.woff2|coverage-sc-(?:core|l2)\.txt|OFL-NotoSans(?:SC)?\.txt)|index\.html|manifest\.webmanifest|icon(?:-192|-512)?\.(?:png|svg)|sw\.js|pcm-capture-worklet\.js)$/.test(
             asset,
           )
         )
