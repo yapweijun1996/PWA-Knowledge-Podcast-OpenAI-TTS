@@ -11,7 +11,7 @@ export default [
   // native-review
   [
     "agent.run.estimate",
-    "This usage estimate gives the maximum number of model requests and output tokens for this agent run. Input tokens are counted separately, and paid tools require separate consent.",
+    "Input tokens are billed separately. Paid tools can start production and show their own estimate before asking for separate consent.",
   ],
   // native-review
   [
@@ -37,7 +37,7 @@ export default [
   // native-review
   [
     "agent.failure.unknownOutcome",
-    "The request has an unknown outcome and may have incurred a cost. Review your usage and the progress in the Library.",
+    "The request’s outcome is unknown and may have been billed. Check your OpenAI usage and review saved progress in the Library before starting another run.",
   ],
   ["agent.bridge.unknownTool", "This tool could not be found."],
   ["agent.bridge.invalidArguments", "The tool arguments are invalid."],
@@ -110,4 +110,130 @@ export default [
     "agent.tool.exportPackage",
     "Save the current MP4, thumbnail and publishing materials as a ZIP for manual upload.",
   ],
+  ["agent.panel.title", "Agent"],
+  ["agent.panel.offline", "Connect to the internet to run the agent."],
+  ["agent.panel.goal", "Goal"],
+  ["agent.panel.goalCount", "{count} / {limit} characters"],
+  ["agent.panel.goalLength", "Enter a goal of up to 500 characters."],
+  ["agent.panel.goalRequired", "Enter a goal to continue."],
+  [
+    "agent.panel.example.produce",
+    "Produce a two-minute episode about city gardens and render its video.",
+  ],
+  [
+    "agent.panel.example.list",
+    "List the episodes in my Library and summarize their progress.",
+  ],
+  ["agent.panel.model", "Model: {model}"],
+  ["agent.panel.steps", "Maximum steps: {count}"],
+  // native-review
+  ["agent.panel.estimate.title", "Estimated usage ceilings"],
+  // native-review
+  [
+    "agent.panel.estimate.requests",
+    {
+      one: "Up to {count} provider request",
+      other: "Up to {count} provider requests",
+    },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.tokens",
+    { one: "Up to {count} output token", other: "Up to {count} output tokens" },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.searches",
+    { one: "Up to {count} web search", other: "Up to {count} web searches" },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.narration",
+    {
+      one: "Up to {count} narration turn",
+      other: "Up to {count} narration turns",
+    },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.tokensPerTurn",
+    {
+      one: "Up to {count} output token per narration turn",
+      other: "Up to {count} output tokens per narration turn",
+    },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.transcription",
+    {
+      one: "Up to {count} second of audio for transcription",
+      other: "Up to {count} seconds of audio for transcription",
+    },
+  ],
+  // native-review
+  [
+    "agent.panel.estimate.ceiling",
+    "Cost estimates are ceilings, not bills. Usage ceilings do not set a spending cap.",
+  ],
+  // native-review
+  [
+    "agent.panel.runConsent",
+    "I agree to pay OpenAI for the model requests in this run.",
+  ],
+  ["agent.panel.start", "Start agent run"],
+  ["agent.panel.cancel", "Cancel run"],
+  ["agent.panel.cancelling", "Stopping…"],
+  ["agent.panel.result", "Run result"],
+  // native-review
+  ["agent.panel.dialog.title", "Approve paid tool: {tool}"],
+  ["agent.panel.dialog.topic", "Topic"],
+  ["agent.panel.dialog.episode", "Episode ID"],
+  // native-review
+  ["agent.panel.dialog.deny", "Deny"],
+  // native-review
+  ["agent.panel.dialog.approve", "Approve this call"],
+  ["agent.panel.tool.run", "Agent run"],
+  ["agent.panel.tool.list", "List episodes"],
+  ["agent.panel.tool.get", "Get episode"],
+  ["agent.panel.tool.research", "Research topic"],
+  ["agent.panel.tool.script", "Write script"],
+  ["agent.panel.tool.narration", "Narrate episode"],
+  ["agent.panel.tool.video", "Render video"],
+  ["agent.panel.tool.export", "Export publish package"],
+  ["agent.panel.tool.unknown", "Unknown tool"],
+  ["agent.panel.toolSucceeded", "Completed."],
+  // native-review
+  ["agent.panel.toolDenied", "Consent denied."],
+  // native-review
+  [
+    "agent.panel.stoppedAfterDenial",
+    "The agent stopped after you denied the paid tool.",
+  ],
+  ["agent.panel.log.title", "Agent activity"],
+  ["agent.panel.log.time", "+{seconds} s"],
+  ["agent.panel.log.step", "Model step {step} of {maximum}"],
+  ["agent.panel.log.toolCall", "Tool called: {tool}"],
+  ["agent.panel.log.toolResult", "Tool result for {tool}: {status}"],
+  // native-review
+  ["agent.panel.log.consentAsked", "Consent requested for {tool}."],
+  // native-review
+  ["agent.panel.log.consentGranted", "Consent granted for {tool}."],
+  // native-review
+  ["agent.panel.log.consentDenied", "Consent denied for {tool}."],
+  ["agent.panel.log.error", "Run ended: {status}"],
+  ["agent.panel.savedSummary", "Saved on this device: {items}."],
+  [
+    "agent.panel.savedNone",
+    "This run saved no new episodes or production results.",
+  ],
+  ["agent.panel.saved.episode", "episode record"],
+  ["agent.panel.saved.researchDraft", "initial research"],
+  ["agent.panel.saved.research", "cross-checked research"],
+  ["agent.panel.saved.outline", "outline"],
+  ["agent.panel.saved.script", "script"],
+  ["agent.panel.saved.narration", "narration segments"],
+  ["agent.panel.saved.audio", "episode audio"],
+  ["agent.panel.saved.transcript", "transcript"],
+  ["agent.panel.saved.video", "MP4 video"],
+  ["agent.panel.saved.publish", "publish ZIP"],
 ] as const;

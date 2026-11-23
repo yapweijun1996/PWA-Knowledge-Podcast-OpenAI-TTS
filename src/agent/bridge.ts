@@ -1,5 +1,6 @@
 import { t } from "../i18n/index.ts";
 import {
+  abortable,
   isObject,
   mapJson,
   readKey,
@@ -139,7 +140,7 @@ export type RequestConsent = (request: {
   estimate: Readonly<Estimate>;
 }) => Promise<boolean>;
 
-const messages = {
+export const toolFailureKeys = {
   unknown_tool: "agent.bridge.unknownTool",
   invalid_arguments: "agent.bridge.invalidArguments",
   consent_required: "agent.failure.consentRequired",
@@ -157,7 +158,7 @@ const messages = {
   error: "agent.bridge.error",
 } as const;
 
-type FailureStatus = keyof typeof messages;
+type FailureStatus = keyof typeof toolFailureKeys;
 export type ToolResult =
   { status: "ok"; data: Json } | { status: FailureStatus; message: string };
 
@@ -225,13 +226,13 @@ export class ToolFailure extends Error {
   declare readonly status: FailureStatus;
 
   constructor(status: FailureStatus) {
-    super(t(messages[status]));
+    super(t(toolFailureKeys[status]));
     this.status = status;
   }
 }
 
 function failed(status: FailureStatus): ToolResult {
-  return { status, message: t(messages[status]) };
+  return { status, message: t(toolFailureKeys[status]) };
 }
 
 export function createAgentBridge<Deps = undefined>(
@@ -240,10 +241,12 @@ export function createAgentBridge<Deps = undefined>(
     deps,
     getKey,
     timeoutMs = 1_200_000,
+    settleOnAbort = false,
   }: {
     deps?: Deps;
     getKey?: () => string | undefined;
     timeoutMs?: number;
+    settleOnAbort?: boolean;
   } = {},
 ): AgentBridge & { listAudit(): AuditEntry[] } {
   if (!inRange(timeoutMs, 1, 2_147_483_647) || !Number.isInteger(timeoutMs))
@@ -304,7 +307,14 @@ export function createAgentBridge<Deps = undefined>(
       };
       let result: ToolResult;
       try {
-        result = await withDeadline(signal, timeoutMs, async (active) => {
+        // Let checkpointing tools finish local saves after a user abort while
+        // still enforcing the independent tool deadline.
+        const boundary = settleOnAbort ? new AbortController().signal : signal;
+        result = await withDeadline(boundary, timeoutMs, async (deadline) => {
+          const active = settleOnAbort
+            ? AbortSignal.any([deadline, signal])
+            : deadline;
+          active.throwIfAborted();
           if (!tool) return failed("unknown_tool");
           if (!matches(tool.parameters, args))
             return failed("invalid_arguments");
@@ -317,7 +327,8 @@ export function createAgentBridge<Deps = undefined>(
           argsSummary = JSON.stringify(clean).slice(0, 240);
           if (credential) return failed("key_in_content");
           if (tool.paid) {
-            if (!ctx.requestConsent) return failed("consent_required");
+            const { requestConsent } = ctx;
+            if (!requestConsent) return failed("consent_required");
             const estimate = mapJson(
               {
                 ...tool.estimate,
@@ -328,11 +339,13 @@ export function createAgentBridge<Deps = undefined>(
             ) as Estimate;
             let approved = false;
             try {
-              approved = await ctx.requestConsent({
-                tool: safeName,
-                args: structuredClone(clean),
-                estimate,
-              });
+              approved = await abortable(active, () =>
+                requestConsent({
+                  tool: safeName,
+                  args: structuredClone(clean),
+                  estimate,
+                }),
+              );
             } catch {
               // A failed consent prompt grants no authority to spend.
             }

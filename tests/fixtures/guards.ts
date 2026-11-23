@@ -9,7 +9,7 @@ import { inspect } from "node:util";
 
 // Deliberately omit continue, fallback and fetch from external mocks.
 type MockRoute = Pick<Route, "request" | "fulfill" | "abort">;
-type ProviderMock = (route: MockRoute) => Promise<void>;
+export type ProviderMock = (route: MockRoute) => Promise<void>;
 type Evidence = {
   console: Promise<unknown[]>[];
   downloads: Download[];

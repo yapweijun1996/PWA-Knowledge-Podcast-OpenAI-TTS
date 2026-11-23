@@ -8,6 +8,7 @@ import { backupRecord } from "../shared/episode-backup.ts";
 import { defaultPreferences, type Episode } from "../shared/factory.ts";
 import { wave } from "../server/audio.mjs";
 import { createTranslator, type Locale } from "../src/i18n/index.ts";
+import { agentToolTurn } from "./fixtures/agent-provider";
 import { fakeOpenAI } from "./fixtures/podcast-provider.mjs";
 import { test } from "./fixtures/guards";
 
@@ -525,6 +526,7 @@ for (const locale of locales) {
         const fixture = fakeOpenAI({ dynamic: true, cast: 2 });
         const unexpected: string[] = [];
         const paid: string[] = [];
+        let agentCalls = 0;
         let releaseResearch!: () => void;
         const holdResearch = new Promise<void>((resolve) => {
           releaseResearch = resolve;
@@ -586,6 +588,19 @@ for (const locale of locales) {
               `Unexpected provider request: ${request.method()} ${path}`,
             );
             await route.abort();
+            return;
+          }
+          if (
+            path === "/v1/responses" &&
+            request.postDataJSON()?.tools?.some?.(
+              (tool: { name?: string }) => tool.name === "research_topic",
+            )
+          ) {
+            agentCalls++;
+            await route.fulfill({
+              headers,
+              json: agentToolTurn("research_topic", { topic }),
+            });
             return;
           }
           paid.push(path);
@@ -667,6 +682,13 @@ for (const locale of locales) {
           "Studio without a topic",
         );
         await audit("studio-idle");
+        const agent = page.locator(".agent-panel");
+        const agentSummary = agent.locator("summary");
+        const agentStart = agent.getByRole("button", { name: t("agent.panel.start") });
+        await agentSummary.click();
+        await inspectDisabled(agentStart, "Agent without a browser key");
+        await audit("agent-no-key");
+        await agentSummary.click();
 
         await go("automation");
         await expect(page.locator(".factory-intro p")).toHaveText(/\S/);
@@ -849,6 +871,24 @@ for (const locale of locales) {
         );
 
         await go("studio");
+        await agentSummary.click();
+        await agent.getByRole("button", { name: t("agent.panel.example.produce") }).click();
+        await inspectDisabled(agentStart, "Agent without run consent");
+        await audit("agent-ready");
+        await agent.getByRole("checkbox", { name: t("agent.panel.runConsent") }).check();
+        await agentStart.click();
+        const toolConsent = page.getByRole("dialog", {
+          name: t("agent.panel.dialog.title", { tool: t("agent.panel.tool.research") }),
+        });
+        await expect(toolConsent).toBeVisible();
+        await scanLocale(page, locale, "agent-paid-consent");
+        await inspectLayout(page, "agent-paid-consent");
+        if (touch) await inspectTouch(page, "agent-paid-consent");
+        await toolConsent.getByRole("button", { name: t("agent.panel.dialog.deny") }).click();
+        await expect(agent.getByRole("status")).toContainText(t("agent.panel.stoppedAfterDenial"));
+        await audit("agent-denied");
+        expect(agentCalls).toBe(1);
+        await agentSummary.click();
         await page
           .getByRole("button", { name: t("library.selection.create") })
           .click();
