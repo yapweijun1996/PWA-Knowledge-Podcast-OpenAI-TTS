@@ -1,3 +1,6 @@
+import type { Host } from "../../shared/factory.ts";
+import { t, type createFormatters, type MessageKey } from "../i18n/index.ts";
+
 export type AudioIdentity = {
   episodeId: string;
   revision: number;
@@ -10,10 +13,22 @@ export type PlaybackTrack = AudioIdentity & {
   bytes: number;
   chapters: { title: string; start: number }[];
   clipId?: string;
+  clipHost?: Host;
 };
 
 export const playbackRates = [0.75, 1, 1.25, 1.5, 2];
 export const resumeKey = "podcast-v2-playback";
+
+export function formatPlaybackClock(
+  seconds: number,
+  number: ReturnType<typeof createFormatters>["number"],
+) {
+  const minutes = number(Math.floor(seconds / 60), { useGrouping: false });
+  const remainder = number(Math.floor(seconds % 60), {
+    minimumIntegerDigits: 2,
+  });
+  return `${minutes}:${remainder}`;
+}
 
 export function sameAudio(a: AudioIdentity | null, b: AudioIdentity) {
   return (
@@ -49,6 +64,8 @@ export function readResume(value: string | null) {
   return null;
 }
 
+type PlaybackErrorKey = Extract<MessageKey, `playback.error.${string}`>;
+
 type PlaybackState = {
   track: PlaybackTrack | null;
   position: number;
@@ -56,7 +73,14 @@ type PlaybackState = {
   loading: boolean;
   rate: number;
   error: string;
+  errorKey?: PlaybackErrorKey;
 };
+
+function playbackError(error: string | { key: PlaybackErrorKey }) {
+  return typeof error === "string"
+    ? { error, errorKey: undefined }
+    : { error: t(error.key), errorKey: error.key };
+}
 
 const mediaEvents = [
   "loadedmetadata",
@@ -122,14 +146,14 @@ export class Playback {
     this.url = undefined;
   }
 
-  invalidate(error: string) {
+  invalidate(error: string | { key: PlaybackErrorKey }) {
     this.release();
     this.update({
       track: null,
       position: 0,
       playing: false,
       loading: false,
-      error,
+      ...playbackError(error),
     });
   }
 
@@ -138,7 +162,7 @@ export class Playback {
     const { track } = this.state;
     if (!audio || !track || !this.url) return;
     if (audio.error) {
-      this.invalidate("无法播放此音频，请重新选择或恢复节目备份。");
+      this.invalidate({ key: "playback.error.unplayable" });
       return;
     }
     if (audio.readyState >= 1 && this.pendingSeek !== undefined) {
@@ -161,7 +185,7 @@ export class Playback {
     try {
       this.url = URL.createObjectURL(blob);
     } catch {
-      this.invalidate("无法打开此音频，请重试。");
+      this.invalidate({ key: "playback.error.openFailed" });
       return false;
     }
     const start = Math.max(0, Math.min(position, track.duration));
@@ -173,7 +197,7 @@ export class Playback {
       position: start,
       playing: false,
       loading: true,
-      error: "",
+      ...playbackError(""),
     });
     return true;
   }
@@ -195,15 +219,20 @@ export class Playback {
     const request = ++this.playRequest;
     // Call play within the user's gesture even when metadata has yet to load.
     const play = audio.play();
-    this.update({ playing: !audio.paused && !audio.ended, error: "" });
+    this.update({
+      playing: !audio.paused && !audio.ended,
+      ...playbackError(""),
+    });
     void play.catch((error: unknown) => {
       if (request !== this.playRequest) return;
       this.update({
         playing: false,
-        error:
-          error instanceof DOMException && error.name === "NotAllowedError"
-            ? "浏览器阻止了播放，请再次按播放。"
-            : "未能开始播放，请重试。",
+        ...playbackError({
+          key:
+            error instanceof DOMException && error.name === "NotAllowedError"
+              ? "playback.error.autoplayBlocked"
+              : "playback.error.startFailed",
+        }),
       });
     });
   }

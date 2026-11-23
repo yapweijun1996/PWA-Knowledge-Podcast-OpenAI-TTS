@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { audioClock } from "./library-model";
+import { useI18n } from "../i18n";
 import {
+  formatPlaybackClock,
   playbackRates,
   sameAudio,
   type Playback,
@@ -17,20 +18,26 @@ function SeekControl({
   position: number;
   track: PlaybackTrack;
 }) {
+  const { t, formatters } = useI18n();
+  const elapsed = formatPlaybackClock(position, formatters.number);
+  const duration = formatPlaybackClock(track.duration, formatters.number);
   return (
     <div className="playback-seek">
-      <span aria-hidden="true">{audioClock(position)}</span>
+      <span aria-hidden="true">{elapsed}</span>
       <input
         type="range"
-        aria-label="播放进度"
-        aria-valuetext={`${audioClock(position)} / ${audioClock(track.duration)}`}
+        aria-label={t("playback.seek.label")}
+        aria-valuetext={t("playback.seek.position", {
+          position: elapsed,
+          duration,
+        })}
         min={0}
         max={track.duration}
         step={Math.min(1, track.duration / 100)}
         value={position}
         onChange={(event) => engine.seek(event.target.valueAsNumber)}
       />
-      <span aria-hidden="true">{audioClock(track.duration)}</span>
+      <span aria-hidden="true">{duration}</span>
     </div>
   );
 }
@@ -44,6 +51,7 @@ export function EpisodePlayButton({
   track: PlaybackTrack;
   blob: Blob;
 }) {
+  const { t } = useI18n();
   const playing = useSyncExternalStore(engine.subscribe, () => {
     const state = engine.getSnapshot();
     return state.playing && sameAudio(state.track, track);
@@ -54,13 +62,15 @@ export function EpisodePlayButton({
       type="button"
       onClick={() => engine.select(track, blob)}
     >
-      {track.clipId === undefined
-        ? playing
-          ? "暂停本期音频"
-          : "播放本期音频"
-        : playing
-          ? "暂停片段"
-          : "播放片段"}
+      {t(
+        track.clipId === undefined
+          ? playing
+            ? "playback.episode.pause"
+            : "playback.episode.play"
+          : playing
+            ? "playback.episode.pauseClip"
+            : "playback.episode.playClip",
+      )}
     </button>
   );
 }
@@ -74,22 +84,31 @@ export function PlaybackBar({
   activeRevision?: number;
   visible: boolean;
 }) {
-  const { track, position, loading, playing, rate, error } =
+  const { t, formatters } = useI18n();
+  const { track, position, loading, playing, rate, error, errorKey } =
     useSyncExternalStore(engine.subscribe, engine.getSnapshot);
   const dialog = useRef<HTMLDialogElement>(null);
   const previousVersion =
     track && track.clipId === undefined && track.revision !== activeRevision;
   const detail = previousVersion
-    ? "上一版成品音频"
+    ? t("episode.audio.previous")
     : track?.clipId !== undefined
-      ? "配音预览"
+      ? t("playback.bar.preview")
       : "";
-  const status = error || (loading ? "正在加载音频…" : "");
+  const status = errorKey
+    ? t(errorKey)
+    : error || (loading ? t("playback.bar.loading") : "");
+  const title = track?.clipHost
+    ? t("playback.episode.clipTitle", {
+        title: track.title,
+        host: track.clipHost,
+      })
+    : (track?.title ?? t("playback.bar.empty"));
   const toggle = (
     <button
       className="playback-button playback-toggle"
       type="button"
-      aria-label={playing ? "暂停" : "播放"}
+      aria-label={t(playing ? "playback.bar.pause" : "playback.bar.play")}
       onClick={engine.toggle}
     >
       <span
@@ -104,7 +123,7 @@ export function PlaybackBar({
   }, [visible]);
 
   return (
-    <footer className="playback-bar" aria-label="音频播放器">
+    <footer className="playback-bar" aria-label={t("playback.bar.label")}>
       {track && (
         <progress
           className="playback-mini-progress"
@@ -115,7 +134,7 @@ export function PlaybackBar({
       )}
       <div className="playback-bar-content">
         <div className="playback-summary">
-          <strong dir="auto">{track?.title ?? "尚未选择音频"}</strong>
+          <strong dir="auto">{title}</strong>
           {detail && <span>{detail}</span>}
         </div>
         {track && (
@@ -127,7 +146,7 @@ export function PlaybackBar({
             <button
               className="playback-button playback-expand"
               type="button"
-              aria-label="展开正在播放"
+              aria-label={t("playback.bar.expand")}
               aria-haspopup="dialog"
               aria-controls="now-playing"
               onClick={() => dialog.current?.showModal()}
@@ -151,18 +170,18 @@ export function PlaybackBar({
         }}
       >
         <div className="playback-dialog-header">
-          <h2 id="now-playing-title">正在播放</h2>
+          <h2 id="now-playing-title">{t("playback.dialog.title")}</h2>
           <button
             className="playback-button"
             type="button"
             autoFocus
             onClick={() => dialog.current?.close()}
           >
-            关闭
+            {t("playback.dialog.close")}
           </button>
         </div>
         <p className="playback-dialog-title" dir="auto">
-          {track?.title ?? "尚未选择音频"}
+          {title}
         </p>
         {detail && <p className="muted">{detail}</p>}
         <div className="playback-status" role="status" data-error={!!error}>
@@ -174,7 +193,7 @@ export function PlaybackBar({
             <div className="playback-dialog-actions">
               {toggle}
               <label className="playback-rate">
-                播放速度
+                {t("playback.dialog.rate")}
                 <select
                   value={rate}
                   onChange={(event) =>
@@ -183,7 +202,7 @@ export function PlaybackBar({
                 >
                   {playbackRates.map((speed) => (
                     <option key={speed} value={speed}>
-                      {speed}×
+                      {t("playback.dialog.speed", { speed })}
                     </option>
                   ))}
                 </select>
@@ -191,7 +210,7 @@ export function PlaybackBar({
             </div>
             {track.chapters.length > 0 && (
               <>
-                <h3>章节</h3>
+                <h3>{t("playback.chapters.title")}</h3>
                 <ol className="playback-chapters">
                   {track.chapters.map((chapter) => (
                     <li key={chapter.start}>
@@ -200,7 +219,13 @@ export function PlaybackBar({
                         type="button"
                         onClick={() => engine.seek(chapter.start)}
                       >
-                        {audioClock(chapter.start)} · {chapter.title}
+                        {t("playback.chapters.entry", {
+                          time: formatPlaybackClock(
+                            chapter.start,
+                            formatters.number,
+                          ),
+                          title: chapter.title,
+                        })}
                       </button>
                     </li>
                   ))}
