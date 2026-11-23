@@ -1,4 +1,6 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
+import { hosts } from "../../shared/factory.ts";
+import { t } from "../i18n/index.ts";
 import {
   drawFrame,
   sampleAmplitude,
@@ -53,7 +55,7 @@ const micros = (seconds: number) => Math.round(seconds * 1_000_000);
 
 function getPcm(audio: VideoAudio): PcmAudio {
   if (!Number.isInteger(audio.sampleRate) || audio.sampleRate <= 0) {
-    throw new RangeError("音频采样率必须为正整数。");
+    throw new RangeError(t("video.render.invalidSampleRate"));
   }
   const channels =
     "channels" in audio
@@ -69,7 +71,7 @@ function getPcm(audio: VideoAudio): PcmAudio {
         channel.length !== channels[0].length,
     )
   ) {
-    throw new Error("音频必须包含等长的 PCM 声道。");
+    throw new Error(t("video.render.invalidChannels"));
   }
   return { channels, sampleRate: audio.sampleRate };
 }
@@ -214,10 +216,14 @@ export async function renderVideo({
     width <= 0 ||
     height <= 0
   ) {
-    throw new RangeError("视频时长、帧率或分辨率无效。");
+    throw new RangeError(t("video.render.invalidPlan"));
   }
   const pcm = getPcm(audio);
   const numberOfChannels = pcm.channels.length;
+  // Keep the baked-in speaker labels consistent if the locale changes mid-render.
+  const speakerLabels = new Map(
+    hosts.map((name) => [name, t("video.caption.speaker", { name })]),
+  );
 
   const VideoEncoderClass = deps.VideoEncoder ?? globalThis.VideoEncoder;
   const AudioEncoderClass = deps.AudioEncoder ?? globalThis.AudioEncoder;
@@ -226,10 +232,10 @@ export async function renderVideo({
   const Canvas = deps.OffscreenCanvas ?? globalThis.OffscreenCanvas;
   const subtle = (deps.crypto ?? globalThis.crypto)?.subtle;
   if (!VideoEncoderClass || !VideoFrameClass)
-    throw new Error("此浏览器不支持 WebCodecs 视频编码。");
+    throw new Error(t("video.render.noVideoEncoder"));
   if (!AudioEncoderClass || !AudioDataClass)
-    throw new Error("此浏览器不支持 WebCodecs 音频编码。");
-  if (!subtle) throw new Error("此浏览器无法计算视频的 SHA-256 校验值。");
+    throw new Error(t("video.render.noAudioEncoder"));
+  if (!subtle) throw new Error(t("video.render.noHash"));
 
   const videoSettings = {
     width,
@@ -259,7 +265,7 @@ export async function renderVideo({
       stop,
     ));
   if (!hasAvc && !hasVp9)
-    throw new Error("此浏览器不支持此视频所需的 H.264 或获准的 VP9 编码。");
+    throw new Error(t("video.render.unsupportedVideoCodec"));
 
   const videoConfig = hasAvc ? h264 : vp9;
   let audioConfig: AudioEncoderConfig = {
@@ -287,14 +293,14 @@ export async function renderVideo({
         pcm.sampleRate === opusSampleRate ||
         !(await supportsAudio(audioConfig))
       )
-        throw new Error("此浏览器不支持此音频所需的 AAC 或 Opus 编码。");
+        throw new Error(t("video.render.unsupportedAudioCodec"));
     }
   }
   stop.throwIfAborted();
   const { sampleRate } = audioConfig;
   const totalSamples = Math.round(duration * sampleRate);
   if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
-    throw new RangeError("音频时长无效。");
+    throw new RangeError(t("video.render.invalidAudioDuration"));
   }
   const defaultAudioDuration =
     audioCodec === "opus" ? opusFrameDuration : micros(1024 / sampleRate);
@@ -304,11 +310,11 @@ export async function renderVideo({
     : Canvas
       ? new Canvas(width, height)
       : globalThis.document?.createElement("canvas");
-  if (!canvas) throw new Error("此浏览器无法创建视频画布。");
+  if (!canvas) throw new Error(t("video.render.noCanvas"));
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d", { alpha: false });
-  if (!context) throw new Error("此浏览器无法创建二维绘图环境。");
+  if (!context) throw new Error(t("video.render.noDrawingContext"));
 
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
@@ -334,7 +340,9 @@ export async function renderVideo({
   function copyChunk(chunk: EncodedVideoChunk | EncodedAudioChunk) {
     encodedBytes += chunk.byteLength;
     if (encodedBytes > maxEncodedBytes)
-      throw new Error("视频超过浏览器渲染的 128 MiB 编码数据上限。");
+      throw new Error(
+        t("video.render.encodedSizeLimit", { size: maxEncodedBytes / 1024 ** 2 }),
+      );
     const bytes = new Uint8Array(chunk.byteLength);
     chunk.copyTo(bytes);
     return bytes;
@@ -351,7 +359,8 @@ export async function renderVideo({
 
   try {
     videoEncoder = new VideoEncoderClass({
-      error: (cause) => failure.abort(new Error("视频编码失败。", { cause })),
+      error: (cause) =>
+        failure.abort(new Error(t("video.render.videoEncodingFailed"), { cause })),
       output: (chunk, metadata) =>
         output(() => {
           const timestamp = micros(encodedVideoFrames / fps);
@@ -359,7 +368,7 @@ export async function renderVideo({
             chunk.timestamp !== timestamp ||
             encodedVideoFrames >= totalFrames
           ) {
-            throw new Error("视频编码器返回了意外的帧时间戳。");
+            throw new Error(t("video.render.unexpectedFrameTimestamp"));
           }
           const end = Math.min(
             endTimestamp,
@@ -380,7 +389,8 @@ export async function renderVideo({
         }),
     });
     audioEncoder = new AudioEncoderClass({
-      error: (cause) => failure.abort(new Error("音频编码失败。", { cause })),
+      error: (cause) =>
+        failure.abort(new Error(t("video.render.audioEncodingFailed"), { cause })),
       output: (chunk, metadata) =>
         output(() => {
           audioOrigin ??= chunk.timestamp;
@@ -411,7 +421,7 @@ export async function renderVideo({
       if (index - encodedVideoFrames >= maxVideoFramesInFlight) {
         await waitFor(videoEncoder.flush(), stop);
         if (encodedVideoFrames !== index)
-          throw new Error("视频编码器未返回所有帧。");
+          throw new Error(t("video.render.missingFrames"));
         keyFrameAt = index;
       }
       if (videoEncoder.encodeQueueSize >= maxQueueSize)
@@ -419,7 +429,7 @@ export async function renderVideo({
       stop.throwIfAborted();
 
       const time = index / fps;
-      drawFrame(context, plan, pcm, theme, time);
+      drawFrame(context, plan, pcm, theme, time, speakerLabels);
       const timestamp = micros(time);
       const endTime = Math.min(duration, (index + 1) / fps);
       const frame = new VideoFrameClass(canvas, {
@@ -477,7 +487,7 @@ export async function renderVideo({
       !hasVideoConfig ||
       !encodedAudioChunks
     ) {
-      throw new Error("编码器未生成完整的视频和音频轨道。");
+      throw new Error(t("video.render.incompleteTracks"));
     }
     muxer.finalize();
     const bytes = target.buffer;

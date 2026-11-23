@@ -16,6 +16,7 @@ import {
 } from "../factory/browser-production.ts";
 import { REALTIME_MODEL } from "../factory/browser-narrator.ts";
 import type * as Library from "../factory/library.ts";
+import { t } from "../i18n/index.ts";
 import { buildPublishPackage } from "../publish/package.ts";
 import { drawThumbnail, thumbnailSize } from "../publish/thumbnail.ts";
 import { renderVideo, type VideoAudio } from "../video/render.ts";
@@ -38,7 +39,7 @@ type PodcastDependencies = {
   production?: ProductionBounds;
   artifacts: AgentArtifactStore;
   render: typeof renderVideo;
-  makeThumbnail: (title: string) => Promise<Blob>;
+  makeThumbnail: (title: string, language: Episode["language"]) => Promise<Blob>;
 };
 
 const localLibrary: PodcastDependencies["library"] = {
@@ -48,13 +49,16 @@ const localLibrary: PodcastDependencies["library"] = {
     (await import("../factory/library.ts")).receive(...args),
 };
 
-async function makeThumbnail(title: string): Promise<Blob> {
+async function makeThumbnail(
+  title: string,
+  language: Episode["language"],
+): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = thumbnailSize.width;
   canvas.height = thumbnailSize.height;
   const context = canvas.getContext("2d");
   if (!context) throw new ToolFailure("error");
-  drawThumbnail(context, { title, theme: "dark" });
+  drawThumbnail(context, { title, theme: "dark", language });
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
@@ -216,7 +220,7 @@ const ceiling = estimateBrowserProduction({
 const podcastTools: readonly Tool<PodcastDependencies>[] = [
   {
     name: "list_episodes",
-    description: "列出资料库中最近更新的节目和制作进度。",
+    description: () => t("agent.tool.listEpisodes"),
     parameters: objectSchema({}),
     paid: false,
     async run(_args, { deps }) {
@@ -231,7 +235,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "get_episode",
-    description: "按节目 ID 查询资料库中的制作进度。",
+    description: () => t("agent.tool.getEpisode"),
     parameters: byId,
     paid: false,
     async run({ episodeId }, { deps }) {
@@ -240,7 +244,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "research_topic",
-    description: "新建节目，研究主题并交叉核对证据，将结果保存到资料库。",
+    description: () => t("agent.tool.research"),
     parameters: objectSchema({
       topic: {
         type: "string",
@@ -253,8 +257,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
     estimate: {
       label: "estimate",
       model: defaults.research,
-      description:
-        "预估用量为研究和交叉核对的输出 token 与网页搜索上限。输入 token 另计。",
+      description: () => t("agent.estimate.research"),
       maxRequests: 2,
       maxOutputTokens:
         ceiling.outputTokens.research + ceiling.outputTokens.crossCheck,
@@ -270,13 +273,13 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "write_script",
-    description: "为已研究的节目写大纲和脚本，并将结果保存到资料库。",
+    description: () => t("agent.tool.writeScript"),
     parameters: byId,
     paid: true,
     estimate: {
       label: "estimate",
       model: defaults.script,
-      description: "预估用量为大纲和脚本的输出 token 上限。输入 token 另计。",
+      description: () => t("agent.estimate.script"),
       maxRequests: 2,
       maxOutputTokens: ceiling.outputTokens.outline + 14_000,
     },
@@ -288,14 +291,13 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "narrate_episode",
-    description: "为已保存的脚本生成旁白和转录，每段音频生成后保存到资料库。",
+    description: () => t("agent.tool.narrate"),
     parameters: byId,
     paid: true,
     estimate: {
       label: "estimate",
       model: REALTIME_MODEL,
-      description:
-        "预估用量为旁白的输出 token 上限和转录的音频时长上限。输入 token 另计。",
+      description: () => t("agent.estimate.narration"),
       maxRequests: ceiling.narrationTurns + 1,
       maxOutputTokens: ceiling.outputTokens.narration,
       narrationTurns: ceiling.narrationTurns,
@@ -314,7 +316,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "render_video",
-    description: "在此浏览器中将当前版本的节目音频和字幕渲染为 MP4。",
+    description: () => t("agent.tool.renderVideo"),
     parameters: byId,
     paid: false,
     async run({ episodeId }, { deps, signal, redact }) {
@@ -361,7 +363,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
   },
   {
     name: "export_publish_package",
-    description: "将当前版本的 MP4、缩略图和发布资料保存为 ZIP，供手动上传。",
+    description: () => t("agent.tool.exportPackage"),
     parameters: byId,
     paid: false,
     async run({ episodeId }, { deps, signal, redact }) {
@@ -373,6 +375,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
         throw new ToolFailure("prerequisite_required");
       const thumbnailBlob = await deps.makeThumbnail(
         episode.script?.title || episode.topic,
+        episode.language,
       );
       const result = buildPublishPackage({
         episode,

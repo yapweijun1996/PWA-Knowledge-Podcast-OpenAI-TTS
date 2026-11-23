@@ -1,1 +1,46 @@
-export default [] as const;
+export default [
+  ["video.caption.speaker", "主持人 {name}"],
+  ["video.timeline.invalidFrameRate", "视频帧率必须为正数。"],
+  [
+    "video.timeline.invalidResolution",
+    "视频分辨率必须为 1920×1080 或 1080×1920。",
+  ],
+  ["video.timeline.missingChapter", "节目脚本引用了不存在的章节。"],
+  ["video.render.invalidSampleRate", "音频采样率必须为正整数。"],
+  ["video.render.invalidChannels", "音频必须包含等长的 PCM 声道。"],
+  ["video.render.invalidPlan", "视频时长、帧率或分辨率无效。"],
+  ["video.render.noVideoEncoder", "此浏览器不支持 WebCodecs 视频编码。"],
+  ["video.render.noAudioEncoder", "此浏览器不支持 WebCodecs 音频编码。"],
+  ["video.render.noHash", "此浏览器无法计算视频的 SHA-256 校验值。"],
+  [
+    "video.render.unsupportedVideoCodec",
+    "此浏览器不支持此视频所需的 H.264 或获准的 VP9 编码。",
+  ],
+  [
+    "video.render.unsupportedAudioCodec",
+    "此浏览器不支持此音频所需的 AAC 或 Opus 编码。",
+  ],
+  ["video.render.invalidAudioDuration", "音频时长无效。"],
+  ["video.render.noCanvas", "此浏览器无法创建视频画布。"],
+  ["video.render.noDrawingContext", "此浏览器无法创建二维绘图环境。"],
+  [
+    "video.render.encodedSizeLimit",
+    "视频超过浏览器渲染的 {size} MiB 编码数据上限。",
+  ],
+  ["video.render.videoEncodingFailed", "视频编码失败。"],
+  ["video.render.unexpectedFrameTimestamp", "视频编码器返回了意外的帧时间戳。"],
+  ["video.render.audioEncodingFailed", "音频编码失败。"],
+  ["video.render.missingFrames", "视频编码器未返回所有帧。"],
+  ["video.render.incompleteTracks", "编码器未生成完整的视频和音频轨道。"],
+  ["video.probe.chapter", "第一章 · 浏览器视频"],
+  ["video.probe.title", "波形与字幕"],
+  ["video.probe.browserAudio", "这段音频由浏览器生成。"],
+  ["video.probe.captionFixture", "Waveform and caption fixture"],
+  ["video.probe.volume", "波形会随音量变化。"],
+  ["video.probe.followsAudio", "The waveform follows the audio."],
+  ["video.probe.playbackFailed", "无法播放视频样片。{detail}"],
+  [
+    "video.probe.unexpectedFormat",
+    "视频样片规格不符：{width}×{height}，{duration} 秒。",
+  ],
+] as const;

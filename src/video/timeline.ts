@@ -1,4 +1,5 @@
 import type { Episode, Host } from "../../shared/factory.ts";
+import { t } from "../i18n/index.ts";
 
 type Resolution = { width: 1920; height: 1080 } | { width: 1080; height: 1920 };
 
@@ -116,10 +117,10 @@ export function buildTimeline(
   const fps = options.fps ?? 30;
   const { width, height } = options.resolution ?? { width: 1920, height: 1080 };
   if (!Number.isFinite(fps) || fps <= 0)
-    throw new RangeError("视频帧率必须为正数。");
+    throw new RangeError(t("video.timeline.invalidFrameRate"));
   const portrait = width === 1080 && height === 1920;
   if (!portrait && (width !== 1920 || height !== 1080)) {
-    throw new RangeError("视频分辨率必须为 1920×1080 或 1080×1920。");
+    throw new RangeError(t("video.timeline.invalidResolution"));
   }
 
   const chaptersById = new Map(
@@ -149,7 +150,7 @@ export function buildTimeline(
     }
     if (turn.chapterId !== currentChapter) {
       const chapter = chaptersById.get(turn.chapterId);
-      if (!chapter) throw new Error("节目脚本引用了不存在的章节。");
+      if (!chapter) throw new Error(t("video.timeline.missingChapter"));
       const start = chapters.length === 0 ? 0 : seconds(position);
       chapters.push({
         title: chapter.title,

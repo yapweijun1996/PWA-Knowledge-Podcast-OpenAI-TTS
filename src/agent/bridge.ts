@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import {
   isObject,
   mapJson,
@@ -59,9 +60,7 @@ function checkStrictSchema(schema: Schema): void {
       schema.required.length !== keys.length ||
       keys.some((key) => !schema.required.includes(key))
     )
-      throw new Error(
-        "Strict tool schemas must require every property and reject additional properties.",
-      );
+      throw new Error(t("agent.bridge.strictSchema"));
     Object.values(schema.properties).forEach(checkStrictSchema);
   } else if (schema.type === "array") {
     checkStrictSchema(schema.items);
@@ -141,22 +140,21 @@ export type RequestConsent = (request: {
 }) => Promise<boolean>;
 
 const messages = {
-  unknown_tool: "没有找到此工具。",
-  invalid_arguments: "工具参数无效。",
-  consent_required: "请先确认费用预估并授权本次运行。",
-  consent_denied: "本次运行未获费用授权。",
-  aborted: "操作已取消。",
-  timeout: "操作已超时。",
-  unknown_may_have_been_billed:
-    "请求结果未知，可能已计费。请核对用量和资料库进度。",
-  no_key: "请先在此页面设置 OpenAI API 密钥。",
-  key_in_content: "内容包含 API 密钥，请移除后再试。",
-  not_found: "资料库中没有此节目。",
-  prerequisite_required: "请先完成所需的节目阶段。",
-  conflict: "节目已更新或正在制作，请重新读取资料库。",
-  provider_rejected: "OpenAI 拒绝了请求，请检查模型权限和用量。",
-  save_failed: "无法保存本次结果，请检查浏览器存储和用量。",
-  error: "工具未能完成，请检查资料库进度。",
+  unknown_tool: "agent.bridge.unknownTool",
+  invalid_arguments: "agent.bridge.invalidArguments",
+  consent_required: "agent.failure.consentRequired",
+  consent_denied: "agent.failure.consentDenied",
+  aborted: "agent.bridge.aborted",
+  timeout: "agent.bridge.timeout",
+  unknown_may_have_been_billed: "agent.failure.unknownOutcome",
+  no_key: "agent.failure.noKey",
+  key_in_content: "agent.failure.keyInContent",
+  not_found: "agent.bridge.notFound",
+  prerequisite_required: "agent.bridge.prerequisiteRequired",
+  conflict: "agent.bridge.conflict",
+  provider_rejected: "agent.failure.providerRejected",
+  save_failed: "agent.bridge.saveFailed",
+  error: "agent.bridge.error",
 } as const;
 
 type FailureStatus = keyof typeof messages;
@@ -197,9 +195,22 @@ type ToolHandler<Deps> = (
   ctx: ToolContext<Deps>,
 ) => Json | Promise<Json>;
 
-export type Tool<Deps> = Omit<ToolInfo, "paid"> & {
+type ToolDescription = string | (() => string);
+
+export type Tool<Deps> = Omit<ToolInfo, "paid" | "description"> & {
+  description: ToolDescription;
   run: ToolHandler<Deps>;
-} & ({ paid: false } | { paid: true; estimate: Estimate });
+} & (
+  | { paid: false }
+  | {
+      paid: true;
+      estimate: Omit<Estimate, "description"> & { description: ToolDescription };
+    }
+);
+
+function describe(description: ToolDescription) {
+  return typeof description === "function" ? description() : description;
+}
 
 export interface AgentBridge {
   listTools(): ToolInfo[];
@@ -214,13 +225,13 @@ export class ToolFailure extends Error {
   declare readonly status: FailureStatus;
 
   constructor(status: FailureStatus) {
-    super(messages[status]);
+    super(t(messages[status]));
     this.status = status;
   }
 }
 
 function failed(status: FailureStatus): ToolResult {
-  return { status, message: messages[status] };
+  return { status, message: t(messages[status]) };
 }
 
 export function createAgentBridge<Deps = undefined>(
@@ -236,12 +247,12 @@ export function createAgentBridge<Deps = undefined>(
   } = {},
 ): AgentBridge & { listAudit(): AuditEntry[] } {
   if (!inRange(timeoutMs, 1, 2_147_483_647) || !Number.isInteger(timeoutMs))
-    throw new RangeError("Invalid tool timeout.");
+    throw new RangeError(t("agent.bridge.invalidTimeout"));
   const registry = new Map<string, Tool<Deps>>();
   const audit: AuditEntry[] = [];
   for (const tool of tools) {
     if (!/^[A-Za-z0-9_-]{1,64}$/u.test(tool.name) || registry.has(tool.name))
-      throw new Error("Invalid or duplicate tool name.");
+      throw new Error(t("agent.bridge.invalidToolName"));
     const parameters = structuredClone(tool.parameters);
     checkStrictSchema(parameters);
     registry.set(tool.name, {
@@ -255,7 +266,7 @@ export function createAgentBridge<Deps = undefined>(
     listTools: () =>
       [...registry.values()].map(({ name, description, parameters, paid }) => ({
         name,
-        description,
+        description: describe(description),
         parameters: structuredClone(parameters),
         paid,
       })),
@@ -308,7 +319,11 @@ export function createAgentBridge<Deps = undefined>(
           if (tool.paid) {
             if (!ctx.requestConsent) return failed("consent_required");
             const estimate = mapJson(
-              { ...tool.estimate, label: "estimate" },
+              {
+                ...tool.estimate,
+                label: "estimate",
+                description: describe(tool.estimate.description),
+              },
               redact,
             ) as Estimate;
             let approved = false;

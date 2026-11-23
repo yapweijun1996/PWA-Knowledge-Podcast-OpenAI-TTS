@@ -1,3 +1,5 @@
+import type { Host } from "../../shared/factory.ts";
+import { t } from "../i18n/index.ts";
 import type { TimelinePlan } from "./timeline.ts";
 import { videoThemes, type VideoTheme } from "./themes.ts";
 
@@ -145,6 +147,7 @@ export function drawFrame(
   audio: PcmAudio,
   theme: VideoTheme,
   time: number,
+  speakerLabels?: ReadonlyMap<Host, string>,
 ) {
   const { width, height } = plan.resolution;
   const scale = Math.min(width, height) / 1080;
@@ -187,7 +190,12 @@ export function drawFrame(
   context.fillRect(panelX, center - 144 * scale, panelWidth, 288 * scale);
   context.fillStyle = colors.accent;
   context.font = `650 ${36 * scale}px ${font}`;
-  context.fillText(`主持人 ${scene.speakerId}`, width / 2, center - 96 * scale);
+  const name = scene.speakerId;
+  context.fillText(
+    speakerLabels?.get(name) ?? t("video.caption.speaker", { name }),
+    width / 2,
+    center - 96 * scale,
+  );
 
   const waveX = panelX + 44 * scale;
   const waveWidth = panelWidth - 88 * scale;
