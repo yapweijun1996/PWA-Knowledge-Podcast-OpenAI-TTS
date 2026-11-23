@@ -96,16 +96,26 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   test.setTimeout(360_000);
   const started = performance.now();
   const issues: (Issue & { scope: string })[] = [];
+  const harnessErrors: {
+    scope: string;
+    criteria: Criterion[];
+    detail: string;
+  }[] = [];
   const warnings: (FlashDiagnostic & { scope: string; status: "WARNING" })[] =
     [];
   const evidence: Record<string, unknown> = {};
   const add = (scope: string, items: Issue[]) =>
     issues.push(...items.map((issue) => ({ ...issue, scope })));
-  const block = (scope: string, criteria: Criterion[], error: unknown) =>
-    add(
-      scope,
-      criteria.map((criterion) => ({ criterion, detail: String(error) })),
-    );
+  const block = (scope: string, criteria: Criterion[], error: unknown) => {
+    const detail = String(error);
+    if (detail.includes("Visual QA frame alignment"))
+      harnessErrors.push({ scope, criteria, detail });
+    else
+      add(
+        scope,
+        criteria.map((criterion) => ({ criterion, detail })),
+      );
+  };
   try {
     const { url, moduleURL } = await serveHarness(page, baseURL!);
     for (const options of cases) {
@@ -195,7 +205,7 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   } catch (error) {
     block("harness", [...videoCriteria, "thumbnail"], error);
   }
-  function score(selected: typeof issues) {
+  function score(selected: typeof issues, blocked: typeof harnessErrors) {
     const criteria = Object.entries(rubric).map(([id, criterion]) => {
       const failures = selected.filter((issue) => issue.criterion === id);
       const status =
@@ -203,7 +213,9 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
           ? "NOT_ASSESSABLE"
           : failures.length
             ? "FAIL"
-            : "PASS";
+            : blocked.some(({ criteria }) => criteria.includes(id as Criterion))
+              ? "BLOCKED"
+              : "PASS";
       return {
         id,
         ...criterion,
@@ -222,7 +234,7 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
     );
     return { criteria, assessable, earned };
   }
-  const { criteria, assessable, earned } = score(issues);
+  const { criteria, assessable, earned } = score(issues, harnessErrors);
   const byOrientation = Object.fromEntries(
     ["landscape", "portrait"].map((orientation) => [
       orientation,
@@ -231,6 +243,9 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
           ({ scope }) =>
             !scope.includes("/") || scope.split("/")[1] === orientation,
         ),
+        harnessErrors.filter(
+          ({ scope }) => scope.split("/")[1] === orientation,
+        ),
       ),
     ]),
   );
@@ -238,12 +253,13 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   await testInfo.attach("visual-qa-report.json", {
     body: JSON.stringify(
       {
-        version: 2,
+        version: 3,
         summary,
         earned,
         assessable,
         criteria,
         byOrientation,
+        harnessErrors,
         warnings,
         elapsedMs: performance.now() - started,
         evidence,
@@ -254,6 +270,10 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
     contentType: "application/json",
   });
   console.log(summary);
+  expect(
+    harnessErrors,
+    "Visual QA could not verify MP4 frame alignment",
+  ).toEqual([]);
   // The attachment has every occurrence. Keep the terminal failure focused.
   const firstFailures = criteria.flatMap(({ id, failures }) =>
     failures.length

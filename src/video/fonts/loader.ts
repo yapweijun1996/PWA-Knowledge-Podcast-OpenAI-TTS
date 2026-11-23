@@ -172,7 +172,8 @@ export async function ensureVideoFonts({
   environment?: VideoFontEnvironment;
 }): Promise<FontPreflight> {
   signal?.throwIfAborted();
-  const missing = missingCharacters(texts);
+  const normalizedTexts = texts.map((text) => text.normalize("NFC"));
+  const missing = missingCharacters(normalizedTexts);
   const notices = missing.length ? ["font.missingCharacters"] : [];
   const runtime = environment ?? browserFontEnvironment();
   if (!runtime) {
@@ -182,7 +183,7 @@ export async function ensureVideoFonts({
     };
   }
 
-  const needsLevel2 = texts.some((text) =>
+  const needsLevel2 = normalizedTexts.some((text) =>
     Array.from(text).some((character) => level2Coverage.has(character)),
   );
   const shards = videoFontManifest.shards.filter(

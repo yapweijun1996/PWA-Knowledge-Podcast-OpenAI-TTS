@@ -236,6 +236,20 @@ test("preflight waits for every face and the font set and deduplicates concurren
   assert.equal(other.requests.length, 2);
 });
 
+test("font preflight checks NFC without losing notices for unsupported glyphs", async () => {
+  const { environment } = fakeFonts();
+  const preflight = (text) => ensureVideoFonts({ texts: [text], environment });
+  assert.deepEqual(await preflight("Cafe\u0301"), await preflight("Café"));
+  assert.deepEqual(await preflight("Cafe\u0301"), {
+    notices: [],
+    missingCharacters: [],
+  });
+  assert.deepEqual(await preflight("Cafe\u0301 🪷 q\u0301"), {
+    notices: ["font.missingCharacters"],
+    missingCharacters: ["🪷", "\u0301"],
+  });
+});
+
 test("missing glyphs, failed shards and missing font API produce diagnostic codes", async () => {
   const texts = ["中文\n café\t→🪷𠮷", "🪷"];
   assert.deepEqual(missingCharacters(texts), ["🪷", "𠮷"]);

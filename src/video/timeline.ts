@@ -116,22 +116,32 @@ export function layoutCaptionCues(
       return { width: geometry.type.caption * (cjk + latin * 0.59) };
     },
   };
+  const keepTogether = Object.values(plan.hostNames ?? {}).map((name) =>
+    name.normalize("NFC"),
+  );
   const paginate = (text: string) =>
     paginateText(context ?? nominal, text, width, {
       limits: geometry.text.caption,
       locale,
-      keepTogether: Object.values(plan.hostNames ?? {}),
+      keepTogether,
     });
   const fps = plan.fps ?? 30;
   if (turn.captionSource === undefined) {
-    if (!context) return turn.captions;
     return turn.captions.flatMap((cue) => {
-      const pages = paginate(cue.text ?? joinCaptionLines(cue.lines));
+      const lines = cue.lines.map((line) => line.normalize("NFC"));
+      const text = cue.text?.normalize("NFC");
+      const normalized = {
+        ...cue,
+        lines,
+        ...(text === undefined ? {} : { text }),
+      };
+      if (!context) return [normalized];
+      const pages = paginate(text ?? joinCaptionLines(lines).normalize("NFC"));
       const [page] = pages;
       if (pages.length === 1)
         return [
           {
-            ...cue,
+            ...normalized,
             lines: page.lines,
             ...(page.needsReview ? { needsReview: true } : {}),
           },
@@ -140,7 +150,7 @@ export function layoutCaptionCues(
     });
   }
   return timeCaptionPages(
-    paginate(turn.captionSource),
+    paginate(turn.captionSource.normalize("NFC")),
     turn,
     fps,
     locale,
@@ -278,7 +288,7 @@ function scheduleCallouts(
       .filter((item) => item.chapterId === chapter.chapterId)
       .sort((a, b) => a.start - b.start)) {
       if (count === 3) break;
-      const text = normalizeDisplayText(request.text);
+      const text = normalizeDisplayText(request.text.normalize("NFC"));
       const { cjk, latin } = displayTextCounts(text, locale);
       if (
         !Number.isFinite(request.start) ||
@@ -355,7 +365,9 @@ export function buildTimeline(
     chapterWindows: [],
     locale,
     wordmarkLocale: publishLocales[episode.language] ?? "en",
-    ...(options.showName === undefined ? {} : { showName: options.showName }),
+    ...(options.showName === undefined
+      ? {}
+      : { showName: options.showName.normalize("NFC") }),
     ...(options.paletteId === undefined
       ? {}
       : { paletteId: options.paletteId }),
@@ -372,9 +384,9 @@ export function buildTimeline(
   if (options.hostNames) {
     const { A, B, C } = options.hostNames;
     plan.hostNames = {
-      ...(A === undefined ? {} : { A }),
-      ...(B === undefined ? {} : { B }),
-      ...(C === undefined ? {} : { C }),
+      ...(A === undefined ? {} : { A: A.normalize("NFC") }),
+      ...(B === undefined ? {} : { B: B.normalize("NFC") }),
+      ...(C === undefined ? {} : { C: C.normalize("NFC") }),
     };
   }
   const windows = plan.chapterWindows!;
@@ -386,10 +398,12 @@ export function buildTimeline(
       ? episode.render.clips
       : undefined;
   const turns = episode.script?.turns ?? [];
-  const title = episode.script?.title ?? episode.topic;
+  const topic = episode.topic?.normalize("NFC");
+  const title = (episode.script?.title ?? episode.topic).normalize("NFC");
   const titleHold = motion.titleMs[orientation === "landscape" ? 0 : 1] / 1000;
   let position = 0;
   for (const [index, turn] of turns.entries()) {
+    const text = turn.text.normalize("NFC");
     if (index > 0) position += turnPause;
     const start = seconds(position);
     if (turn.chapterId !== windows.at(-1)?.chapterId) {
@@ -408,8 +422,9 @@ export function buildTimeline(
         end: start,
         ...(sceneId === undefined ? {} : { sceneId }),
       });
+      const chapterTitle = chapter.title.normalize("NFC");
       plan.chapters.push({
-        title: chapter.title,
+        title: chapterTitle,
         start,
         timestamp: chapterTimestamp(start),
       });
@@ -421,7 +436,7 @@ export function buildTimeline(
         plan.scenes.push({
           kind: "chapter",
           chapterId: chapter.id,
-          title: chapter.title,
+          title: chapterTitle,
           start,
           end: seconds(cardStart + Math.max(1, frames) / fps),
           ...(sceneId === undefined ? {} : { sceneId }),
@@ -432,7 +447,7 @@ export function buildTimeline(
     const measured =
       duration !== undefined && Number.isFinite(duration) && duration > 0;
     plan.estimated ||= !measured;
-    position += measured ? duration : estimateDuration(turn.text);
+    position += measured ? duration : estimateDuration(text);
     const end = seconds(position);
     const next = turns[index + 1];
     const hold =
@@ -447,7 +462,7 @@ export function buildTimeline(
       start,
       end,
       audioStart: start,
-      captionSource: normalizeDisplayText(turn.text),
+      captionSource: normalizeDisplayText(text),
       captions: [],
       ...(hold === undefined ? {} : { captionHoldUntil: hold }),
     };
@@ -467,7 +482,7 @@ export function buildTimeline(
     title,
     start: 0,
     end: Math.min(titleHold, seconds(position)),
-    ...(turns.length && episode.topic ? { topic: episode.topic } : {}),
+    ...(turns.length && topic ? { topic } : {}),
   });
   if (options.callouts?.length)
     plan.callouts = scheduleCallouts(
