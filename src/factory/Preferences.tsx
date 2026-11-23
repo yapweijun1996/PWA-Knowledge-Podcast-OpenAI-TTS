@@ -79,9 +79,12 @@ function AppearanceSettings({
           <option value="dark">{t("settings.appearance.dark")}</option>,
         )}
       </label>
-      <label className="field">
-        {t("settings.appearance.language")}
+      <div className="field">
+        <label htmlFor="settings-ui-language">
+          {t("settings.appearance.language")}
+        </label>
         <select
+          id="settings-ui-language"
           value={locale}
           onChange={(event) => {
             const value = event.currentTarget.value;
@@ -94,7 +97,7 @@ function AppearanceSettings({
             </option>
           ))}
         </select>
-      </label>
+      </div>
     </section>
   );
 }
@@ -271,6 +274,11 @@ export function ProductionCredentials({
   const { t } = useI18n();
   const key = useRef<HTMLInputElement>(null);
   const [shown, setShown] = useState(false);
+  const blockDescription = running
+    ? "worker-key-blocked"
+    : working
+      ? "browser-key-blocked"
+      : undefined;
   return (
     <section className="factory-panel">
       <h2>{t("settings.workerKey.title")}</h2>
@@ -309,21 +317,15 @@ export function ProductionCredentials({
             >
               {t(shown ? "settings.key.hide" : "settings.key.show")}
             </button>
-            {(working || running) && (
+            {running && (
               <p className="muted" id="worker-key-blocked">
-                {t(
-                  running
-                    ? "studio.availability.workerBusy"
-                    : "settings.action.working",
-                )}
+                {t("studio.availability.workerBusy")}
               </p>
             )}
             <button
               className="outline"
               disabled={working || running}
-              aria-describedby={
-                working || running ? "worker-key-blocked" : undefined
-              }
+              aria-describedby={blockDescription}
             >
               {t("settings.workerKey.set")}
             </button>

@@ -29,17 +29,18 @@ or produce screenshots.
 
 | Acceptance item | Evidence or test ID | Status |
 | --- | --- | --- |
-| zh-CN, en and ms route and state scan | `T47 workspace sweep` covers Library, Studio, Automation, Settings, playback and fake failure states. The scanner checks language-option and explicitly tagged content allowances and keeps the shell copy in scope. | NOT_RUN |
-| zh-CN → en → ms without a reload | `T47 workspace sweep`, zh-CN cases. Checks the same heading node, current document language, saved preference and translated Settings controls. | NOT_RUN |
+| zh-CN, en and ms route and state scan | `T47 workspace sweep` covers Library, Studio, Automation, Settings, playback and fake failure states. The scanner accounts for language options and tagged content. Its script heuristics leave English–Malay leakage and short untranslated strings for targeted assertions and visual review. | NOT_RUN |
+| zh-CN → en → ms → zh-CN without a reload | `T47 workspace sweep`, zh-CN cases. Checks the same heading node, current document language, saved preference, and the language selector's value and translated accessible name at each step. | NOT_RUN |
 | Screenshots and visual inspection at 1440×900, 768×1024, 390×844 and 320×568 | `T47 workspace sweep` writes and attaches PNGs per state for the manager to inspect. | NOT_RUN |
 | Library empty, selected episode and offline; Studio idle, consent, running and failed; Automation and Settings | `T47 workspace sweep`. The production run uses the existing fake provider fixture, holds the first response to inspect progress and returns a synthetic narration failure. | NOT_RUN |
 | Overflow, clipping and text enlargement | `T47 workspace sweep`, all four widths at 100% and 200% root font size. | NOT_RUN |
-| Bottom reachability and playback expansion | `T47 workspace sweep`, 390px and 320px. Compares the last control against the viewport reserved for content and checks the expanded dialog's last control. | NOT_RUN |
-| Disabled-control reasons and contrast | `T47 workspace sweep` checks the accessible description, visible linked reason and at least 3:1 contrast for Studio and browser-key form buttons. | NOT_RUN |
+| Control reachability and playback expansion | `T47 workspace sweep`, 390px and 320px at default text size. Checks that the workspace ends above playback. Scrolls each visible enabled workspace or dialog control into view and checks the scrollport bounds and overlay hit targets. | NOT_RUN |
+| Disabled-control reasons and contrast | `T47 workspace sweep` checks the accessible description, visible linked reason and at least 3:1 contrast for Studio, browser-key and Episode script buttons. The existing Factory and browser-mode tests exercise Studio availability and continuation guidance. | NOT_RUN |
 | Keyboard and focus | `T47 workspace sweep`, every locale and viewport. | NOT_RUN |
 | Chromium on touch-emulated mobile | `T47 workspace sweep`, 390×844 cases. | NOT_RUN |
-| Typecheck and Node tests | `npm run typecheck && npm test` exited 0. Node reported 147 tests, 147 passed and 0 failed. | PASS |
+| Typecheck and Node tests | T47b ran `npm run typecheck && npm test`. Both exited 0. Node reported 152 tests, 152 passed and 0 failed. | PASS |
 | Browser test discovery | `npm run e2e:factory -- --list` exited 0 and listed 26 tests in 4 files, including all 12 T47 cases. | PASS |
+| Chromium regression execution after T47b | `npm run e2e:factory`. | NOT_RUN |
 | Real iOS Safari and Home Screen, desktop Safari, and VoiceOver | Device and assistive-technology review. | NOT_RUN |
 | Field Web Vitals | Field measurements. | NOT_RUN |
 | Malay native review | Consent, cost, API-key risk and no-retry message groups. | NOT_RUN |

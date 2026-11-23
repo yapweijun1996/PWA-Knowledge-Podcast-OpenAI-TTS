@@ -1,4 +1,10 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 import { backupRecord } from "../shared/episode-backup.ts";
 import { defaultPreferences, type Episode } from "../shared/factory.ts";
 import { wave } from "../server/audio.mjs";
@@ -16,6 +22,8 @@ const fixtureKey = "fixture-only";
 const topic = "How a park helps its neighborhood";
 const controls =
   "button, a[href], input:not([type=hidden]), select, textarea, summary, [tabindex], [contenteditable]";
+const inactiveControls =
+  "[inert], details:not([open]) > :not(summary), details:not([open]) > :not(summary) *";
 const shell = ".factory-shell";
 const scrollArea = ".factory-shell-layout";
 
@@ -162,64 +170,101 @@ async function inspectLayout(page: Page, state: string) {
   }
 }
 
-async function inspectBottom(page: Page, state: string, expanded = false) {
+async function inspectReachability(page: Page, state: string, expanded: boolean) {
   const geometry = await page.evaluate(
-    async ({ scrollArea, controls, expanded }) => {
+    async ({ scrollArea, controls, inactiveControls, expanded }) => {
       const layout = document.querySelector<HTMLElement>(scrollArea)!;
       const bar = document.querySelector(".playback-bar")!;
-      const dialog = document.querySelector<HTMLDialogElement>("dialog[open]");
-      const scroller = expanded && dialog ? dialog : layout;
-      const content =
-        expanded && dialog ? dialog : layout.querySelector("main")!;
-      const oldTop = scroller.scrollTop;
-      scroller.scrollTop = scroller.scrollHeight;
+      const scroller = expanded
+        ? document.querySelector<HTMLDialogElement>(".playback-dialog[open]")
+        : layout;
+      if (!scroller) throw new Error("Expected the playback dialog to be open");
+
+      // The playback bar may still be resizing after the text-size audit.
       await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve()),
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
-      const layoutBox = layout.getBoundingClientRect();
-      const barBox = bar.getBoundingClientRect();
-      const visibleArea = scroller.getBoundingClientRect();
-      const last = [
-        ...content.querySelectorAll<HTMLElement>(controls),
-      ].findLast(
+      const candidates = [
+        ...scroller.querySelectorAll<HTMLElement>(controls),
+      ].filter(
         (control) =>
-          !control.matches(":disabled") &&
+          !control.matches(':disabled, [tabindex="-1"]') &&
           control.checkVisibility({ checkVisibilityCSS: true }) &&
-          !control.closest("details:not([open]) :not(summary, summary *)"),
+          !control.closest(inactiveControls),
       );
-      const result = {
-        layoutBottom: layoutBox.bottom,
-        barTop: barBox.top,
-        last: last?.getBoundingClientRect().toJSON(),
-        element: last?.id || last?.textContent?.trim() || last?.localName,
-        top: visibleArea.top,
-        bottom: expanded
-          ? visibleArea.bottom
-          : Math.min(visibleArea.bottom, barBox.top),
+      const layoutBottom = layout.getBoundingClientRect().bottom;
+      const barTop = bar.getBoundingClientRect().top;
+      const { scrollTop, scrollLeft } = scroller;
+      const { scrollX, scrollY } = window;
+      const problems: string[] = [];
+
+      const reachable = (control: HTMLElement, block: ScrollLogicalPosition) => {
+        control.scrollIntoView({
+          behavior: "instant",
+          block,
+          inline: "nearest",
+        });
+        const port = scroller.getBoundingClientRect();
+        const box = control.getBoundingClientRect();
+        const top = Math.max(0, port.top + scroller.clientTop);
+        const bottom = Math.min(
+          innerHeight,
+          port.top + scroller.clientTop + scroller.clientHeight,
+          expanded ? innerHeight : bar.getBoundingClientRect().top,
+        );
+        if (box.top < top - 1 || box.bottom > bottom + 1) return false;
+
+        // Probe near the top and bottom for controls or headers that cover this target.
+        const x = box.left + box.width / 2;
+        const inset = Math.min(2, box.height / 2);
+        return [box.top + inset, box.bottom - inset].every((y) =>
+          control.contains(document.elementFromPoint(x, y)),
+        );
       };
-      scroller.scrollTop = oldTop;
-      return result;
+      try {
+        for (const control of candidates) {
+          if (
+            (["center", "start", "end"] as const).some((block) =>
+              reachable(control, block),
+            )
+          )
+            continue;
+          const name =
+            control.getAttribute("aria-label") ||
+            control.textContent?.trim() ||
+            control.getAttribute("type") ||
+            "";
+          const target = control.id
+            ? `#${control.id}`
+            : `${control.localName} ${name}`.trim();
+          problems.push(target);
+        }
+      } finally {
+        scroller.scrollTo({
+          top: scrollTop,
+          left: scrollLeft,
+          behavior: "instant",
+        });
+        window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
+      }
+      return { layoutBottom, barTop, checked: candidates.length, problems };
     },
-    { scrollArea, controls, expanded },
+    { scrollArea, controls, inactiveControls, expanded },
   );
   expect
     .soft(geometry.layoutBottom, `${state}: workspace ends above playback`)
     .toBeLessThanOrEqual(geometry.barTop + 1);
   expect
-    .soft(geometry.last, `${state}: found a last interactive control`)
-    .toBeDefined();
-  if (!geometry.last) return;
+    .soft(geometry.checked, `${state}: found interactive controls`)
+    .toBeGreaterThan(0);
   expect
-    .soft(geometry.last.top, `${state}: ${geometry.element} top`)
-    .toBeGreaterThanOrEqual(geometry.top - 1);
-  expect
-    .soft(geometry.last.bottom, `${state}: ${geometry.element} bottom`)
-    .toBeLessThanOrEqual(geometry.bottom + 1);
+    .soft(geometry.problems, `${state}: controls must scroll clear of overlays`)
+    .toEqual([]);
 }
 
 async function inspectTouch(page: Page, state: string) {
   const problems = await page.evaluate(
-    ({ shell }) => {
+    ({ shell, inactiveControls }) => {
       const problems: string[] = [];
       const dialog = document.querySelector("dialog[open]");
       const root = dialog ?? document.querySelector(shell)!;
@@ -229,7 +274,7 @@ async function inspectTouch(page: Page, state: string) {
         if (
           node.matches(".factory-skip:not(:focus)") ||
           !node.checkVisibility({ checkVisibilityCSS: true }) ||
-          node.closest("details:not([open]) :not(summary, summary *)")
+          node.closest(inactiveControls)
         )
           continue;
         const selector = node.id
@@ -255,7 +300,7 @@ async function inspectTouch(page: Page, state: string) {
       }
       return problems;
     },
-    { shell },
+    { shell, inactiveControls },
   );
   expect
     .soft(problems, `${state}: 16px fields and 44px coarse-pointer targets`)
@@ -287,13 +332,12 @@ async function tabThrough(page: Page) {
   for (const [index, candidate] of candidates.entries()) {
     if (
       await candidate.evaluate(
-        (node) =>
+        (node, inactiveControls) =>
           (node as HTMLElement).tabIndex >= 0 &&
           !node.matches(":disabled") &&
-          !node.closest(
-            "[inert], details:not([open]) :not(summary, summary *)",
-          ) &&
+          !node.closest(inactiveControls) &&
           node.checkVisibility({ checkVisibilityCSS: true }),
+        inactiveControls,
       )
     )
       expected.push(index);
@@ -321,15 +365,18 @@ async function tabThrough(page: Page) {
     .toEqual(expected);
 }
 
-async function inspectDisabled(page: Page, button: string, state: string) {
-  const control = page.locator(button);
+async function inspectDisabled(control: Locator, state: string) {
   await expect(control).toBeDisabled();
   await expect.soft(control, state).toHaveAccessibleDescription(/\S/);
   const info = await control.evaluate((node) => {
     const reason = (node.getAttribute("aria-describedby") ?? "")
       .split(/\s+/)
       .map((id) => document.getElementById(id))
-      .some((el) => el?.textContent?.trim() && el.checkVisibility());
+      .some(
+        (el) =>
+          el?.textContent?.trim() &&
+          el.checkVisibility({ checkVisibilityCSS: true }),
+      );
     const style = getComputedStyle(node);
     const luminance = (color: string) => {
       const linear = (color.match(/\d+(?:\.\d+)?/g) ?? [])
@@ -573,7 +620,7 @@ for (const locale of locales) {
         const audit = async (state: string, expanded = false) => {
           await scanLocale(page, locale, state);
           await inspectLayout(page, state);
-          if (width <= 390) await inspectBottom(page, state, expanded);
+          if (width <= 390) await inspectReachability(page, state, expanded);
           if (touch) await inspectTouch(page, state);
           await screenshot(page, info, state);
         };
@@ -599,7 +646,7 @@ for (const locale of locales) {
         const skip = page.locator(".factory-skip");
         await expect(skip).toBeFocused();
         await assertFocusIndicator(page);
-        // Check the skip link while it is visible and named, including before T45b merges.
+        // The skip link is visually hidden until it receives focus.
         await scanLocale(page, locale, "library skip link");
         await page.keyboard.press("Enter");
         await expect(heading).toBeFocused();
@@ -610,8 +657,7 @@ for (const locale of locales) {
         await expect(page.locator("#studio-topic")).toBeVisible();
         await tabThrough(page);
         await inspectDisabled(
-          page,
-          ".studio-intake-form button.primary",
+          page.getByRole("button", { name: t("studio.intake.submit") }),
           "Studio without a topic",
         );
         await audit("studio-idle");
@@ -633,14 +679,15 @@ for (const locale of locales) {
         const setKey = keys.getByRole("button", {
           name: t("settings.browserKey.set"),
         });
+        const localeSelect = page.locator("#settings-ui-language");
+        await expect(localeSelect).toHaveValue(locale);
+        await expect(localeSelect).toHaveAccessibleName(
+          t("settings.appearance.language"),
+        );
         await expect(input).toHaveAttribute("type", "password");
         await expect(keys.getByRole("alert")).toBeEmpty();
         await tabThrough(page);
-        await inspectDisabled(
-          page,
-          "#browser-key-title + form button.outline",
-          "Browser key acknowledgement",
-        );
+        await inspectDisabled(setKey, "Browser key acknowledgement");
         await input.fill(fixtureKey);
         const show = keys.getByRole("button", { name: t("settings.key.show") });
         await expect(show).toHaveAccessibleName(/\S/);
@@ -683,17 +730,14 @@ for (const locale of locales) {
         await audit("settings-key-controls");
 
         if (locale === "zh-CN") {
-          const selector = page.getByLabel(t("settings.appearance.language"), {
-            exact: true,
-          });
           const identity = await heading.elementHandle();
-          for (const next of ["en", "ms"] as const) {
-            await page
-              .locator(".factory-main select")
-              .filter({ has: page.locator('option[value="zh-CN"]') })
-              .selectOption(next);
-            await expect(heading).toHaveText(
-              createTranslator(next)("shell.nav.settings"),
+          for (const next of ["en", "ms", locale] as const) {
+            const translated = createTranslator(next);
+            await localeSelect.selectOption(next);
+            await expect(heading).toHaveText(translated("shell.nav.settings"));
+            await expect(localeSelect).toHaveValue(next);
+            await expect(localeSelect).toHaveAccessibleName(
+              translated("settings.appearance.language"),
             );
             await scanLocale(page, next, "settings runtime toggle");
             expect
@@ -712,17 +756,11 @@ for (const locale of locales) {
               )
               .toBe(true);
             await expect(
-              page.getByLabel(
-                createTranslator(next)("settings.browserKey.label"),
-                { exact: true },
-              ),
+              page.getByLabel(translated("settings.browserKey.label"), {
+                exact: true,
+              }),
             ).toBeVisible();
           }
-          await page
-            .locator(".factory-main select")
-            .filter({ has: page.locator('option[value="zh-CN"]') })
-            .selectOption(locale);
-          await expect(selector).toHaveValue(locale);
           await expect(keys.getByRole("status")).toHaveText(
             t("settings.browserKey.configured"),
           );
@@ -771,8 +809,10 @@ for (const locale of locales) {
         ).toHaveAttribute("lang", lang);
         await scriptTitle.fill("");
         await inspectDisabled(
-          page,
-          '[aria-describedby="episode-script-blocked"]',
+          page.getByRole("button", {
+            name: t("episode.script.save"),
+            exact: true,
+          }),
           "Script missing a title",
         );
         await page
@@ -832,17 +872,13 @@ for (const locale of locales) {
         await expect(
           page.getByText(t("studio.cost.usage"), { exact: true }),
         ).toBeVisible();
-        await inspectDisabled(
-          page,
-          ".studio-intake-form button.primary",
-          "Studio without consent",
-        );
-        await page
-          .getByRole("checkbox", { name: t("studio.intake.consent") })
-          .check();
         const submit = page.getByRole("button", {
           name: t("studio.intake.submit"),
         });
+        await inspectDisabled(submit, "Studio without consent");
+        await page
+          .getByRole("checkbox", { name: t("studio.intake.consent") })
+          .check();
         await expect(submit).toBeEnabled();
         expect(paid).toEqual([]);
         await audit("studio-key-and-consent");

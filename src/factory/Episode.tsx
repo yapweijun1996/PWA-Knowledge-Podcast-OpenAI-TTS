@@ -175,16 +175,15 @@ export function EpisodeWorkspace({
     }),
   );
   const contentLanguage = episodeLanguageTags[episode.language];
-  const productionBlock =
-    working || anotherRunning
+  const productionBlock = draft
+    ? "episode.job.unsaved"
+    : working || anotherRunning
       ? "settings.action.working"
       : unavailable
         ? "episode.job.unavailable"
-        : draft
-          ? "episode.job.unsaved"
-          : !consent
-            ? "studio.intake.needsConsent"
-            : undefined;
+        : !consent
+          ? "studio.intake.needsConsent"
+          : undefined;
   const scriptBlock =
     working || running
       ? "settings.action.working"

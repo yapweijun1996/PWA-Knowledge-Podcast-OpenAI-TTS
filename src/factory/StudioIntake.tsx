@@ -106,33 +106,26 @@ export function BrowserContinuation({
 }) {
   const { t } = useI18n();
   const [consent, setConsent] = useState(false);
-  const blockReason = disabled
-    ? workerAvailability === "offline"
-      ? "studio.continuation.offline"
-      : !keySet
-        ? "studio.continuation.keyHint"
-        : "studio.intake.wait"
-    : !consent
-      ? "studio.intake.needsConsent"
-      : undefined;
+  const offline = workerAvailability === "offline";
+  const availabilityDescription =
+    disabled && offline
+      ? "browser-resume-status"
+      : disabled && !keySet
+        ? "browser-resume-key-hint"
+        : undefined;
+  const actionHint = availabilityDescription
+    ? undefined
+    : disabled
+      ? "studio.intake.wait"
+      : !consent
+        ? "studio.intake.needsConsent"
+        : undefined;
   return (
     <section className="factory-panel" aria-labelledby="browser-resume-title">
       <h2 id="browser-resume-title">{t("studio.continuation.title")}</h2>
       <p id="browser-resume-warning" className="muted">
         {t("studio.continuation.warning")}
       </p>
-      {workerAvailability !== "ready" &&
-        (workerAvailability === "offline" || !keySet) && (
-          <p className="muted">{t(continuationStatus[workerAvailability])}</p>
-        )}
-      {!keySet && (
-        <p>
-          {t("studio.continuation.keyHint")}{" "}
-          <WorkspaceLink page="settings" navigation={navigation}>
-            {t("studio.availability.openSettings")}
-          </WorkspaceLink>
-        </p>
-      )}
       <div className="factory-create">
         <BrowserCost
           estimate={estimate}
@@ -149,15 +142,30 @@ export function BrowserContinuation({
           />
           {t("studio.continuation.consent")}
         </label>
-        {blockReason && (
+        {workerAvailability !== "ready" && (offline || !keySet) && (
+          <p className="muted" id="browser-resume-status">
+            {t(continuationStatus[workerAvailability])}
+          </p>
+        )}
+        {!keySet && (
+          <p id="browser-resume-key-hint">
+            {t("studio.continuation.keyHint")}{" "}
+            <WorkspaceLink page="settings" navigation={navigation}>
+              {t("studio.availability.openSettings")}
+            </WorkspaceLink>
+          </p>
+        )}
+        {actionHint && (
           <p className="muted" id="browser-resume-blocked">
-            {t(blockReason)}
+            {t(actionHint)}
           </p>
         )}
         <button
           className="primary"
-          disabled={!!blockReason}
-          aria-describedby={blockReason ? "browser-resume-blocked" : undefined}
+          disabled={disabled || !consent}
+          aria-describedby={
+            actionHint ? "browser-resume-blocked" : availabilityDescription
+          }
           onClick={() => {
             setConsent(false);
             onResume();
@@ -204,10 +212,10 @@ export function StudioIntake({
   const { t, formatters } = useI18n();
   const [status, guidance] = availabilityCopy[availability];
   const ready = availability === "ready" || availability === "ready-browser";
-  const blockReason = busy
-    ? "studio.intake.wait"
-    : !ready
-      ? status
+  const actionHint = !ready
+    ? undefined
+    : busy
+      ? "studio.intake.wait"
       : !topic.trim()
         ? "studio.intake.needsTopic"
         : !consent
@@ -275,7 +283,7 @@ export function StudioIntake({
             </label>
           )}
           <div className="studio-availability" id="studio-availability">
-            <div role="status">
+            <div role="status" id="studio-availability-status">
               <strong>{t(status)}</strong>
               <span>{t(guidance)}</span>
             </div>
@@ -303,17 +311,21 @@ export function StudioIntake({
             {t("studio.intake.consent")}
           </label>
           <div className="factory-submit">
-            {blockReason && (
+            {actionHint && (
               <p className="muted" id="studio-submit-blocked">
-                {t(blockReason)}
+                {t(actionHint)}
               </p>
             )}
             <button
               className="primary"
               aria-describedby={
-                blockReason ? "studio-submit-blocked" : undefined
+                !ready
+                  ? "studio-availability-status"
+                  : actionHint
+                    ? "studio-submit-blocked"
+                    : undefined
               }
-              disabled={!!blockReason}
+              disabled={!ready || !!actionHint}
             >
               {t("studio.intake.submit")}
             </button>
