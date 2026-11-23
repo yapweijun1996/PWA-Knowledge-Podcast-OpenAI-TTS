@@ -1,12 +1,23 @@
-import { limits, type Episode, type Language } from "../../shared/factory.ts";
+import { limits, type Episode } from "../../shared/factory.ts";
 import {
   createFormatters,
   createTranslator,
   t,
-  type Locale,
 } from "../i18n/index.ts";
+import type { ensureVideoFonts } from "../video/fonts/loader.ts";
 import type { TimelinePlan } from "../video/timeline.ts";
+import {
+  assertThumbnailSize,
+  encodeThumbnail,
+  resolveThumbnailVariant,
+  type ThumbnailCanvas,
+  type ThumbnailOptions,
+  type ThumbnailVariant,
+} from "./thumbnail.ts";
+import { publishLocales } from "./thumbnail-headline.ts";
 import { createStoredZip } from "./zip.ts";
+
+export { publishLocales } from "./thumbnail-headline.ts";
 
 export type PublishFile = { name: string; mime: string } & (
   { text: string } | { blob: Blob }
@@ -17,7 +28,12 @@ type PublishInput = {
   plan: TimelinePlan;
   videoBlob?: Blob;
   thumbnailBlob?: Blob;
+  thumbnail?: Omit<ThumbnailOptions, "title" | "language">;
+  thumbnailCanvas?: ThumbnailCanvas;
+  loadThumbnailFonts?: typeof ensureVideoFonts;
 };
+
+type PublishPackage = { files: PublishFile[]; zip: () => Promise<Blob> };
 
 const encoder = new TextEncoder();
 const byteLength = (text: string) => encoder.encode(text).length;
@@ -25,13 +41,6 @@ const descriptionLimit = 5000;
 // Leave room for research links even when a timeline has many chapter breaks.
 const chapterListLimit = 2000;
 const plainText = "text/plain;charset=utf-8";
-
-export const publishLocales = {
-  en: "en",
-  zh: "zh-CN",
-  ms: "ms",
-  sg: "en", // Singapore mixed-language episodes use English as their base.
-} as const satisfies Record<Language, Locale>;
 
 function cleanLine(text: string) {
   return text
@@ -146,7 +155,13 @@ function descriptionSources(
 function uploadChecklist(
   estimated: boolean,
   fileNames: Record<string, string>,
+  variant: ThumbnailVariant,
 ) {
+  const variantNames = {
+    "topic-graphic": "publish.thumbnail.variantTopicGraphic",
+    "host-pair": "publish.thumbnail.variantHostPair",
+    headline: "publish.thumbnail.variantHeadline",
+  } as const;
   return [
     t("publish.checklist.heading"),
     "",
@@ -155,7 +170,8 @@ function uploadChecklist(
     t("publish.checklist.upload", fileNames),
     t("publish.checklist.audience"),
     t("publish.checklist.aiDisclosure"),
-    t("publish.checklist.thumbnail", fileNames),
+    t("publish.checklist.thumbnail", { ...fileNames, variant: t(variantNames[variant]) }),
+    t("publish.checklist.portraitCover"),
     t("publish.checklist.visibility"),
     t(
       estimated
@@ -166,12 +182,18 @@ function uploadChecklist(
   ].join("\n");
 }
 
+export function buildPublishPackage(input: PublishInput & { thumbnailCanvas: ThumbnailCanvas }): Promise<PublishPackage>;
+export function buildPublishPackage(input: PublishInput & { thumbnailCanvas?: undefined }): PublishPackage;
+export function buildPublishPackage(input: PublishInput): PublishPackage | Promise<PublishPackage>;
 export function buildPublishPackage({
   episode,
   plan,
   videoBlob,
   thumbnailBlob,
-}: PublishInput) {
+  thumbnail,
+  thumbnailCanvas,
+  loadThumbnailFonts,
+}: PublishInput): PublishPackage | Promise<PublishPackage> {
   const locale = publishLocales[episode.language];
   const translate = createTranslator(locale);
   const formatters = createFormatters(locale, translate);
@@ -190,6 +212,13 @@ export function buildPublishPackage({
     scriptTitle || topic || translate("publish.content.untitled"),
     100,
   );
+  const thumbnailOptions = {
+    title: scriptTitle || topic,
+    language: episode.language,
+    topicKeywords: [topic, scriptTitle],
+    ...thumbnail,
+  };
+  const { variant } = resolveThumbnailVariant(thumbnailOptions);
   const chapters = plan.chapters.map(({ timestamp, title }, index) => ({
     timestamp,
     title:
@@ -244,34 +273,31 @@ export function buildPublishPackage({
     },
     {
       name: fileNames.checklistFile,
-      text: uploadChecklist(plan.estimated, fileNames),
+      text: uploadChecklist(plan.estimated, fileNames, variant),
       mime: "text/markdown;charset=utf-8",
     },
   ];
-  if (thumbnailBlob)
-    files.push({
-      name: fileNames.thumbnailFile,
-      blob: thumbnailBlob,
-      mime: "image/png",
-    });
-  if (videoBlob)
-    files.push({
-      name: fileNames.videoFile,
-      blob: videoBlob,
-      mime: "video/mp4",
-    });
+  function finish(png?: Blob): PublishPackage {
+    if (png) {
+      assertThumbnailSize(png);
+      files.push({ name: fileNames.thumbnailFile, blob: png, mime: "image/png" });
+    }
+    if (videoBlob) files.push({ name: fileNames.videoFile, blob: videoBlob, mime: "video/mp4" });
 
-  return {
-    files,
-    zip: () =>
-      createStoredZip(
-        files.map((file) => ({
-          name: file.name,
-          blob:
-            "blob" in file
-              ? file.blob
-              : new Blob([file.text], { type: file.mime }),
-        })),
-      ),
-  };
+    return {
+      files,
+      zip: () =>
+        createStoredZip(
+          files.map((file) => ({
+            name: file.name,
+            blob: "blob" in file ? file.blob : new Blob([file.text], { type: file.mime }),
+          })),
+        ),
+    };
+  }
+
+  if (thumbnailCanvas) {
+    return encodeThumbnail(thumbnailCanvas, thumbnailOptions, loadThumbnailFonts).then(finish);
+  }
+  return finish(thumbnailBlob);
 }

@@ -3,7 +3,7 @@ import test from "node:test";
 import { crc32 } from "node:zlib";
 import { readEpisode } from "../shared/episode-record.ts";
 import { buildPublishPackage, cleanSourceUrl } from "../src/publish/package.ts";
-import { drawThumbnail, thumbnailSize } from "../src/publish/thumbnail.ts";
+import { thumbnailByteLimit, ThumbnailError } from "../src/publish/thumbnail.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
 
 const source = {
@@ -117,6 +117,8 @@ test("exports sanitized metadata, timeline chapters and finalized research offli
     "受众",
     "altered or synthetic content",
     "thumbnail.png",
+    "版式：双主持人",
+    "9:16 开场画面",
     "可见性",
     "验证章节",
     "YouTube Studio",
@@ -344,51 +346,15 @@ test("round-trips ZIP headers, UTF-8 text, optional media, sizes and CRCs", asyn
   assert.equal(fetch.mock.callCount(), 0);
 });
 
-function recordingContext() {
-  const calls = [];
-  return {
-    calls,
-    save() {
-      calls.push(["save"]);
-    },
-    restore() {
-      calls.push(["restore"]);
-    },
-    fillRect(...args) {
-      calls.push(["rect", this.fillStyle, ...args]);
-    },
-    fillText(...args) {
-      calls.push(["text", this.fillStyle, ...args]);
-    },
-    measureText(text) {
-      return { width: Array.from(text).length * 60 };
-    },
-  };
-}
-
-test("draws a 1280×720 thumbnail in either theme with bounded title lines", () => {
-  assert.deepEqual(thumbnailSize, { width: 1280, height: 720 });
-  const light = recordingContext();
-  drawThumbnail(light, { title: "  简短\n标题  ", theme: "light" });
-  const dark = recordingContext();
-  drawThumbnail(dark, { title: "多语言标题😀".repeat(14), theme: "dark" });
-
-  for (const { calls } of [light, dark]) {
-    assert.deepEqual(calls[0], ["save"]);
-    assert.deepEqual(calls[1].slice(2), [0, 0, 1280, 720]);
-    assert.deepEqual(calls.at(-1), ["restore"]);
-    for (const [, , line, x, y, maxWidth] of calls.filter(
-      ([kind]) => kind === "text",
-    )) {
-      assert.ok(x >= 0 && x + maxWidth <= 1280 && y > 0 && y < 720);
-      assert.ok(Array.from(line).length * 60 <= maxWidth);
-    }
-  }
-  assert.notEqual(light.calls[1][1], dark.calls[1][1]);
-  assert.equal(light.calls.find(([kind]) => kind === "text")[2], "简短 标题");
-  const darkLines = dark.calls
-    .filter(([kind]) => kind === "text")
-    .map((call) => call[2]);
-  assert.equal(darkLines.length, 3);
-  assert.match(darkLines.at(-1), /…$/u);
+test("checks the byte limit of a caller-supplied thumbnail", () => {
+  const episode = readEpisode(fixture());
+  const plan = buildTimeline(episode);
+  const thumbnailBlob = new Blob([new Uint8Array(thumbnailByteLimit)], {
+    type: "image/png",
+  });
+  assert.throws(
+    () => buildPublishPackage({ episode, plan, thumbnailBlob }),
+    (error) => error instanceof ThumbnailError &&
+      error.code === "publish.thumbnail.pngTooLarge",
+  );
 });
