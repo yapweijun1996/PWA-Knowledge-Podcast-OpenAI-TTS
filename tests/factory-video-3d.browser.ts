@@ -1,5 +1,9 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import { bundleStudio3d, measureStudio3d } from "../scripts/studio3d-bench.mjs";
+import {
+  bundleStudio3d,
+  measureStudio3d,
+  studio3dContactProbes,
+} from "../scripts/studio3d-bench.mjs";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
@@ -423,6 +427,8 @@ test("Studio 3D stays within the render budget and reproduces pixels after shuff
       expect(result.triangles).toBeGreaterThan(0);
       expect(result.triangles).toBeLessThanOrEqual(12_000);
     }
+    expect(frames.medianMs, `${width}×${height} median frame time`).toBeLessThanOrEqual(40);
+    expect(frames.p95Ms, `${width}×${height} p95 frame time`).toBeLessThanOrEqual(60);
     expect(new Set(Object.values(frames.hashes)).size).toBeGreaterThan(1);
     expect(shuffled.hashes).toEqual(frames.hashes);
   }
@@ -441,6 +447,7 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
     [960, 540],
     [390, 694],
   ]) {
+    const contactProbes = studio3dContactProbes(width, height);
     for (const palette of ["aurora", "sunset", "mono", "ocean"]) {
       const label = `${palette} at ${width}×${height}`;
       // The synthetic turn plan has stable A and B samples at 1s and 2s.
@@ -450,6 +457,7 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         height,
         frameOrder: [30, 60],
         visualPalette: palette,
+        contactProbes,
       });
       expect(result.status, label).toBe("PASS");
       const aSpeaking = result.visuals[30];
@@ -465,6 +473,10 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
           Math.abs(frame.betweenOrbs - frame.frameEdge) / frame.frameEdge,
           `${label} inter-orb luminance versus frame edge`,
         ).toBeLessThanOrEqual(0.15);
+        for (const step of frame.washSteps) {
+          expect(step, `${label} portrait wash luma lift`).toBeGreaterThan(1 / 255);
+          expect(step, `${label} portrait wash luma lift`).toBeLessThanOrEqual(0.06 + 1 / 255);
+        }
       }
       for (const [host, active, idle] of [
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
@@ -476,15 +488,41 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         expect(active.rim, `${label} host ${host} rim emphasis`).toBeGreaterThanOrEqual(
           1.2 * idle.rim,
         );
+        expect(
+          active.groundRing - idle.groundRing,
+          `${label} host ${host} ground ring luminance gain`,
+        ).toBeGreaterThanOrEqual(0.012);
         for (const [state, sample] of [
           ["active", active],
           ["idle", idle],
-        ] as const)
+        ] as const) {
           expect(
             sample.rimContrast,
             `${label} host ${host} ${state} rim contrast`,
           ).toBeGreaterThanOrEqual(3);
+          expect(
+            sample.pedestalStep,
+            `${label} host ${host} ${state} pedestal-to-floor luminance step`,
+          ).toBeGreaterThanOrEqual(12 / 255);
+        }
       }
     }
+
+    const reduced = await page.evaluate(measureStudio3d, {
+      bundle,
+      width,
+      height,
+      frameOrder: [120, 60, 30],
+      visualPalette: "aurora",
+      contactProbes,
+      reducedMotion: true,
+    });
+    expect(reduced.status).toBe("PASS");
+    expect(reduced.hashes[120]).toBe(reduced.hashes[30]);
+    expect(reduced.hashes[60]).not.toBe(reduced.hashes[30]);
+    expect(
+      reduced.visuals[30].hosts[0].groundRing -
+        reduced.visuals[60].hosts[0].groundRing,
+    ).toBeGreaterThanOrEqual(0.012);
   }
 });
