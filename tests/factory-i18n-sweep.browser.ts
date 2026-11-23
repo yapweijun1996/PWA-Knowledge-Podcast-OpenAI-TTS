@@ -1,6 +1,5 @@
 import {
   expect,
-  test,
   type Locator,
   type Page,
   type TestInfo,
@@ -10,6 +9,7 @@ import { defaultPreferences, type Episode } from "../shared/factory.ts";
 import { wave } from "../server/audio.mjs";
 import { createTranslator, type Locale } from "../src/i18n/index.ts";
 import { fakeOpenAI } from "./fixtures/podcast-provider.mjs";
+import { test } from "./fixtures/guards";
 
 const sizes = [
   { width: 1440, height: 900, language: "en", lang: "en" },
@@ -27,7 +27,7 @@ const inactiveControls =
 const shell = ".factory-shell";
 const scrollArea = ".factory-shell-layout";
 
-test.use({ serviceWorkers: "block", colorScheme: "light" });
+test.use({ colorScheme: "light" });
 
 async function scanLocale(page: Page, locale: Locale, state: string) {
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
@@ -514,7 +514,7 @@ for (const locale of locales) {
         isMobile: touch,
         hasTouch: touch,
       });
-      test("T47 workspace sweep", async ({ page, context, baseURL }, info) => {
+      test("T47 workspace sweep", async ({ page, context, baseURL, guard, scanForKey }, info) => {
         test.setTimeout(90_000);
         const t = createTranslator(locale);
         await context.addInitScript(
@@ -530,15 +530,10 @@ for (const locale of locales) {
           releaseResearch = resolve;
         });
 
-        await context.route("**/*", async (route) => {
+        await context.route(`${origin}/api/studio/**`, async (route) => {
           const url = new URL(route.request().url());
           const method = route.request().method();
-          if (
-            url.origin === origin &&
-            !url.pathname.startsWith("/api/studio/")
-          ) {
-            await route.continue();
-          } else if (url.origin === origin && method === "GET") {
+          if (method === "GET") {
             switch (url.pathname) {
               case "/api/studio/session":
                 await route.fulfill({
@@ -565,14 +560,11 @@ for (const locale of locales) {
                 });
                 return;
             }
-            unexpected.push(`${method} ${url.pathname}`);
-            await route.abort();
-          } else {
-            unexpected.push(`${method} ${url.origin}${url.pathname}`);
-            await route.abort();
           }
+          unexpected.push(`${method} ${url.pathname}`);
+          await route.abort();
         });
-        await context.route("https://api.openai.com/**", async (route) => {
+        guard.mockProvider(async (route) => {
           const request = route.request();
           const path = new URL(request.url()).pathname;
           const headers = {
@@ -718,29 +710,7 @@ for (const locale of locales) {
         await expect(keys.getByRole("status")).toHaveText(
           t("settings.browserKey.configured"),
         );
-        const assertSecretAbsent = async () => {
-          const leaked = await page.evaluate(
-            (key) => ({
-              text: document.body.textContent?.includes(key),
-              live: [
-                ...document.querySelectorAll(
-                  "[role=status], [role=alert], [aria-live]",
-                ),
-              ].some((el) => el.textContent?.includes(key)),
-              attributes: [...document.querySelectorAll("*")].some((el) =>
-                [...el.attributes].some(
-                  ({ name, value }) =>
-                    name.startsWith("aria-") && value.includes(key),
-                ),
-              ),
-            }),
-            fixtureKey,
-          );
-          expect
-            .soft(leaked)
-            .toEqual({ text: false, live: false, attributes: false });
-        };
-        await assertSecretAbsent();
+        expect.soft(await scanForKey(page, fixtureKey)).toEqual([]);
         await audit("settings-key-controls");
 
         if (locale === "zh-CN") {
@@ -920,7 +890,7 @@ for (const locale of locales) {
           page.getByText("Private fixture provider diagnostics."),
         ).toHaveCount(0);
         await audit("studio-failed");
-        await assertSecretAbsent();
+        expect.soft(await scanForKey(page, fixtureKey)).toEqual([]);
         expect
           .soft(
             await liveStatus.evaluate(

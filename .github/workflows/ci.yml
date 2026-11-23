@@ -24,11 +24,15 @@ jobs:
       - run: npm audit --audit-level=moderate
       - run: npm run typecheck
       - run: npm test
+      - name: Require zero CJK fragments outside the UI catalogues
+        run: npm run i18n:scan -- --fail-on-found
       - run: npm run build
       - run: npm run build:private
       - run: npx playwright install --with-deps chromium webkit
-      - run: npm run e2e:factory
-      - run: npm run e2e:factory
+      - name: Full Factory browser suite in Chromium
+        run: npm run e2e:factory
+      - name: Manual Studio creation in WebKit
+        run: npm run e2e:factory
         env:
           PLAYWRIGHT_FACTORY_BROWSER: webkit
       - name: Package and start the private worker

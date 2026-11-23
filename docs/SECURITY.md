@@ -1,42 +1,58 @@
-# Browser BYOK and release security
+# Security and key boundaries
 
-These notes cover the legacy V1 Pages build. V2 uses the trusted local worker for paid requests and provides browser-local playback, editing and backups without a key. The [V2 runbook](V2-FACTORY.md) describes the worker boundary and optional owner session.
+## Browser BYOK
 
-The owner chose direct browser BYOK. The key is entered by the user, held in the
-page runtime and sent directly to the OpenAI API; the application does not
-intentionally put it in source code, local storage, IndexedDB or project backups.
-Browser extensions, a compromised browser or device, malicious same-origin code,
-and a compromised GitHub Pages deployment can still read it. Use a trusted
-browser and device, choose a limited key where available, monitor usage, and
-revoke a key if exposure is suspected. This is not equivalent to a trusted
-backend and cannot enforce a server-side budget.
+In browser mode the tab sends the user-supplied OpenAI key in the
+`Authorization` header directly to `https://api.openai.com`. While the key is
+set, page code, browser extensions with access to the page and a compromised
+device can read it. Use a trusted app origin and device and a key with the
+permissions needed for the run. [Settings disclosure](../src/factory/Preferences.tsx) · [Provider request adapter](../shared/pipeline/openai.ts) · [Narrator](../src/factory/browser-narrator.ts)
 
-The production build includes a Content Security Policy in an early HTML meta
-element because GitHub Pages does not let this repository set arbitrary response
-headers. The policy allows application assets, local blob media, and connections
-to the OpenAI API; it blocks inline scripts and other connection origins. Vite's
-local development server does not use this production policy because HMR uses
-injected styles and a development connection. Use the built preview to test it.
+The browser key lives in page memory and clears on explicit removal or
+`pagehide`, including reload. Browser storage, URLs, backups, caches and logs
+must stay free of the key. The app stores project artifacts for recovery and
+clears the key-entry field when the key is set. Project content and backups can
+contain private text and media. [Key lifecycle](../src/factory/browser-key.ts) · [Backup format](../shared/episode-backup.ts) · [Browser rules tests](../tests/factory-rules.browser.ts)
 
-A meta policy is defense in depth, not a defense against extensions or hostile
-same-origin releases. It cannot enforce `frame-ancestors`, report-only mode or
-other header-only controls; assets fetched before a meta policy is parsed are not
-covered by it. See the [W3C CSP specification](https://www.w3.org/TR/CSP3/) for
-these delivery limitations. It also does not authenticate imported backups.
+Studio requires per-run consent and labels costs as estimates. The browser
+runner saves a result before the next paid step and stops when a save fails.
+If a paid request has an unknown outcome, it remains unknown until the user
+decides whether to continue. Check provider usage before consenting again.
+[Studio](../src/factory/StudioIntake.tsx) · [Checkpoint runner](../src/factory/browser-production.ts) · [Node tests](../tests/browser-production.test.mjs)
 
-Workflows pin top-level GitHub Actions to exact commits. The verification job reads repository content and uploads the tested public build.
-The deployment job alone receives Pages and OIDC write permissions. The [GitHub Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
-describes those deployment permissions. Pinning a top-level action does not
-independently pin every transitive dependency; update pins deliberately after
-review and rerun the release checks.
+## Content Security Policy and offline cache
 
-The browser tests use intercepted provider requests and synthetic audio. A
-passing policy test or WebRTC loopback does not prove a real OpenAI account,
-voice, generated content, or browser extension is safe. Do not log keys, audio
-payloads or private scripts during diagnosis.
+The public and private builds add an HTML meta CSP. Their `connect-src`
+includes `'self' https://api.openai.com blob:` for browser BYOK. The worker
+serves a corresponding response header. The policy restricts scripts to the
+app origin and blocks other connection origins. The Vite development server
+uses its development setup for hot reload. The generated service worker
+precaches app assets and bypasses API traffic. [CSP directives](../config/csp.ts) · [Build configuration](../vite.config.ts) · [Worker HTTP server](../server/http.mjs) · [Service worker builder](../scripts/build-sw.mjs) · [CSP tests](../tests/csp.test.mjs)
 
-The scoped Pages workflow deployed commit `9087f09` successfully in
-[run 41812526581](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/41812526581).
-Chromium tests on that deployed build verified blocked external connections and
-inline scripts, offline demo operation, and a real local WebRTC loopback with
-the provider intercepted. No paid request was made.
+A malicious release on the app origin, a privileged extension or a compromised
+device can still access a browser key. CSP adds a browser enforcement layer
+around resource loading and connections. [Key disclosure](../src/i18n/locales/en/settings.ts)
+
+## Optional trusted worker
+
+Worker-mode provider calls use a key held by the worker process. Provisioning
+through the worker Settings form passes the key through that page to the
+trusted worker. Environment-based provisioning keeps it off the page
+entirely. A Settings-provided worker key is cleared on process exit or explicit
+removal. The worker host, its operator and any configured reverse proxy form
+the trust boundary. [Worker startup](../server/main.mjs) · [Credential handling](../server/production.mjs) · [Setup](V2-FACTORY.md#optional-worker)
+
+The worker binds to loopback by default and checks the host and origin for
+writes. A configured private HTTPS origin requires an owner token and a
+Secure, HttpOnly session cookie for protected routes. API responses use
+`Cache-Control: no-store`. The worker data folder and browser-local copies
+need separate protection and recovery. [HTTP routes](../server/http.mjs) · [Owner session](../server/session.mjs) · [Worker tests](../tests/factory.test.mjs)
+
+## Release evidence
+
+The guarded browser tests block service workers, abort unmatched external
+requests and inspect fake-key exposure in storage, URLs and history, console,
+downloads and the DOM. The scan describes the exercised page and downloaded
+files. Live Pages and browser execution status are tracked in the test matrix.
+The reusable CI workflow retains pinned Actions, the dependency audit and
+scoped artifact handling. [Fixture](../tests/fixtures/guards.ts) · [Matrix](TEST-MATRIX.md) · [CI](../.github/workflows/ci.yml) · [Pages workflow](../.github/workflows/pages.yml)
