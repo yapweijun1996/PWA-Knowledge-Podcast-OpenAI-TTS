@@ -68,9 +68,23 @@ try {
   const { error, result } = await outcome.jsonValue();
   if (error) throw new Error(error);
   assert.match(result.sha256, /^[a-f0-9]{64}$/);
-  assert.match(result.videoCodec, /^(avc1|vp09)\./);
-  assert.equal(result.audioCodec, "mp4a.40.2");
+  assert.ok(
+    ["avc1.420028", "vp09.00.40.08"].includes(result.videoCodec),
+    `Unexpected video codec: ${result.videoCodec}`,
+  );
+  assert.equal(
+    result.audioCodec,
+    result.aacSupported ? "aac" : "opus",
+    "The renderer did not select the preferred supported audio codec",
+  );
   assert.ok(result.bytes > 0);
+  assert.ok(result.decodedVideoBytes > 0, "The MP4 video track did not decode");
+  assert.ok(result.decodedAudioBytes > 0, "The MP4 audio track did not decode");
+  assert.ok(result.playedSeconds >= 0.25, "Playback did not advance");
+  assert.ok(
+    Math.abs(result.seekedSeconds - 3) <= 1 / result.fps,
+    "Playback did not seek to the caption scene",
+  );
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await browser.close();
