@@ -39,13 +39,34 @@ Not established (**UNVERIFIED**): memory (the headless heap numbers are rounded
 placeholders), real GPUs and other driver stacks (pixel hashes may differ across
 GPUs), Safari, phones, long episodes, context loss, and cancellation mid render.
 
+## Measured: Crucible ("67JS") spike (T54)
+
+Same fixture, same machine and browser as the Three.js spike; Crucible 0.22.0
+with the same scene described as a JSON recipe (`spikes/crucible-scene`).
+
+| Measure | Crucible | Hand-written Three.js |
+| --- | --- | --- |
+| Frame time at 1080p, software WebGL2 | median **113 ms**, p95 118 ms | median **26.7 ms**, p95 28.1 ms (Crucible about 4x slower) |
+| Determinism | hashes of frames 0, 15, 30, 60, 120 identical across two runs and between main thread and worker | identical across two runs and between main thread and worker |
+| WebCodecs | works; 150 frames H.264, 1.0 MB | works; 150 frames H.264, 1.37 MB |
+| Startup vendor size | 438 kB minified, 139 kB gzip | 539 kB minified, 134 kB gzip |
+| Whole bundle with optional addons | 2.95 MB minified, 981 kB gzip | not applicable |
+| Source lines | 272, of which 133 build the JSON recipe | 217 |
+| Look (viewed by the manager) | same composition, smoother and darker spheres, no glow | faceted spheres with glow and fog, more atmospheric |
+| Maturity and safety | 0.x, published two days before the test; the recipe format also permits shaders and asset references, so an AI-written storyboard would need a strict app-owned subset | our own code, no external scene format |
+
+Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion tooling
+(not used here), memory, real GPUs, Safari and phones.
+
 ## Decision
 
 1. Canvas 2D stays the baseline scene.
 2. Three.js is the first 3D scene, lazy loaded, driven by our own clock.
-3. Crucible ("67JS") is evaluated on the same fixture (T54) because it already
-   defines JSON scenes for agents; adopt only if it beats hand-written Three.js
-   scenes on size, determinism and safety.
+3. Crucible ("67JS") was evaluated on the same fixture (T54). It is deterministic
+   but about four times slower per frame, very new, and its JSON format permits
+   shaders and external assets. **Decision: production scenes are hand-written
+   Three.js; Crucible stays a reference** and can be revisited when it is 1.0 and
+   if its character and motion tooling is needed.
 4. The AI agent directs scenes through a strict JSON storyboard that selects
    pre-written, parameterised scenes. It never ships code to run in the page.
 5. Godot stays out of the browser path; at most an optional local export.

@@ -480,7 +480,7 @@ agent never ships code to run in the page). Godot stays an optional local export
   900 kbit/s halves the MP4 (22.8 to 13.8 MiB for a 124 s synthetic episode,
   29 to about 14 MiB expected for the trial), balanced CJK wrapping, tracking
   parameters stripped; 32 of 32 browser tests pass)_
-- [ ] **T50 — Scene plugin interface** (M). Refactor `drawFrame` into a registry of
+- [x] **T50 — Scene plugin interface** (M). _(done 2026-11-23: registry, waveform scene, per-chapter overrides, receipt records the scene; fixed the waveform window at turn starts; the pre-refactor draw-call snapshot matches; 38 of 38 browser tests pass. Waveform uses an absolute scale, so quiet audio gives short bars: consider optional normalisation.)_ Refactor `drawFrame` into a registry of
   scenes (`waveform` first), selected by id in the plan and the Video panel.
 - [x] **T51 — Three.js audio-reactive scene spike** (L). _(done 2026-11-23: median
   26.7 ms per 1080p frame on software WebGL, identical frame hashes across runs and
@@ -489,8 +489,16 @@ agent never ships code to run in the page). Godot stays an optional local export
 - [ ] **T52 — Storyboard tool** (L). Agent tool that produces a strict JSON
   storyboard (per chapter mood, palette, visual metaphor, callouts, camera) from
   the script; validated and editable in the UI.
-- [ ] **T54 — Crucible ("67JS") spike** (M). Same fixture and measurements as T51 in
+- [x] **T54 — Crucible ("67JS") spike** (M). _(done 2026-11-23: deterministic, 113 ms per frame versus 26.7 ms for hand-written Three.js; decision recorded in docs/ANIMATION-DECISION.md)_ Same fixture and measurements as T51 in
   `spikes/crucible-scene`; decide Crucible versus hand-written Three.js scenes.
 - [ ] **T53 — Library adapters** (S, only if the owner confirms what "67JS" is).
 Known visual follow-up: at some moments the waveform renders as a flat dotted
 line with bars only at its right end; review the amplitude window in T50.
+- [ ] **T55 — Three.js studio scene in the app** (L). Add `three` 0.187.0 as a
+  dependency, a lazily loaded `studio3d` scene registered through the T50
+  registry, WebGL layer compositing under the shared overlay, capability check
+  and automatic fallback to the waveform, parametrised by preset ids (palette,
+  camera, intensity) so a storyboard can select them. Acceptance: separate chunk
+  (not in the main bundle), real Chromium render of a fixture episode, identical
+  frame hashes across two renders, fallback tested, cancel tested.
+- [ ] **T52 — Storyboard tool** (L). After T55.
