@@ -1,4 +1,4 @@
-import type { Episode, Research } from "../../shared/factory";
+import type { Episode, Language, Research } from "../../shared/factory";
 import { useI18n } from "../i18n";
 
 const claimStateKeys = {
@@ -6,6 +6,13 @@ const claimStateKeys = {
   qualified: "episode.evidence.qualified",
   disputed: "episode.evidence.disputed",
 } as const;
+
+export const episodeLanguageTags = {
+  en: "en",
+  zh: "zh-CN",
+  ms: "ms",
+  sg: "en-SG",
+} as const satisfies Record<Language, string>;
 
 function evidenceDate(
   date: string,
@@ -21,9 +28,11 @@ function evidenceDate(
 export function Claims({
   research,
   ids,
+  lang,
 }: {
   research: Research;
   ids: string[];
+  lang: string;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -37,7 +46,7 @@ export function Claims({
             <span className="factory-tag">
               {t(claimStateKeys[claim.status])}
             </span>
-            <p>{claim.text}</p>
+            <p lang={lang}>{claim.text}</p>
             {claim.crossCheck && (
               <small className="factory-evidence-check">
                 {t(
@@ -47,7 +56,7 @@ export function Claims({
                 )}
               </small>
             )}
-            <small>{claim.uncertainty}</small>
+            <small lang={lang}>{claim.uncertainty}</small>
             <div className="factory-citations">
               {claim.sourceIds.map((sourceId) => {
                 const source = research.sources.find(
@@ -60,9 +69,10 @@ export function Claims({
                       href={source.url}
                       rel="noreferrer noopener"
                       target="_blank"
+                      data-user-content=""
                     >
                       {source.title}{" "}
-                      <small>
+                      <small lang={i18n.locale}>
                         {source.published == null
                           ? t("episode.evidence.unknownDate")
                           : evidenceDate(source.published, i18n)}
@@ -84,6 +94,7 @@ export function Evidence({ episode }: { episode: Episode }) {
   const { t, formatters } = i18n;
   const research = episode.research ?? episode.researchDraft;
   const { outline } = episode;
+  const lang = episodeLanguageTags[episode.language];
   if (!research) return null;
   return (
     <>
@@ -117,7 +128,11 @@ export function Evidence({ episode }: { episode: Episode }) {
             },
           )}
         </p>
-        <Claims research={research} ids={research.claims.map(({ id }) => id)} />
+        <Claims
+          research={research}
+          ids={research.claims.map(({ id }) => id)}
+          lang={lang}
+        />
       </details>
       {outline && (
         <details className="factory-panel" open={!episode.script}>
@@ -133,9 +148,13 @@ export function Evidence({ episode }: { episode: Episode }) {
           <ol className="factory-outline">
             {outline.chapters.map((chapter) => (
               <li key={chapter.id}>
-                <strong>{chapter.title}</strong>
-                <p>{chapter.angle}</p>
-                <Claims research={research} ids={chapter.claimIds} />
+                <strong lang={lang}>{chapter.title}</strong>
+                <p lang={lang}>{chapter.angle}</p>
+                <Claims
+                  research={research}
+                  ids={chapter.claimIds}
+                  lang={lang}
+                />
               </li>
             ))}
           </ol>
@@ -171,6 +190,7 @@ export function InlineSources({
             href={source.url}
             rel="noreferrer noopener"
             target="_blank"
+            data-user-content=""
           >
             {source.title}
           </a>

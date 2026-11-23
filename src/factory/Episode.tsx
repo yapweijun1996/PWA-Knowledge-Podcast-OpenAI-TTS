@@ -13,7 +13,12 @@ import {
 import { download } from "../audio";
 import { createTranslator, useI18n, type MessageKey } from "../i18n";
 
-import { Claims, Evidence, InlineSources } from "./Evidence";
+import {
+  Claims,
+  episodeLanguageTags,
+  Evidence,
+  InlineSources,
+} from "./Evidence";
 import { EpisodePlayButton } from "./PlaybackBar";
 import { episodeState, type AudioCheck } from "./library-model";
 import { formatPlaybackClock, type Playback } from "./playback";
@@ -169,8 +174,30 @@ export function EpisodeWorkspace({
       voice: t(voiceKeys[episode.voices[host]!]),
     }),
   );
-  const contentLanguage =
-    episode.language === "sg" ? undefined : episode.language;
+  const contentLanguage = episodeLanguageTags[episode.language];
+  const productionBlock =
+    working || anotherRunning
+      ? "settings.action.working"
+      : unavailable
+        ? "episode.job.unavailable"
+        : draft
+          ? "episode.job.unsaved"
+          : !consent
+            ? "studio.intake.needsConsent"
+            : undefined;
+  const scriptBlock =
+    working || running
+      ? "settings.action.working"
+      : changedElsewhere
+        ? "episode.script.changedElsewhere"
+        : planned &&
+            (!planned.title.trim() ||
+              new Set(hosts.map((host) => planned.voices[host])).size !==
+                hosts.length ||
+              total > limits.script ||
+              Object.values(planned.texts).some((text) => !text.trim()))
+          ? "episode.script.incomplete"
+          : undefined;
 
   useEffect(() => {
     onDirty(!!draft);
@@ -208,15 +235,13 @@ export function EpisodeWorkspace({
                     language: t(languageKeys[episode.language]),
                   })}
             </small>
-            <h2
-              id="episode-title"
-              tabIndex={-1}
-              lang={script ? contentLanguage : undefined}
-            >
+            <h2 id="episode-title" tabIndex={-1} lang={contentLanguage}>
               {script?.title ?? episode.topic}
             </h2>
             {script && script.title !== episode.topic && (
-              <p className="muted">{episode.topic}</p>
+              <p className="muted" lang={contentLanguage}>
+                {episode.topic}
+              </p>
             )}
           </div>
           <button
@@ -231,7 +256,7 @@ export function EpisodeWorkspace({
           </button>
         </div>
         {episode.plan && (
-          <p className="muted" lang="zh">
+          <p className="muted" lang="zh-CN">
             {episode.plan.rationale}
           </p>
         )}
@@ -312,10 +337,16 @@ export function EpisodeWorkspace({
               />
               {t("episode.job.consent")}
             </label>
+            {productionBlock && (
+              <p className="muted" id="episode-production-blocked">
+                {t(productionBlock)}
+              </p>
+            )}
             <button
               className="primary"
-              disabled={
-                working || unavailable || anotherRunning || !!draft || !consent
+              disabled={!!productionBlock}
+              aria-describedby={
+                productionBlock ? "episode-production-blocked" : undefined
               }
               onClick={() => {
                 setConsentFor("");
@@ -376,6 +407,7 @@ export function EpisodeWorkspace({
                   <button
                     className="outline"
                     key={chapter.start}
+                    lang={contentLanguage}
                     onClick={() =>
                       playback.select(
                         finishedTrack,
@@ -578,6 +610,7 @@ export function EpisodeWorkspace({
                     </strong>
                     {draft ? (
                       <textarea
+                        lang={contentLanguage}
                         aria-label={t("episode.script.turnLabel", {
                           host: turn.host,
                           id: turn.id,
@@ -622,6 +655,7 @@ export function EpisodeWorkspace({
                               <Claims
                                 research={episode.research}
                                 ids={turn.claimIds}
+                                lang={contentLanguage}
                               />
                             </details>
                           </>
@@ -661,21 +695,29 @@ export function EpisodeWorkspace({
           {draft && (
             <div className="factory-action">
               {changedElsewhere && (
-                <p className="error" role="alert">
+                <p
+                  className="error"
+                  role="alert"
+                  id={
+                    scriptBlock === "episode.script.changedElsewhere"
+                      ? "episode-script-blocked"
+                      : undefined
+                  }
+                >
                   {t("episode.script.changedElsewhere")}
                 </p>
               )}
+              {scriptBlock &&
+                scriptBlock !== "episode.script.changedElsewhere" && (
+                  <p className="muted" id="episode-script-blocked">
+                    {t(scriptBlock)}
+                  </p>
+                )}
               <button
                 className="primary"
-                disabled={
-                  working ||
-                  running ||
-                  changedElsewhere ||
-                  !planned.title.trim() ||
-                  new Set(hosts.map((host) => planned.voices[host])).size !==
-                    hosts.length ||
-                  total > limits.script ||
-                  Object.values(planned.texts).some((text) => !text.trim())
+                disabled={!!scriptBlock}
+                aria-describedby={
+                  scriptBlock ? "episode-script-blocked" : undefined
                 }
                 onClick={async () => {
                   if (await onEdit(draft.revision, planned)) setDraft(null);

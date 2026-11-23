@@ -1,4 +1,7 @@
 export default [
+  ["studio.intake.wait", "Wait for the workspace to finish preparing or processing."],
+  ["studio.intake.needsTopic", "Enter a podcast topic to continue."],
+  ["studio.intake.needsConsent", "Give consent for this run to continue."],
   ["studio.availability.offline", "You’re offline"],
   [
     "studio.availability.offlineHint",

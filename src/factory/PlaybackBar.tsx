@@ -87,6 +87,7 @@ export function PlaybackBar({
   const { t, formatters } = useI18n();
   const { track, position, loading, playing, rate, error, errorKey } =
     useSyncExternalStore(engine.subscribe, engine.getSnapshot);
+  const bar = useRef<HTMLElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const previousVersion =
     track && track.clipId === undefined && track.revision !== activeRevision;
@@ -95,9 +96,8 @@ export function PlaybackBar({
     : track?.clipId !== undefined
       ? t("playback.bar.preview")
       : "";
-  const status = errorKey
-    ? t(errorKey)
-    : error || (loading ? t("playback.bar.loading") : "");
+  const alert = errorKey ? t(errorKey) : error;
+  const status = loading ? t("playback.bar.loading") : "";
   const title = track?.clipHost
     ? t("playback.episode.clipTitle", {
         title: track.title,
@@ -122,8 +122,30 @@ export function PlaybackBar({
     if (!visible) dialog.current?.close();
   }, [visible]);
 
+  useLayoutEffect(() => {
+    const footer = bar.current;
+    const shell = footer?.closest<HTMLElement>(".factory-shell");
+    if (!footer || !shell || !visible) return;
+
+    const reserveSpace = () => {
+      const height = footer.getBoundingClientRect().height;
+      shell.style.setProperty("--playback-bar-height", `${height}px`);
+    };
+    reserveSpace();
+    const observer = new ResizeObserver(reserveSpace);
+    observer.observe(footer, { box: "border-box" });
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--playback-bar-height");
+    };
+  }, [visible]);
+
   return (
-    <footer className="playback-bar" aria-label={t("playback.bar.label")}>
+    <footer
+      ref={bar}
+      className="playback-bar"
+      aria-label={t("playback.bar.label")}
+    >
       {track && (
         <progress
           className="playback-mini-progress"
@@ -134,7 +156,9 @@ export function PlaybackBar({
       )}
       <div className="playback-bar-content">
         <div className="playback-summary">
-          <strong dir="auto">{title}</strong>
+          <strong dir="auto" data-user-content={track ? "" : undefined}>
+            {title}
+          </strong>
           {detail && <span>{detail}</span>}
         </div>
         {track && (
@@ -155,8 +179,11 @@ export function PlaybackBar({
             </button>
           </>
         )}
-        <div className="playback-status" role="status" data-error={!!error}>
+        <div className="playback-status" role="status">
           {status}
+        </div>
+        <div className="playback-status" role="alert">
+          {alert}
         </div>
       </div>
       <dialog
@@ -180,12 +207,19 @@ export function PlaybackBar({
             {t("playback.dialog.close")}
           </button>
         </div>
-        <p className="playback-dialog-title" dir="auto">
+        <p
+          className="playback-dialog-title"
+          dir="auto"
+          data-user-content={track ? "" : undefined}
+        >
           {title}
         </p>
         {detail && <p className="muted">{detail}</p>}
-        <div className="playback-status" role="status" data-error={!!error}>
+        <div className="playback-status" role="status">
           {status}
+        </div>
+        <div className="playback-status" role="alert">
+          {alert}
         </div>
         {track && (
           <>
@@ -217,6 +251,7 @@ export function PlaybackBar({
                       <button
                         className="playback-button"
                         type="button"
+                        data-user-content=""
                         onClick={() => engine.seek(chapter.start)}
                       >
                         {t("playback.chapters.entry", {

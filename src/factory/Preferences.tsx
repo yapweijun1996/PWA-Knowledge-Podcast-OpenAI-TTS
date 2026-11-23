@@ -139,12 +139,14 @@ export function BrowserCredentials({
 }) {
   const { t } = useI18n();
   const key = useRef<HTMLInputElement>(null);
+  const [shown, setShown] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     function clearInput() {
       if (key.current) key.current.value = "";
+      setShown(false);
       setAcknowledged(false);
       setError("");
     }
@@ -157,6 +159,7 @@ export function BrowserCredentials({
     if (working || !acknowledged || !key.current) return;
     const value = key.current.value;
     key.current.value = "";
+    setShown(false);
     try {
       set(value);
       setAcknowledged(false);
@@ -179,13 +182,23 @@ export function BrowserCredentials({
           <input
             ref={key}
             required
-            type="password"
+            id="browser-api-key"
+            type={shown ? "text" : "password"}
             autoComplete="off"
+            autoCapitalize="none"
             spellCheck={false}
             maxLength={512}
             disabled={working}
           />
         </label>
+        <button
+          type="button"
+          className="text-button"
+          aria-controls="browser-api-key"
+          onClick={() => setShown(!shown)}
+        >
+          {t(shown ? "settings.key.hide" : "settings.key.show")}
+        </button>
         <label className="factory-check">
           <input
             type="checkbox"
@@ -195,8 +208,23 @@ export function BrowserCredentials({
           />
           {t("settings.browserKey.risk")}
         </label>
+        {(working || !acknowledged) && (
+          <p className="muted" id="browser-key-blocked">
+            {t(
+              working
+                ? "settings.action.working"
+                : "settings.browserKey.acknowledge",
+            )}
+          </p>
+        )}
         <div className="factory-actions">
-          <button className="outline" disabled={working || !acknowledged}>
+          <button
+            className="outline"
+            disabled={working || !acknowledged}
+            aria-describedby={
+              working || !acknowledged ? "browser-key-blocked" : undefined
+            }
+          >
             {t("settings.browserKey.set")}
           </button>
           <button
@@ -206,6 +234,7 @@ export function BrowserCredentials({
             onClick={() => {
               clear();
               if (key.current) key.current.value = "";
+              setShown(false);
               setAcknowledged(false);
               setError("");
             }}
@@ -214,11 +243,9 @@ export function BrowserCredentials({
           </button>
         </div>
       </form>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      <p className="error factory-empty-alert" role="alert">
+        {error}
+      </p>
       <p className="muted factory-setting-group" role="status">
         {configured
           ? t("settings.browserKey.configured")
@@ -243,6 +270,7 @@ export function ProductionCredentials({
 }) {
   const { t } = useI18n();
   const key = useRef<HTMLInputElement>(null);
+  const [shown, setShown] = useState(false);
   return (
     <section className="factory-panel">
       <h2>{t("settings.workerKey.title")}</h2>
@@ -256,6 +284,7 @@ export function ProductionCredentials({
               if (!key.current) return;
               const value = key.current.value;
               key.current.value = "";
+              setShown(false);
               onKey(value);
             }}
           >
@@ -264,13 +293,38 @@ export function ProductionCredentials({
               <input
                 ref={key}
                 required
-                type="password"
+                id="worker-api-key"
+                type={shown ? "text" : "password"}
                 autoComplete="off"
+                autoCapitalize="none"
                 spellCheck={false}
                 maxLength={503}
               />
             </label>
-            <button className="outline" disabled={working || running}>
+            <button
+              type="button"
+              className="text-button"
+              aria-controls="worker-api-key"
+              onClick={() => setShown(!shown)}
+            >
+              {t(shown ? "settings.key.hide" : "settings.key.show")}
+            </button>
+            {(working || running) && (
+              <p className="muted" id="worker-key-blocked">
+                {t(
+                  running
+                    ? "studio.availability.workerBusy"
+                    : "settings.action.working",
+                )}
+              </p>
+            )}
+            <button
+              className="outline"
+              disabled={working || running}
+              aria-describedby={
+                working || running ? "worker-key-blocked" : undefined
+              }
+            >
               {t("settings.workerKey.set")}
             </button>
             {runtime.keyMode === "session" && (
@@ -518,7 +572,16 @@ export function ProductionSettings({
             {t("settings.schedule.consent")}
           </label>
         )}
-        <button className="outline" disabled={working}>
+        {working && (
+          <p className="muted" id="schedule-save-blocked">
+            {t("settings.action.working")}
+          </p>
+        )}
+        <button
+          className="outline"
+          disabled={working}
+          aria-describedby={working ? "schedule-save-blocked" : undefined}
+        >
           {t("settings.schedule.save")}
         </button>
       </form>

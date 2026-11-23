@@ -31,6 +31,12 @@
   .factory-panel > :is(.notice, .error) {
     margin-block: 0 15px;
   }
+  .factory-panel > .factory-empty-alert:empty {
+    position: absolute;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
   .factory-login {
     margin-block-end: var(--space-4);
   }
@@ -54,6 +60,7 @@
   .factory-create,
   .factory-action {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     justify-items: start;
   }
@@ -77,6 +84,24 @@
     margin-top: 4px;
     width: 18px;
     height: 18px;
+  }
+  @media (pointer: coarse) {
+    .factory-main :is(button, a[href]) {
+      min-block-size: var(--target-size);
+      min-inline-size: min(100%, var(--target-size));
+    }
+    .factory-main a[href]:not(.outline) {
+      display: inline-flex;
+      align-items: center;
+    }
+    .factory-check {
+      align-items: center;
+      min-block-size: var(--target-size);
+      min-inline-size: min(100%, var(--target-size));
+    }
+    .factory-check input {
+      margin-block-start: 0;
+    }
   }
   .factory-stage {
     display: grid;
@@ -275,7 +300,7 @@
   .factory-panel :is(input, select, textarea) {
     border-color: var(--control-border);
     border-radius: var(--radius-control);
-    font-size: var(--type-body);
+    font-size: max(16px, var(--type-body));
   }
 
   :is(.outline, .text-button, .primary, .update button) {
@@ -303,7 +328,14 @@
   }
 
   button:disabled {
-    opacity: var(--disabled-opacity);
+    opacity: 1;
+    color: var(--disabled-text);
+  }
+
+  :is(.primary, .outline, .library-primary, .library-card-audio, .update button):disabled {
+    border: var(--border-size) solid var(--disabled-border);
+    background: var(--disabled-bg);
+    color: var(--disabled-text);
   }
 
   :is(.muted, .notice, .error, small, footer) {

@@ -1,4 +1,7 @@
 export default [
+  ["episode.job.unavailable", "Connect and configure the local production worker to continue here."],
+  ["episode.job.unsaved", "Save or discard your script edits before continuing."],
+  ["episode.script.incomplete", "Enter a title and text for every turn, choose distinct voices, and keep the script within its length limit."],
   ["episode.header.languageEnglish", "English"],
   ["episode.header.languageMandarin", "Mandarin"],
   ["episode.header.languageMalay", "Malay"],

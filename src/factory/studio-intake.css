@@ -64,6 +64,10 @@
     inline-size: 100%;
   }
 
+  .studio-intake .factory-submit {
+    inline-size: 100%;
+  }
+
   .studio-intake-flow ol {
     display: grid;
     gap: var(--space-3);

@@ -1,4 +1,7 @@
 export default [
+  ["episode.job.unavailable", "Sambungkan dan konfigurasikan pekerja produksi setempat untuk meneruskan di sini."],
+  ["episode.job.unsaved", "Simpan atau buang suntingan skrip sebelum meneruskan."],
+  ["episode.script.incomplete", "Masukkan tajuk dan teks bagi setiap giliran, pilih suara yang berbeza dan pastikan panjang skrip dalam had."],
   ["episode.header.languageEnglish", "Bahasa Inggeris"],
   ["episode.header.languageMandarin", "Bahasa Mandarin"],
   ["episode.header.languageMalay", "Bahasa Melayu"],

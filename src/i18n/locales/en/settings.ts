@@ -1,4 +1,8 @@
 export default [
+  ["settings.key.show", "Show API key"],
+  ["settings.key.hide", "Hide API key"],
+  ["settings.action.working", "Wait for the current operation to finish."],
+  ["settings.browserKey.acknowledge", "Acknowledge the API key risks before setting the key."],
   ["settings.appearance.title", "Appearance"],
   ["settings.appearance.theme", "Theme"],
   ["settings.appearance.system", "System"],

@@ -1,10 +1,7 @@
 .factory-shell .library-workspace {
   container: episode-library / inline-size;
   min-inline-size: 0;
-  --library-ready-bg: #e6f5ef;
-  --library-ready-text: #205d49;
-  --library-review-bg: #fff1d9;
-  --library-review-text: #754508;
+  overflow-wrap: anywhere;
 
   .library-toolbar {
     display: flex;
@@ -212,13 +209,13 @@
   }
 
   .library-card-status[data-status="ready"] {
-    background: var(--library-ready-bg);
-    color: var(--library-ready-text);
+    background: var(--feedback-ready-bg);
+    color: var(--feedback-ready-text);
   }
 
   .library-card-status:is([data-status="review"], [data-status="stale"]) {
-    background: var(--library-review-bg);
-    color: var(--library-review-text);
+    background: var(--feedback-review-bg);
+    color: var(--feedback-review-text);
   }
 
   .library-card-status:is(
@@ -325,11 +322,4 @@
       display: none;
     }
   }
-}
-
-:root[data-theme="dark"] .factory-shell .library-workspace {
-  --library-ready-bg: #1b3b36;
-  --library-ready-text: #a9ecda;
-  --library-review-bg: #42321f;
-  --library-review-text: #ffd89a;
 }

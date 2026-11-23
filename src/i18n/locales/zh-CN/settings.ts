@@ -1,4 +1,8 @@
 export default [
+  ["settings.key.show", "显示 API 密钥"],
+  ["settings.key.hide", "隐藏 API 密钥"],
+  ["settings.action.working", "请等待当前操作完成。"],
+  ["settings.browserKey.acknowledge", "请确认了解 API 密钥的风险后再设置。"],
   ["settings.appearance.title", "应用外观"],
   ["settings.appearance.theme", "外观"],
   ["settings.appearance.system", "跟随系统"],

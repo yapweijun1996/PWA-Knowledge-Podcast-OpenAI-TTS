@@ -1,4 +1,7 @@
 export default [
+  ["episode.job.unavailable", "请连接并配置本机制作进程后继续。"],
+  ["episode.job.unsaved", "请保存或放弃脚本修改后继续。"],
+  ["episode.script.incomplete", "请填写标题和每段台词，选择不同的声音，并确保脚本不超过长度上限。"],
   ["episode.header.languageEnglish", "English"],
   ["episode.header.languageMandarin", "华语 Mandarin"],
   ["episode.header.languageMalay", "Bahasa Melayu"],
