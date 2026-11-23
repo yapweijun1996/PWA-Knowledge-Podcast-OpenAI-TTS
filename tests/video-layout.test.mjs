@@ -115,7 +115,7 @@ for (const [
     assert.ok(bottom(wave[0]) < hostChips[0].y);
     assert.equal(layout.waveBarsPerHost, bars);
     if (orientation === "portrait") {
-      close(layout.chapter.y / height, 0.25);
+      close(layout.chapter.y / height, 0.27);
       close(layout.stage.y / height, 0.17);
       for (const rail of wave) close(center(rail) / height, 0.3);
       for (const [, y] of designTokens.portrait.orbCenters) close(y, 0.3);
@@ -187,7 +187,7 @@ for (const [
       const label = context.text.find(
         ({ value }) => value === overlayCopy(plan).chapterLabels[1],
       );
-      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.25);
+      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.27);
     }
   });
 
@@ -226,17 +226,19 @@ for (const [
       context.shapes.length = 0;
       context.text.length = 0;
       overlay.draw(overlay.frameAt(time), "ocean");
+      const x = Math.round(caption.x);
+      const y = Math.round(caption.y);
       const plate = context.shapes.find(
-        (shape) => shape.box[0] === caption.x && shape.box[1] === caption.y,
+        (shape) => shape.box[0] === x && shape.box[1] === y,
       );
       assert.equal(plate.color, palettes.ocean.plate);
       assert.equal(plate.alpha, 1);
       assert.deepEqual(plate.box, [
-        caption.x,
-        caption.y,
-        caption.width,
-        caption.height,
-        layout.radius.caption,
+        x,
+        y,
+        Math.round(right(caption)) - x,
+        Math.round(bottom(caption)) - y,
+        Math.round(layout.radius.caption),
       ]);
       if (previousPlate) assert.deepEqual(plate, previousPlate);
       const text = context.text.filter(

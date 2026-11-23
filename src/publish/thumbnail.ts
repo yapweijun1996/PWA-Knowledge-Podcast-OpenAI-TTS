@@ -64,7 +64,7 @@ export const thumbnailDesign = {
     },
     "host-pair": {
       text: [80, 155, 734, 540],
-      graphic: [768, 120, 1188, 535],
+      graphic: [756, 120, 1176, 535],
       cjkPerLine: 6,
     },
     headline: { text: [80, 150, 1160, 530], graphic: null, cjkPerLine: 8 },

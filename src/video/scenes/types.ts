@@ -21,6 +21,7 @@ export type DrawingContext = Partial<
     | "lineWidth"
     | "globalAlpha"
     | "createLinearGradient"
+    | "drawImage"
   > &
     GraphicContext
 > &

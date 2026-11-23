@@ -50,9 +50,9 @@ export async function render(opts: { width: number; height: number; scene: strin
 }
 export async function thumbs() {
   const out: string[] = [];
-  for (const [variant, paletteId, headline] of [["topic-graphic", "aurora", "组屋如何混居"], ["host-pair", "sunset", "邻里怎样共享空间"], ["headline", "ocean", "不是偶然，是设计"]] as const) {
+  for (const variant of ["topic-graphic", "host-pair", "headline"] as const) {
     const c = document.createElement("canvas"); c.width = 1280; c.height = 720;
-    drawThumbnail(c.getContext("2d") as any, { variant, paletteId, headline, title: "组屋里的混居，是怎么被设计出来的", language: "zh", topicKeywords: "组屋 housing" } as any);
+    drawThumbnail(c.getContext("2d") as any, { variant, paletteId: "aurora", title: "组屋里的混居，是怎么被设计出来的", language: "zh", topicKeywords: "组屋 housing" } as any);
     out.push(c.toDataURL("image/png"));
   }
   return out;

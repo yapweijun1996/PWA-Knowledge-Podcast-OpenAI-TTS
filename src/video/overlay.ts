@@ -7,6 +7,7 @@ import {
   type GraphicContext,
 } from "../publish/topic-graphics.ts";
 import { joinCaptionLines, wrapDisplayText } from "../text/wrap.ts";
+import { drawVideoBackground } from "./design/background.ts";
 import { videoLayout, type PixelBox } from "./design/layout.ts";
 import { palettes, type Palette } from "./design/palettes.ts";
 import { designTokens } from "./design/tokens.ts";
@@ -99,48 +100,6 @@ function supportsCardArt(
     context.clip &&
     context.createRadialGradient
   );
-}
-
-function linearChannel(value: number) {
-  const srgb = value / 255;
-  return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-}
-function srgbChannel(value: number) {
-  const srgb =
-    value <= 0.0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - 0.055;
-  return srgb * 255;
-}
-
-function backgroundFill(
-  context: DrawingContext,
-  width: number,
-  height: number,
-  palette: Palette,
-) {
-  const gradient = context.createLinearGradient?.(0, 0, width, height);
-  if (!gradient) return palette.stops[0];
-  const colors = palette.stops.map((hex) =>
-    [1, 3, 5].map((start) =>
-      linearChannel(parseInt(hex.slice(start, start + 2), 16)),
-    ),
-  );
-  const offsets = [0, 0.55, 1];
-  // Canvas gradients interpolate sRGB stops. Sample the linear-light curve
-  // densely here so interpolation between samples approximates the curve.
-  for (let pair = 0; pair < 2; pair++) {
-    for (let step = 0; step <= 32; step++) {
-      if (pair === 1 && step === 0) continue;
-      const amount = step / 32;
-      const values = colors[pair].map((value, channel) =>
-        srgbChannel(value + (colors[pair + 1][channel] - value) * amount),
-      );
-      gradient.addColorStop(
-        offsets[pair] + (offsets[pair + 1] - offsets[pair]) * amount,
-        `rgb(${values.join(", ")})`,
-      );
-    }
-  }
-  return gradient;
 }
 
 const hostIds = ["A", "B", "C"] as const;
@@ -252,7 +211,12 @@ export function prepareOverlay(
     geometry.hostChips[0].width - 2 * hostPad.x - marker - markerGap;
   const chapterWidth = geometry.chapter.width - stroke.cardRule - calloutPad.x;
   const titleWidth = geometry.title.width - stroke.cardRule - calloutPad.x;
-  const background = new Map<VideoPaletteId, string | CanvasGradient>();
+  const captionPlate = {
+    x: Math.round(caption.x),
+    y: Math.round(caption.y),
+    width: Math.round(right(caption)) - Math.round(caption.x),
+    height: Math.round(bottom(caption)) - Math.round(caption.y),
+  };
   const canvasFont = (role: keyof typeof type) =>
     videoFont(weight[role], type[role]);
   function wrap(
@@ -283,6 +247,7 @@ export function prepareOverlay(
         {
           limits: geometry.text[role],
           locale,
+          preferClauses: role === "title" || role === "chapter",
           ...(role === "title" && orientation === "portrait"
             ? { total: { cjk: 12, latinWords: 4 } }
             : {}),
@@ -357,18 +322,7 @@ export function prepareOverlay(
   );
 
   function drawBackground(paletteId: VideoPaletteId) {
-    let fill = background.get(paletteId);
-    if (!fill) {
-      fill = backgroundFill(
-        context,
-        geometry.width,
-        geometry.height,
-        palettes[paletteId],
-      );
-      background.set(paletteId, fill);
-    }
-    context.fillStyle = fill;
-    context.fillRect(0, 0, geometry.width, geometry.height);
+    drawVideoBackground(context, geometry.width, geometry.height, palettes[paletteId]);
   }
 
   function frameAt(time: number) {
@@ -483,7 +437,7 @@ export function prepareOverlay(
       emphasis,
     );
     context.font = canvasFont("host");
-    context.fillStyle = palette.ink;
+    context.fillStyle = active ? palette.ink : palette.secondaryInk;
     linesAt(
       context,
       [names[host]],
@@ -720,7 +674,7 @@ export function prepareOverlay(
 
       const cue = turn && latestStarted(cues.get(turn) ?? [], time);
       if (cue && beforeEnd(time, cue.end)) {
-        rect(context, caption, palette.plate, radius.caption);
+        rect(context, captionPlate, palette.plate, Math.round(radius.caption));
         context.fillStyle = palette.ink;
         context.font = canvasFont("caption");
         linesAt(

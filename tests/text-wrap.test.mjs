@@ -47,7 +47,11 @@ test("balances the trial title in both canvas outputs", () => {
     "dark",
     0,
   );
-  assert.deepEqual(titleCard.lines, ["Podcast Studio", ...balancedTrial]);
+  assert.deepEqual(titleCard.lines, [
+    "Podcast Studio",
+    "组屋里的混居，",
+    "是怎么被设计出来的",
+  ]);
 
   const thumbnail = recordingContext(35);
   drawThumbnail(thumbnail, {
@@ -252,8 +256,11 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
     assert.ok(ruleLines.some((line) => line.includes("楼栋")));
     if (limit === 11)
       assert.deepEqual(
-        ruleCues.map(({ text }) => text),
-        ["对，而且它不是只讲理念，", "规则直接落到楼栋和邻里层面，"],
+        ruleCues,
+        [
+          { text: "对，而且它不是只讲理念，", lines: ["对，而且它", "不是只讲理念，"] },
+          { text: "规则直接落到楼栋和邻里层面，", lines: ["规则直接落到", "楼栋和邻里层面，"] },
+        ],
       );
     for (const source of [hook, question + followUp, rule]) {
       const cues = paginate(source);

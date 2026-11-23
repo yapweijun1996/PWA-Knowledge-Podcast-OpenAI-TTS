@@ -13,6 +13,7 @@ import {
   spectrumBins,
 } from "../src/video/scenes/studio3d/audio-state.ts";
 import {
+  foregroundSpectrumScale,
   haloOpacityAt,
   orbScaleAt,
   projectStagePoint,
@@ -440,7 +441,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
               lowest <= chipTop - 0.02,
               `${layout.orientation} ${preset}: ${chipTop - lowest}H ring clearance`,
             );
-            if (isPortrait) assert.ok(lowest - highest <= 0.022 + 1e-9);
+            assert.ok(lowest - highest <= 0.012 + 1e-9);
           }
           maxRingHeight = Math.max(maxRingHeight, lowest - highest);
         }
@@ -451,5 +452,40 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
     );
     assert.ok(maxTravel <= 0.015);
     near(maxRingHeight, 0.055);
+  }
+});
+
+test("near spectrum leaves room for the pedestal rim in both orientations", () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+    const layout = studioLayout(width, height);
+    for (const preset of ["static", "orbit", "push-in"]) {
+      const pose = cameraPoseAt(preset, 14, "urgent", layout.orientation);
+      const nearScale = foregroundSpectrumScale(layout, pose);
+      const byScale = layout.ring.map((block) =>
+        nearScale(block, spectrumBarHeight(pose, block, 1)),
+      );
+      assert.ok(byScale.some((scale) => scale === 0));
+      assert.ok(byScale.some((scale, index) => scale > 0 && layout.ring[index].z >= 0));
+      function projectedBox(corners) {
+        const points = corners.map((corner) => projectStagePoint(layout, pose, corner));
+        const x = points.map((p) => p[0] * layout.aspect);
+        const y = points.map((p) => p[1]);
+        return [Math.min(...x), Math.min(...y), Math.max(...x), Math.max(...y)];
+      }
+      const pedestalBoxes = layout.pedestalBounds.map(projectedBox);
+      for (const [index, block] of layout.ring.entries()) {
+        if (block.z < 0) {
+          assert.equal(byScale[index], 1);
+          continue;
+        }
+        if (!byScale[index]) continue;
+        const barTop = spectrumBarHeight(pose, block, 1);
+        const [left, top, right, bottom] = projectedBox(
+          block.baseCorners.flatMap(([x, y, z]) => [[x, y, z], [x, y + barTop, z]]),
+        );
+        for (const [pl, pt, pr, pb] of pedestalBoxes)
+          assert.ok(Math.max(pl - right, left - pr, pt - bottom, top - pb) >= 0.015);
+      }
+    }
   }
 });

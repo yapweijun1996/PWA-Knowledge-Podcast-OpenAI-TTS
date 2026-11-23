@@ -157,7 +157,7 @@ const textBounds = {
 };
 const graphicBounds = {
   "topic-graphic": [800, 112, 1190, 530],
-  "host-pair": [768, 120, 1188, 535],
+  "host-pair": [756, 120, 1176, 535],
 };
 
 function inside([x, y, right, bottom], box) {

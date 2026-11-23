@@ -156,26 +156,23 @@ function housingBlocks(
   for (const { x, y, w, h, accent, rows, columns } of towers) {
     const depth = 0.074;
     const rise = 0.05;
-    polygon(
-      ctx,
-      [
-        [x, y],
-        [x + depth, y - rise],
-        [x + w + depth, y - rise],
-        [x + w, y],
-      ],
-      accent + "9C",
-    );
-    polygon(
-      ctx,
-      [
-        [x + w, y],
-        [x + w + depth, y - rise],
-        [x + w + depth, y + h - rise],
-        [x + w, y + h],
-      ],
-      accent + "50",
-    );
+    const roof = [
+      [x, y],
+      [x + depth, y - rise],
+      [x + w + depth, y - rise],
+      [x + w, y],
+    ] as const;
+    const side = [
+      [x + w, y],
+      [x + w + depth, y - rise],
+      [x + w + depth, y + h - rise],
+      [x + w, y + h],
+    ] as const;
+    // Base the roof and side on an opaque plate before tinting, like the front.
+    polygon(ctx, roof, palette.plate);
+    polygon(ctx, roof, accent + "9C");
+    polygon(ctx, side, palette.plate);
+    polygon(ctx, side, accent + "50");
     ctx.fillStyle = palette.plate;
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = accent + "44";

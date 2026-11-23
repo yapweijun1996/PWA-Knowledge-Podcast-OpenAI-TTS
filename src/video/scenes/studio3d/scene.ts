@@ -11,6 +11,7 @@ import {
   spectrumBins,
 } from "./audio-state.ts";
 import {
+  foregroundSpectrumScale,
   haloOpacityAt,
   orbScaleAt,
   spectrumBarHeight,
@@ -85,8 +86,13 @@ function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   );
   const positions = geometry.getAttribute("position");
   const colors = new Float32Array(positions.count * 3);
-  for (let index = 0; index < positions.count; index++)
-    profile[index % profile.length].color.toArray(colors, index * 3);
+  const shaded = new THREE.Color();
+  for (let index = 0; index < positions.count; index++) {
+    const color = profile[index % profile.length].color;
+    const azimuth = Math.floor(index / profile.length) / 40 * 2 * Math.PI;
+    const light = 1 + 0.14 * Math.cos(azimuth + 0.8);
+    shaded.copy(color).multiplyScalar(light).toArray(colors, index * 3);
+  }
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   return geometry;
 }
@@ -177,6 +183,8 @@ function buildStudio(
     plane,
     new THREE.ShaderMaterial({
       uniforms: {
+        stageWash: { value: new THREE.Color(palette.hostA) },
+        portrait: { value: orientation === "portrait" ? 1 : 0 },
         top: { value: new THREE.Color(palette.stops[0]) },
         middle: { value: new THREE.Color(palette.stops[1]) },
         bottom: { value: new THREE.Color(palette.stops[2]) },
@@ -189,6 +197,8 @@ function buildStudio(
         }
       `,
       fragmentShader: `
+        uniform vec3 stageWash;
+        uniform float portrait;
         uniform vec3 top;
         uniform vec3 middle;
         uniform vec3 bottom;
@@ -201,7 +211,9 @@ function buildStudio(
           vec3 tint = y < 0.55
             ? mix(top, middle, y / 0.55)
             : mix(middle, bottom, (y - 0.55) / 0.45);
-          gl_FragColor = vec4(tint, 1.0);
+          float wash = smoothstep(0.35, 0.44, y) * (1.0 - smoothstep(0.44, 0.52, y));
+          wash *= 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - 0.43));
+          gl_FragColor = vec4(mix(tint, stageWash, portrait * 0.035 * wash), 1.0);
           #include <colorspace_fragment>
           // Repeat a 4px Bayer matrix at fixed screen coordinates. Apply the
           // bias in sRGB so it spans one 8-bit quantization interval.
@@ -229,9 +241,10 @@ function buildStudio(
   wash.renderOrder = 1;
   scene.add(wash);
 
-  const pedestalMaterial = new THREE.MeshStandardMaterial({
+  // Bake the shallow side shading into the geometry so the palette's slate
+  // body and rim stay legible outside the scene's key light.
+  const pedestalMaterial = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    roughness: 0.82,
     fog: false,
   });
   const { pedestalRadius, pedestalHeight } = layout;
@@ -356,10 +369,13 @@ function buildStudio(
       );
     }
 
+    const nearBarScale = foregroundSpectrumScale(layout, pose);
     for (const [bin, block] of layout.ring.entries()) {
       const energy = (envelopes[offset + 2 + bin] ?? 0) * motion.audio;
-      const height = spectrumBarHeight(pose, block, energy);
-      bar.scale.y = height;
+      const maximum = spectrumBarHeight(pose, block, energy);
+      const scale = nearBarScale(block, maximum);
+      const height = maximum * scale;
+      bar.scale.set(scale, height, scale);
       bar.position.set(block.x, block.baseY + height / 2, block.z);
       bar.updateMatrix();
       bars.setMatrixAt(bin, bar.matrix);

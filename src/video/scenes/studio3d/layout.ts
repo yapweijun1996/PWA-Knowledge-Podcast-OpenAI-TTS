@@ -26,6 +26,13 @@ export function studioLayout(width: number, height: number) {
   const barWidth = portrait ? 0.05 : 0.129;
   const ringWidth = portrait ? 1.21 : 3.61;
   const ringDepth = 1.24 * (portrait ? 0.55 : 1);
+  const pedestalBounds = [-hostX, hostX].map((x) =>
+    [-pedestalRadius, pedestalRadius].flatMap((dx) =>
+      [-pedestalRadius, pedestalRadius].flatMap((z) =>
+        [floorY, floorY + pedestalHeight].map((y) => [x + dx, y, z] as const),
+      ),
+    ),
+  );
   const ring = Array.from({ length: spectrumBins }, (_, index) => {
     const angle = (2 * Math.PI * index) / spectrumBins;
     const x = ringWidth * Math.cos(angle);
@@ -33,9 +40,11 @@ export function studioLayout(width: number, height: number) {
     const bias = (1 + Math.cos(angle)) / 2;
     const depth = z / ringDepth;
     const foreground = Math.max(0, depth);
-    const heightCap = portrait
-      ? 0.022 + (0.055 - 0.022) * Math.max(0, -depth)
-      : 0.055 * (1 - 0.36 * foreground);
+    const heightCap = depth >= 0
+      ? 0.012
+      : portrait
+        ? 0.022 + 0.033 * -depth
+        : 0.055;
     // Raise the landscape front arc to clear the chips through the camera path.
     // Portrait has room to lower the arc and separate it from the pedestals.
     const baseY = floorY + (portrait ? -0.035 : 0.28) * foreground;
@@ -68,6 +77,7 @@ export function studioLayout(width: number, height: number) {
     floorY,
     pedestalHeight,
     pedestalRadius,
+    pedestalBounds,
     barWidth,
     ringWidth,
     ringDepth,
@@ -119,6 +129,36 @@ export function spectrumBarHeight(
 }
 
 const unit = (value: number) => Math.max(0, Math.min(1, value));
+
+function projectedBounds(layout: StudioLayout, pose: CameraPose, corners: readonly Point[]) {
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const corner of corners) {
+    const [x, y] = projectStagePoint(layout, pose, corner);
+    left = Math.min(left, x);
+    top = Math.min(top, y);
+    right = Math.max(right, x);
+    bottom = Math.max(bottom, y);
+  }
+  return { left, top, right, bottom };
+}
+
+/** Preserve a 0.015H gap between near spectrum bars and the two podiums. */
+export function foregroundSpectrumScale(layout: StudioLayout, pose: CameraPose) {
+  const pedestals = layout.pedestalBounds.map((corners) => projectedBounds(layout, pose, corners));
+  return (block: StudioLayout["ring"][number], height: number) => {
+    if (block.z < 0) return 1;
+    const corners = block.baseCorners.flatMap(([x, y, z]) => [[x, y, z], [x, y + height, z]] as const);
+    const bar = projectedBounds(layout, pose, corners);
+    let clearance = Infinity;
+    for (const pedestal of pedestals) {
+      const horizontal = Math.max(pedestal.left - bar.right, bar.left - pedestal.right);
+      const vertical = Math.max(pedestal.top - bar.bottom, bar.top - pedestal.bottom);
+      clearance = Math.min(clearance, Math.max(horizontal * layout.aspect, vertical));
+    }
+    // Taper the bar near the clearance limit to avoid pop-in as the camera moves.
+    return unit((clearance - 0.015) / 0.012);
+  };
+}
 
 export const orbScaleAt = (
   energy: number,

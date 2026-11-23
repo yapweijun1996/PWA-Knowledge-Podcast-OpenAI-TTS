@@ -18,7 +18,7 @@ const opening = /^[\p{Ps}\p{Pi}]/u;
 const closing = /^[\p{Pe}\p{Pf},.!?:;%、。，．・：；？！…]/u;
 const housingPhrase = /\u7ec4\u5c4b\u91cc/gu;
 const captionPhrases =
-  /\u65b0\u52a0\u5761\u7684\u7ec4\u5c4b\u91cc|\u8bb2\u7406\u5ff5|\u697c\u680b/gu;
+  /\u65b0\u52a0\u5761\u7684\u7ec4\u5c4b\u91cc|\u8bb2\u7406\u5ff5|\u5f71\u54cd\u4e70\u5356|\u697c\u680b|\u90bb\u91cc/gu;
 const clauseEnd = /[.!?。！？；;，,、：][\p{Pe}\p{Pf}"']*$/u;
 const sentenceEnd = /[.!?。！？][\p{Pe}\p{Pf}"']*$/u;
 const abbreviation = /\b(?:(?:[A-Z]\.){2,}|e\.g\.|i\.e\.|etc\.)/gu;
@@ -26,6 +26,9 @@ const finalAbbreviation =
   /\b(?:(?:[A-Z]\.){2,}|e\.g\.|i\.e\.|(?:etc|Mr|Ms|Mrs|Dr|Prof|St)\.)[\p{Pe}\p{Pf}"']*$/u;
 const functionWord =
   /[\u7684\u5730\u5f97\u4e86\u7740\u8fc7\u548c\u4e0e\u5728\u5bf9\u628a\u88ab\u4ece\u5411\u4e3a\u4ee5\u53ca\u6216\u800c]\p{M}*$/u;
+// Prefer keeping a restricting adverb with a preceding verb phrase when
+// another balanced line break is available.
+const dependentAdverb = /^[\u53ea\u4e5f\u90fd\u5c31\u624d\u8fd8\u518d\u53c8]/u;
 const finalParticle = /^[\u5462\u5417\u5427\u554a\u561b\u5566]/u;
 const numberWithUnit =
   /(?:[$£€¥]|(?:S|US)\$)?\p{Nd}+(?:[.,．，]\p{Nd}+)*(?: ?(?:公里|公斤|千克|厘米|毫米|分钟|小时|平方米|平方公里|毫升|°[CF]|[%％°℃℉元年月日米秒克吨]|(?:km\/h|m\/s|mm|cm|km|kg|mg|ml|kWh|Hz|MHz|GB|MB|USD|SGD|MYR|m|g|s|h)\b))?/gu;
@@ -107,6 +110,7 @@ type WrapOptions = {
   locale?: string;
   limits?: TextLimits;
   keepTogether?: readonly string[];
+  preferClauses?: boolean;
   total?: { cjk: number; latinWords: number };
 };
 
@@ -377,6 +381,12 @@ function layout(
   }
 
   const penalty = Math.max(1, maxWidth ** 2);
+  const endsClause = (line: Line) =>
+    clauseEnd.test(line.text) && !finalAbbreviation.test(line.text);
+  const strandsAdverb = (line: Line) =>
+    eastAsian.test(line.text.at(-1) ?? "") &&
+    !endsClause(line) &&
+    dependentAdverb.test(text.slice(points[line.end]));
   const lineCost = (line: Line) =>
     line.slack + (extra.has(points[line.end]) ? penalty : 0);
 
@@ -388,17 +398,15 @@ function layout(
     };
     const best: (PageSolution | undefined)[] = [];
     const badBreak = (line: Line) =>
-      Number(line.end < last && functionWord.test(line.text));
+      Number(line.end < last && (functionWord.test(line.text) || strandsAdverb(line)));
     const wordBreak = (line: Line) => Number(extra.has(points[line.end]));
     for (let start = last - 1; start >= 0; start--) {
       function consider(lines: Line[], line: Line) {
         const tail = best[line.end];
         if (line.end < last && !tail) return;
-        const endsClause =
-          clauseEnd.test(line.text) && !finalAbbreviation.test(line.text);
         const score = [
           lines.reduce((sum, item) => sum + badBreak(item), 0),
-          Number(line.end < last && !endsClause),
+          Number(line.end < last && !endsClause(line)),
           lines.reduce((sum, item) => sum + wordBreak(item), 0),
           1,
           lines.reduce((sum, item) => sum + item.slack, 0) +
@@ -456,7 +464,13 @@ function layout(
       if (line.end < last && !tail) continue;
       const count = 1 + (tail?.count ?? 0);
       const orphan = tail?.orphan ?? line.finalOrphan;
-      const cost = lineCost(line) + (tail?.cost ?? 0);
+      const awkwardBreak =
+        options.preferClauses && line.end < last && eastAsian.test(line.text) &&
+        !endsClause(line);
+      const cost =
+        lineCost(line) + (tail?.cost ?? 0) +
+        (awkwardBreak ? penalty / 2 : 0) +
+        (options.preferClauses && strandsAdverb(line) ? penalty : 0);
       const before = best[start];
       if (
         !before ||

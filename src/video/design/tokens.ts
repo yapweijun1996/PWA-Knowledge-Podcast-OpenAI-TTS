@@ -35,7 +35,7 @@ export const designTokens = {
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .25, .78, .445],
+    chapterBox: [.08, .27, .78, .445],
     stageBox: [.09, .17, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
