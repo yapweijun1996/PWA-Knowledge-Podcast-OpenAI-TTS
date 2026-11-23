@@ -390,8 +390,10 @@ dropped from the critical path.
   render, export) behind one `AgentBridge` interface; it needs no server and
   works today. (2) An optional pi bridge: pi 1.5.2 is installed locally and
   offers `--mode rpc` and extensions; a small loopback bridge on 127.0.0.1
-  would connect pi to the same `AgentBridge`. Whether pi's RPC mode can drive
-  this bridge is **UNVERIFIED**; T39 starts with a spike. The in-page agent
+  would connect pi to the same `AgentBridge`. A no-cost spike on 2026-11-23 proved pi `--mode rpc` plus a loopback
+  WebSocket extension can reach a real browser page (see
+  [docs/PI-BRIDGE.md](docs/PI-BRIDGE.md)); model-initiated tool calls over that
+  path are still **UNVERIFIED**. The in-page agent
   works within browser limits (the BYOK key, the browser sandbox, no
   filesystem); "no limitation" is not achievable literally, so each tool is
   explicit and bounded. Acceptance: mock-provider tests, cost disclosure and

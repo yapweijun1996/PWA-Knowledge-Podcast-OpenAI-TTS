@@ -104,8 +104,9 @@ Decision (manager, 2026-11-23): a page cannot spawn the local `pi` CLI, so the
 agent is built in two layers. First, a native in-page agent loop on the OpenAI
 Responses API with explicit, logged tools behind an `AgentBridge` interface; it
 works with no server. Second, an optional loopback bridge so the installed pi
-(1.5.2, with `--mode rpc` and extensions) can drive the same interface. Pi's
-RPC suitability is **UNVERIFIED** and T39 begins with a spike. The agent works
+(1.5.2, with `--mode rpc` and extensions) can drive the same interface. A spike on 2026-11-23 showed a pi extension with a loopback WebSocket can
+drive a real browser page ([PI-BRIDGE.md](PI-BRIDGE.md)); model-initiated tool
+calls are still **UNVERIFIED**. The agent works
 within browser limits; "no limitation" is not achievable literally.
 
 ### M4. Optional worker and Godot (T40, T41)
