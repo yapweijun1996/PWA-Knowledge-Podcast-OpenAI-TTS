@@ -121,6 +121,22 @@ spectrum.
   isolation requirements if using a threaded build. If testing local worker
   ffmpeg, confirm installation and media handoff with the same fixture.
 
+## Desktop Safari rendering
+
+Safari 27.2 on macOS 27.2 rendered the local 10-second 1920×1080 fixture at
+30 fps to H.264 and AAC. The bundled fonts loaded, the native media element
+played and sought to 3 seconds, and the render took about 2.1 seconds on
+that Mac. The fixture used no production service or provider key. The
+original Safari encoder could return a timestamp one microsecond earlier
+than requested. The muxer preserves the source frame clock and rejects
+larger discrepancies. [Timestamp test](../tests/video-render.test.mjs)
+
+The Studio prefers a dedicated OffscreenCanvas worker when the browser
+supports its drawing, encoding and font APIs. The existing renderer on the
+page is the fallback for browsers without that combination. Browser tests
+cover MP4 playback, cancellation, and a rejected storage transaction that
+preserves the last approved export. [Browser checks](../tests/factory-video.browser.ts)
+
 ## Real browser findings 2026-11-23
 
 On the owner's Mac, Chrome 158 (headed and headless) and Playwright Chromium

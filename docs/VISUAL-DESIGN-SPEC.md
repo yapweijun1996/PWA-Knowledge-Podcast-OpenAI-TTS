@@ -123,7 +123,7 @@ Blend the three stops at `0`, `.55`, and `1` in linear-light RGB, then write sRG
 | `sunset` | `#17101A` · `#3B202B` · `#291829` | `#FFD08A` | `#E587AD` | `#F5F7FC` / `#C4CDDE` | `#101522` / `#687B96` |
 | `mono` | `#101216` · `#272B33` · `#1C1E25` | `#F2F4F8` | `#A4ACBC` | `#F5F7FC` / `#C4CDDE` | `#101522` / `#687B96` |
 | `ocean` | `#081421` · `#142C4B` · `#10263B` | `#A4EEFF` | `#91A6FF` | `#F5F7FC` / `#C4CDDE` | `#101522` / `#687B96` |
-| `light` | `#F6F3EC` · `#DFEAF4` · `#F5F4FA` | `#00392E` | `#6150AE` | `#172238` / `#46536B` | `#F8FAFF` / `#69788D` |
+| `light` | `#F6F3EC` · `#DFEAF4` · `#F5F4FA` | `#00392E` | `#6150AE` | `#172238` / `#344158` | `#F8FAFF` / `#69788D` |
 
 | Palette | Worst contrast across stops and plate, ink / secondary / A / B | Ink on plate | A/B luminance separation, original / protanopia / deuteranopia / tritanopia |
 |---|---|---|---|
@@ -131,7 +131,7 @@ Blend the three stops at `0`, `.55`, and `1` in linear-light RGB, then write sRG
 | `sunset` | 13.73 / 9.20 / 10.26 / 5.89 | 17.00 | 1.74 / 1.84 / 1.69 / 1.64 |
 | `mono` | 13.24 / 8.88 / 12.89 / 6.22 | 17.00 | 2.07 / 2.05 / 2.09 / 2.07 |
 | `ocean` | 13.14 / 8.81 / 10.90 / 6.10 | 17.00 | 1.79 / 1.79 / 1.78 / 1.75 |
-| `light` | 13.02 / 6.35 / 10.59 / 5.27 | 15.21 | 2.01 / 2.01 / 2.03 / 2.04 |
+| `light` | 13.02 / 8.43 / 10.59 / 5.27 | 15.21 | 2.01 / 2.01 / 2.03 / 2.04 |
 
 I computed these ratios in JavaScript using WCAG’s sRGB linearization, `L = .2126R + .7152G + .0722B`, and `(Llighter + .05) / (Ldarker + .05)`. For example, `#F5F7FC` has `L ≈ .9296`, and ocean’s brightest stop `#142C4B` has `L ≈ .0246`, giving `13.14:1`. All rendered text must clear **4.5:1**. Apply that floor to large text and the wordmark as well. The table measures source colours. Sample composited and decoded video frames for the release check. [WCAG 2.2 contrast definition](https://www.w3.org/TR/WCAG22/#dfn-contrast-ratio) and [contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html), accessed 2026-11-23.
 
