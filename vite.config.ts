@@ -1,28 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { contentSecurityPolicy } from "./config/csp.ts";
 import { studioBase } from "./shared/factory.ts";
 
 // GitHub Pages cannot set response headers. Enforce this policy in built HTML;
 // Vite's development server needs its own injected styles and HMR connection.
-const contentSecurityPolicy = (privateBuild: boolean) =>
-  [
-    "default-src 'none'",
-    "base-uri 'none'",
-    "object-src 'none'",
-    "frame-src 'none'",
-    "form-action 'none'",
-    "script-src 'self'",
-    "style-src 'self'",
-    "img-src 'self' data: blob:",
-    "font-src 'self'",
-    privateBuild
-      ? "connect-src 'self' blob:"
-      : "connect-src 'self' https://api.openai.com blob:",
-    "media-src 'self' blob: mediastream:",
-    "worker-src 'self'",
-    "manifest-src 'self'",
-  ].join("; ");
-
 export default defineConfig(({ mode }) => ({
   base: studioBase,
   build: { outDir: mode === "private" ? "dist-private" : "dist" },
@@ -38,7 +20,7 @@ export default defineConfig(({ mode }) => ({
             tag: "meta",
             attrs: {
               "http-equiv": "Content-Security-Policy",
-              content: contentSecurityPolicy(mode === "private"),
+              content: contentSecurityPolicy(),
             },
             injectTo: "head-prepend",
           },
