@@ -100,9 +100,10 @@ function orbMaterial(color: THREE.Color, faceted: boolean) {
     flatShading: faceted,
     fog: false,
   });
-  const rim = { value: 0.18 };
+  const rim = { value: 0 };
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.studioRimStrength = rim;
+    shader.uniforms.studioRimEmphasis = rim;
+    shader.uniforms.studioRimAccent = { value: color };
     // Use the radial normal for rim placement so B keeps its shaded facets
     // and still has a continuous silhouette accent.
     shader.vertexShader = shader.vertexShader
@@ -118,12 +119,16 @@ function orbMaterial(color: THREE.Color, faceted: boolean) {
       .replace("#include <common>", `
         #include <common>
         varying vec3 studioRadial;
-        uniform float studioRimStrength;
+        uniform float studioRimEmphasis;
+        uniform vec3 studioRimAccent;
       `)
       .replace("#include <opaque_fragment>", `
         float facing = max(0.0, dot(normalize(studioRadial), normalize(vViewPosition)));
-        float rimMask = smoothstep(0.48, 0.82, 1.0 - facing);
-        outgoingLight = mix(outgoingLight, emissive, rimMask * studioRimStrength);
+        float rimMask = smoothstep(0.45, 0.72, 1.0 - facing);
+        vec3 idleRim = 0.58 * studioRimAccent;
+        vec3 activeRim = mix(studioRimAccent, vec3(1.0), 0.38);
+        vec3 rimColor = mix(idleRim, activeRim, studioRimEmphasis);
+        outgoingLight = mix(outgoingLight, rimColor, rimMask);
         #include <opaque_fragment>
       `);
   };
@@ -335,7 +340,7 @@ function buildStudio(
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
       orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
-      rim.value = 0.18 + 0.72 * emphasis;
+      rim.value = emphasis;
       bandMaterial.color
         .copy(orb.material.emissive)
         .multiplyScalar(0.57 + 0.33 * emphasis);

@@ -62,7 +62,6 @@ export default [
   ["publish.thumbnail.variantTopicGraphic", "Topic graphic"],
   ["publish.thumbnail.variantHostPair", "Host pair"],
   ["publish.thumbnail.variantHeadline", "Headline"],
-  ["publish.thumbnail.wordmark.studio", "Podcast Studio"],
   ["publish.thumbnail.untitledHeadline", "Untitled episode"],
   ["publish.thumbnail.housingHeadline", "How HDB Mixes Neighbours"],
   ["publish.thumbnail.housingClaim", "HDB Integration by Design"],

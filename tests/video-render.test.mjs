@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
-import { t } from "../src/i18n/index.ts";
+import { setLocale, t } from "../src/i18n/index.ts";
 import { drawFrame } from "../src/video/draw.ts";
 import { renderVideo } from "../src/video/render.ts";
 import { registerScene } from "../src/video/scenes/registry.ts";
@@ -107,6 +107,31 @@ function recordingContext() {
     },
   };
 }
+
+test("renders the timeline's episode wordmark independently of the UI language", async () => {
+  try {
+    setLocale("ms");
+    for (const [language, captionLocale, expected, showName] of [
+      ["zh", "zh-CN", "播客工作室"],
+      ["en", "en", "Podcast Studio"],
+      ["ms", "ms", "Studio Podkes"],
+      ["sg", "zh-CN", "Podcast Studio"],
+      ["zh", "zh-CN", "Fixture Studio", "Fixture Studio"],
+    ]) {
+      const episode = { topic: "Fixture episode", revision: 1, language };
+      const timeline = buildTimeline(episode, { fps: 4, showName });
+      assert.equal(timeline.locale, captionLocale);
+      const { deps, trace } = fakeDependencies();
+      await renderVideo({ plan: timeline, audio, theme: "dark", deps });
+      assert.equal(
+        trace.frames[0].calls.find(([kind]) => kind === "text")[3],
+        expected,
+      );
+    }
+  } finally {
+    setLocale("zh-CN");
+  }
+});
 
 function fakeDependencies({
   videoSupport = ({ codec }) => codec.startsWith("avc1."),
@@ -356,26 +381,26 @@ test("waveform drawing snapshot covers the live opening, chapter overlay and ret
       createHash("sha256").update(JSON.stringify(calls)).digest("hex"),
     ),
     [
-      "aa273daf78c8fcc7f7c23e61ae07cbc9fc4070da4597552f9667d64aca43bb89",
-      "1363e473a13d8a737a3d5edf743da862e87ef61816251f02ae80b0adc6d20246",
-      "497b5896a1afc0f701b47b31c11d73aad26b02f0efbe9043301248ad178bd490",
-      "bc64cc9d1cbc78995268f510cd921af822c8503204c990c8b53e159dedf6858a",
-      "b0e6de8fa14b7dfd94479b2af8b75c12d2981555606126f40fa28ccdf816ade6",
-      "805d51e568a36567553b168c3c7fc04272077d1965cb9fc285bf85d47451c103",
-      "0cc3515320e2f75c5ce327f10db743a0bb3f2391ecc910a87a8acae70c92c65d",
-      "4f9bcf4d50fbafc4ccb5fbbf79e9425e8bbae0b9498c81e034f330395cc5f82a",
-      "02e6204efe11a423bf1478f9b68edeb84541780488638fd82257e02926adfe57",
-      "a5be20de0458f383d9b60b4928e97aabf3ec1ca8cb30bf14a92f05148d5ca1ea",
-      "05a7a68cae192b2e7fc7c1a36aa8de1186d99876338775ec7b360a119fdee926",
-      "2b464adf12f90203628daa3ee462c80c0541c1a025b8696a5d83ec8762ff2b96",
-      "48098801a5727b179c9b80561c4efc305faccb345abce55cd2d9e2170b80f0b8",
-      "af57b4f7cf4056c5ebdd864341fa2ff5507eb5ef9b8f2c1e4938585291f1c2fb",
-      "5c9720935c327e2136ba4c8240c4ba525f624574d03875091aa8019db1b98f29",
-      "792266b76f8ea4450aa167f5b7d1174c4a08fa12a7a1aa0796ab5f1391badd80",
-      "44a66617d286acb7e9c6b512759b4a3b6cb04bddece84071222dcacc8809780e",
-      "74c8897136117610d0b62da5854fcf25bace93851e439129b47ecdb46d776222",
-      "6f0da04444a7fd11a1d08411e8ecf142c032baab75eeb45f06dc2c806f03ab54",
-      "8c1b34b2aedb640fba7faf86c93f2bb9f18d27927cb12ed01e97aa57a0eb7814",
+      "11b81dd1f60a47249eb754e33298c4aab150e327b8ea0bcbc7723643ad81595c",
+      "adea840e04b073072e29b4d84f6f0808d72e4a41d90b172be2489a0bf7442802",
+      "8daaee83bf0e06275d5118f6426d0f94ea13d3835d2d1289e9cefd1f59d3e3e2",
+      "6ed40143723c35406ec8b9767b1531b2f19722046205d58bb4bd93a7d18b7396",
+      "9a56d9779dbe9ceeb46e7ea2b82bb423c1557eb31304d90aa0d53f4ed928f5a4",
+      "1300615c43d2f4e8f76b14e3efc36fa10e4cb4b86e9608c90166d039f067522e",
+      "0b55460ddb57d414b5a5a11d51b8aa9c3b5689530d5f6f8e3a2bc2653e185c94",
+      "9a5119a0a7eaacf1847dbba3089f75514bee25c2745669f8a3aabd4a02f21b6f",
+      "5908dc33c5832f75adb6b3852cad408a78d54aacb8d92f66cc06948b68ffecaa",
+      "a524c7b28d5c46cc77736e8e591bcfc0ca39ed438f277d3c866bf2d8ddb593f0",
+      "7fa4857ce48477fedbdb877996ba0769684ff95025c85e3c3948ed90c1988b56",
+      "3817b7a00cb7d75396a3d622f775da14ed7f9645226fe1acd303c898e39620c9",
+      "5a6c4487a5f83b043ea4fd174da522a4bcc05c260ebd3ebe929a212f4189fb7e",
+      "0ff517924e567fea26fa11a66df4d6865450c312b2e24187cae35981b753fd74",
+      "4a1db43e8285499a237c194074c438b9d2d236060aa6f0831ec47d5978b39469",
+      "e59dd0f6fed3f9cc92a8c2831d7bd69fbef6187bc3c7636a20fa4596f148c9f5",
+      "98b64c21402286d1a94a6dd59a8f198a45b4bb4027e123131e19dde3061bd0d5",
+      "91c851ff4b2260472b4e0d9ece4d61fcb05dd8b2decf59704667c8c496f72f08",
+      "77d1823867cd74f364391ca099c84fc380cd5948fcde86a00d154e9cd9df90eb",
+      "1d2bf861d66c07088a72c7ba0326e59862a8f0949b27075e590bebbd72e55034",
     ],
   );
 });

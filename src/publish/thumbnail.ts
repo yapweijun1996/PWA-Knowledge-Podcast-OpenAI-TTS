@@ -51,7 +51,7 @@ export const thumbnailDesign = {
   headlineSizeH: 0.136,
   headlineMinSizeH: 0.119,
   headlineLeading: 1.1,
-  wordmarkSizeH: designTokens.landscape.typeH.wordmark,
+  wordmarkSizeH: designTokens.common.thumbnailWordmarkSizeH,
   accentRuleY: 0.33,
   accentRuleH: 0.009,
   accentRuleGapH: 0.03,
@@ -357,9 +357,7 @@ function prepareThumbnail(options: ThumbnailOptions) {
   const wordmarkLocale = options.language
     ? publishLocales[options.language]
     : locale;
-  const defaultWordmark = createTranslator(wordmarkLocale)(
-    "publish.thumbnail.wordmark.studio",
-  );
+  const defaultWordmark = createTranslator(wordmarkLocale)("video.wordmark");
   const headline =
     options.headline ??
     deriveThumbnailHeadline(
@@ -548,7 +546,10 @@ function drawPreparedThumbnail(
 
     const [left, top] = thumbnailDesign.inset;
     const wordmarkSize = thumbnailDesign.wordmarkSizeH * height;
-    ctx.font = videoFont(designTokens.common.weight.wordmark, wordmarkSize);
+    ctx.font = videoFont(
+      designTokens.common.weight.thumbnailWordmark,
+      wordmarkSize,
+    );
     const maxWordmarkWidth = width * designTokens.common.wordmarkMaxWidthW[0];
     const safeLabel =
       ctx.measureText(wordmark).width <= maxWordmarkWidth

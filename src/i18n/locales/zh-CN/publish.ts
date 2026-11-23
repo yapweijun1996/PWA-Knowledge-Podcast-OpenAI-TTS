@@ -50,7 +50,6 @@ export default [
   ["publish.thumbnail.variantTopicGraphic", "主题插图"],
   ["publish.thumbnail.variantHostPair", "双主持人"],
   ["publish.thumbnail.variantHeadline", "主标题"],
-  ["publish.thumbnail.wordmark.studio", "播客工作室"],
   ["publish.thumbnail.untitledHeadline", "未命名播客节目"],
   ["publish.thumbnail.housingHeadline", "组屋如何混居"],
   ["publish.thumbnail.housingClaim", "组屋混居并非偶然"],

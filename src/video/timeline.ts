@@ -1,5 +1,6 @@
 import type { Episode, Host } from "../../shared/factory.ts";
-import { t } from "../i18n/index.ts";
+import { t, type Locale } from "../i18n/index.ts";
+import { publishLocales } from "../publish/thumbnail-headline.ts";
 import {
   displayTextCounts,
   displayWordCount,
@@ -70,6 +71,8 @@ export type TimelinePlan = {
   hostNames?: Partial<Record<Host, string>>;
   showName?: string;
   locale?: string;
+  /** Branding follows the episode even when mixed-script captions use another locale. */
+  wordmarkLocale?: Locale;
   paletteId?: PaletteId;
   mood?: VideoMood;
   transition?: Transition;
@@ -351,6 +354,7 @@ export function buildTimeline(
     chapters: [],
     chapterWindows: [],
     locale,
+    wordmarkLocale: publishLocales[episode.language] ?? "en",
     ...(options.showName === undefined ? {} : { showName: options.showName }),
     ...(options.paletteId === undefined
       ? {}

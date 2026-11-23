@@ -7,6 +7,7 @@ import { designTokens } from "../src/video/design/tokens.ts";
 import { videoFont } from "../src/video/fonts/loader.ts";
 import { overlayCopy, prepareOverlay } from "../src/video/overlay.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
+import { flashAnalysis, flashAssessment } from "./fixtures/visual-qa.ts";
 
 const close = (a, b) =>
   assert.ok(Math.abs(a - b) < 1e-8, `${a} is not close to ${b}`);
@@ -94,7 +95,7 @@ for (const [
     close(layout.marker, 0.018 * height);
     close(
       layout.type.wordmark,
-      (orientation === "landscape" ? 0.022 : 0.016) * height,
+      (orientation === "landscape" ? 0.028 : 0.021) * height,
     );
     close(bottom(caption), captionBottom);
     close(caption.width, captionWidth);
@@ -304,8 +305,8 @@ test("the wordmark uses the episode catalogue and a fitting show name takes prec
     const overlay = prepareOverlay(context, plan, copy);
     overlay.draw(overlay.frameAt(0), "ocean");
     assert.equal(context.text[0].value, expected);
-    assert.equal(context.text[0].font, videoFont(600, 1080 * 0.022));
-    assert.equal(context.text[0].color, palettes.ocean.secondaryInk);
+    assert.equal(context.text[0].font, videoFont(800, 1080 * 0.028));
+    assert.equal(context.text[0].color, palettes.ocean.ink);
     const branded = prepareOverlay(context, {
       ...plan,
       showName: "Fixture Studio",
@@ -313,5 +314,55 @@ test("the wordmark uses the episode catalogue and a fitting show name takes prec
     context.text.length = 0;
     branded.draw(branded.frameAt(0), "ocean");
     assert.equal(context.text[0].value, "Fixture Studio");
+  }
+});
+
+test("visual QA gates field flashes and reports cell rates as diagnostics", () => {
+  const raw = flashAnalysis(8, 8);
+  const decoded = flashAnalysis(8, 8);
+  const grid = [8, 8];
+  const dark = new Uint8ClampedArray(8 * 8 * 4);
+  const local = dark.slice();
+  local.fill(255, 0, 3);
+  for (let frame = 0; frame <= 30; frame++) {
+    raw.add(frame, Math.floor(frame / 2) % 2 ? local : dark);
+    decoded.add(frame, frame % 2 ? local : dark);
+  }
+  const localResults = flashAssessment({ grid, raw, decoded });
+  assert.deepEqual(localResults.issues, []);
+  assert.deepEqual(
+    localResults.diagnostics.filter(({ kind }) => kind === "general"),
+    [
+      {
+        path: "raw",
+        kind: "general",
+        maxCellFlashesPerSecond: 7,
+        softLimit: 10,
+        exceedsSoftLimit: false,
+      },
+      {
+        path: "decoded",
+        kind: "general",
+        maxCellFlashesPerSecond: 15,
+        softLimit: 10,
+        exceedsSoftLimit: true,
+      },
+    ],
+  );
+
+  const red = dark.map((_, index) => (index % 4 === 0 ? 255 : 0));
+  const bright = dark.map(() => 255);
+  for (const [pixels, expected] of [
+    [bright, ["general"]],
+    [red, ["general", "saturated red"]],
+  ]) {
+    const field = flashAnalysis(8, 8);
+    for (let frame = 0; frame <= 30; frame++)
+      field.add(frame, frame % 2 ? pixels : dark);
+    const { issues } = flashAssessment({ grid, raw: field, decoded });
+    assert.deepEqual(
+      issues.map(({ detail }) => detail.split(" exceeded")[0]),
+      expected.map((kind) => `raw ${kind}`),
+    );
   }
 });

@@ -62,7 +62,6 @@ export default [
   ["publish.thumbnail.variantTopicGraphic", "Ilustrasi topik"],
   ["publish.thumbnail.variantHostPair", "Pasangan hos"],
   ["publish.thumbnail.variantHeadline", "Tajuk utama"],
-  ["publish.thumbnail.wordmark.studio", "Studio Podkes"],
   ["publish.thumbnail.untitledHeadline", "Episod tanpa tajuk"],
   ["publish.thumbnail.housingHeadline", "Kejiranan Bercampur di HDB"],
   ["publish.thumbnail.housingClaim", "Kejiranan HDB Dirancang"],

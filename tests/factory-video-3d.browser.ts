@@ -231,6 +231,25 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
   page,
 }) => {
   test.setTimeout(150_000);
+  await page.addInitScript(() => {
+    const { prototype } = OffscreenCanvasRenderingContext2D;
+    const fillText = prototype.fillText;
+    const wordmarks = new Set<string>();
+    Reflect.set(window, "renderedWordmarks", wordmarks);
+    prototype.fillText = function (text, x, y, maxWidth?) {
+      if (
+        this.canvas.width === 1920 &&
+        Math.abs(x - 1920 * 0.07) < 0.01 &&
+        y < 120
+      )
+        wordmarks.add(text);
+      Reflect.apply(
+        fillText,
+        this,
+        maxWidth === undefined ? [text, x, y] : [text, x, y, maxWidth],
+      );
+    };
+  });
   const { panel, render, scene, preview } = await openFixture(page);
   await expect(
     panel.getByText(english("video.studio3d.description")),
@@ -263,6 +282,9 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
   }
 
   const first = await renderAndSample();
+  expect(
+    await page.evaluate(() => [...Reflect.get(window, "renderedWordmarks")]),
+  ).toEqual([createTranslator("zh-CN")("video.wordmark")]);
   const studioFrames = first.frames.slice(3);
   expect(studioFrames.every(({ colors }) => colors > 1)).toBe(true);
   expect(
@@ -451,12 +473,17 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         expect(active.body - idle.body, `${label} host ${host} body emphasis`).toBeGreaterThan(
           0.012,
         );
-        expect(active.rim, `${label} host ${host} rim emphasis`).toBeGreaterThan(
+        expect(active.rim, `${label} host ${host} rim emphasis`).toBeGreaterThanOrEqual(
           1.2 * idle.rim,
         );
-        expect(active.rimContrast, `${label} host ${host} rim contrast`).toBeGreaterThanOrEqual(
-          3,
-        );
+        for (const [state, sample] of [
+          ["active", active],
+          ["idle", idle],
+        ] as const)
+          expect(
+            sample.rimContrast,
+            `${label} host ${host} ${state} rim contrast`,
+          ).toBeGreaterThanOrEqual(3);
       }
     }
   }

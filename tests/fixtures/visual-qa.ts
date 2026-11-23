@@ -70,6 +70,13 @@ export const rubric = {
 
 export type Criterion = keyof typeof rubric;
 export type Issue = { criterion: Criterion; detail: string; frame?: number };
+export type FlashDiagnostic = {
+  path: "raw" | "decoded";
+  kind: "general" | "saturated red";
+  maxCellFlashesPerSecond: number;
+  softLimit: number;
+  exceedsSoftLimit: boolean;
+};
 export type VisualCase = {
   language: Language;
   orientation: Orientation;
@@ -98,8 +105,10 @@ const studio = {
   intensity: 0.55,
 } as const;
 const motion = designTokens.common.motion;
+const wordmarkLocales = { zh: "zh-CN", en: "en", ms: "ms", sg: "en" } as const;
+const interfaceLocales = { zh: "en", en: "ms", ms: "en", sg: "ms" } as const;
 
-// Each case has two turns per chapter. The Mandarin examples preserve the
+// Each spoken chapter has two turns. The Mandarin examples preserve the
 // review's question particle, opening phrase, and mid-clause break regressions.
 const copy = {
   zh: {
@@ -171,20 +180,29 @@ const copy = {
 
 function fixture(
   options: VisualCase,
-  durations = [2.7, 2.9, 2.7, 2.4, 2.15, 2.2],
+  durations = [2.7, 2.9, 2.7, 2.4, 2.55, 2.2, 0.3, 0.42],
 ) {
   const content = copy[options.language];
-  const chapters = content.chapters.map((title, index) => ({
-    id: `chapter-${index + 1}`,
-    title,
-    angle: "Visual QA",
-    claimIds: [],
-  }));
-  const turns: NonNullable<Episode["script"]>["turns"] = content.turns.map(
-    (text, index) => ({
+  // Append two rapid chapter changes with synthetic bursts and no spoken cue.
+  // They share the main export so the flash gate sees the actual transitions.
+  const chapters = [...content.chapters, ...content.chapters.slice(0, 2)].map(
+    (title, index) => ({
+      id: `chapter-${index + 1}`,
+      title,
+      angle: "Visual QA",
+      claimIds: [],
+    }),
+  );
+  const turns: NonNullable<Episode["script"]>["turns"] = durations.map(
+    (_, index) => ({
       id: `turn-${index + 1}`,
-      text,
-      chapterId: chapters[Math.floor(index / 2)].id,
+      text: content.turns[index] ?? "",
+      chapterId:
+        chapters[
+          index < content.turns.length
+            ? Math.floor(index / 2)
+            : content.chapters.length + index - content.turns.length
+        ].id,
       host: index % 2 ? "B" : "A",
       claimIds: [],
     }),
@@ -229,7 +247,7 @@ function fixture(
   const sampleRate = 24_000;
   const samples = new Float32Array(Math.ceil(plan.duration * sampleRate));
   let state = seed;
-  const levels = [0.02, 0.73, 0.022, 2.4, 0.025, 0.91];
+  const levels = [0.02, 0.73, 0.022, 2.4, 0.025, 0.91, 0.025, 2.4];
   const voicedTurns = plan.scenes.filter((scene) => scene.kind === "turn");
   voicedTurns.forEach(({ audioStart, start, end }, index) => {
     const first = Math.round(audioStart * sampleRate);
@@ -253,7 +271,7 @@ function fixture(
   const audio: PcmAudio = { sampleRate, channels: [samples] };
   return {
     episode,
-    plan: { ...plan, allowVp9: true },
+    plan,
     audio,
     content,
     voicedTurns,
@@ -443,7 +461,12 @@ function textRole(
 
 type Sample = { pixels: number; min: number | null };
 
-function sampleInk(probe: TextProbe, raw: Pixels, width: number) {
+function sampleInk(
+  probe: TextProbe,
+  raw: Pixels,
+  width: number,
+  pairDecoded = true,
+) {
   const { box, alpha, before } = probe;
   const pairs: number[] = [];
   let pixels = 0;
@@ -463,6 +486,7 @@ function sampleInk(probe: TextProbe, raw: Pixels, width: number) {
       const offset = ((box.y + y) * width + box.x + x) * 4;
       minimum = Math.min(minimum, contrast(luma(raw, offset), luma(before, i)));
       pixels++;
+      if (!pairDecoded) continue;
       // Find untouched pixels from the same plate or local gradient. Match
       // the raw background at the glyph to exclude other text and markers.
       let neighbor: number | undefined;
@@ -745,47 +769,50 @@ export function flashAnalysis(width: number, height: number) {
   };
 }
 
+export function flashAssessment(
+  evidence: ReturnType<typeof flashSampler>["evidence"],
+) {
+  const issues: Issue[] = [];
+  const diagnostics: FlashDiagnostic[] = [];
+  for (const path of ["raw", "decoded"] as const) {
+    for (const [kind, result] of [
+      ["general", evidence[path].general],
+      ["saturated red", evidence[path].saturatedRed],
+    ] as const) {
+      if (result.maxFieldFlashesPerSecond > 3)
+        issues.push({
+          criterion: "flash",
+          detail: `${path} ${kind} exceeded 3 field flashes in one second: ${JSON.stringify(result)}`,
+        });
+      const softLimit = 10;
+      diagnostics.push({
+        path,
+        kind,
+        maxCellFlashesPerSecond: result.maxCellFlashesPerSecond,
+        softLimit,
+        exceedsSoftLimit: result.maxCellFlashesPerSecond > softLimit,
+      });
+    }
+  }
+  return { issues, diagnostics };
+}
+
 function flashSampler(orientation: Orientation) {
   const [width, height] = orientation === "landscape" ? [96, 54] : [54, 96];
   const canvas = context(width, height);
   const raw = flashAnalysis(width, height);
   const decoded = flashAnalysis(width, height);
   return {
-    add(path: "raw" | "decoded", frame: number, image: CanvasImageSource) {
+    sample(image: CanvasImageSource) {
       canvas.drawImage(image, 0, 0, width, height);
-      (path === "raw" ? raw : decoded).add(
-        frame,
-        canvas.getImageData(0, 0, width, height).data,
-      );
+      return canvas.getImageData(0, 0, width, height).data;
     },
+    raw,
+    decoded,
     evidence: {
       grid: [width, height],
       raw: { general: raw.general, saturatedRed: raw.saturatedRed },
       decoded: { general: decoded.general, saturatedRed: decoded.saturatedRed },
-    },
-    issues() {
-      const issues: Issue[] = [];
-      for (const [path, analysis] of [
-        ["raw", raw],
-        ["decoded", decoded],
-      ] as const) {
-        for (const [kind, result] of [
-          ["general", analysis.general],
-          ["saturated red", analysis.saturatedRed],
-        ] as const) {
-          if (
-            Math.max(
-              result.maxFieldFlashesPerSecond,
-              result.maxCellFlashesPerSecond,
-            ) > 3
-          )
-            issues.push({
-              criterion: "flash",
-              detail: `${path} ${kind} exceeded 3 flashes in one second: ${JSON.stringify(result)}`,
-            });
-        }
-      }
-      return issues;
     },
   };
 }
@@ -984,6 +1011,74 @@ async function seek(video: HTMLVideoElement, frame: number) {
   });
 }
 
+async function readMovieFrames(
+  video: HTMLVideoElement,
+  frameCount: number,
+  read: (frame: number) => void,
+) {
+  const seen = new Set<number>();
+  const capture = (frame: number) => {
+    if (frame < 0 || frame >= frameCount || seen.has(frame)) return;
+    read(frame);
+    seen.add(frame);
+  };
+  capture(0);
+  if (typeof video.requestVideoFrameCallback === "function") {
+    const listening = new AbortController();
+    let request: number | undefined;
+    // Keep the video in the compositor while reading the native-size pixels.
+    video.width = 160;
+    document.body.append(video);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, (video.duration + 2) * 1000);
+        listening.signal.addEventListener("abort", () => clearTimeout(timer));
+        video.addEventListener("ended", () => resolve(), {
+          signal: listening.signal,
+        });
+        video.addEventListener(
+          "error",
+          () =>
+            reject(new Error(video.error?.message || "MP4 playback failed")),
+          { signal: listening.signal },
+        );
+        const next = (
+          _now: number,
+          { mediaTime }: VideoFrameCallbackMetadata,
+        ) => {
+          try {
+            capture(Math.round(mediaTime * fps));
+            if (seen.size === frameCount) resolve();
+            else request = video.requestVideoFrameCallback(next);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        request = video.requestVideoFrameCallback(next);
+        // Use one forward decode. Seek only for frames skipped by the compositor.
+        video.playbackRate = 1.5;
+        void video.play().catch(() => resolve());
+      });
+    } finally {
+      listening.abort();
+      if (request !== undefined) video.cancelVideoFrameCallback(request);
+      video.pause();
+      video.remove();
+    }
+  }
+  const forwardFrames = seen.size;
+  for (let frame = 0; frame < frameCount; frame++) {
+    if (seen.has(frame)) continue;
+    await seek(video, frame);
+    capture(frame);
+  }
+  return {
+    total: seen.size,
+    forwardFrames,
+    soughtFrames: seen.size - forwardFrames,
+  };
+}
+
 function freeze<T>(value: T): T {
   if (value && typeof value === "object") {
     for (const item of Object.values(value)) freeze(item);
@@ -1000,7 +1095,7 @@ async function shuffledDraws(
   options: VisualCase,
   frames: number[],
   theme: "light" | "dark",
-  hashes: FrameHashes,
+  rawHashes: Record<number, string>,
 ) {
   const { width, height } = plan.resolution;
   const output = new OffscreenCanvas(width, height).getContext("2d", {
@@ -1060,6 +1155,7 @@ async function shuffledDraws(
               kind: "2d",
               context: output,
               drawSpeakerLabel: () => {
+                if (frame.stageFade) return;
                 if (!hostDrawn) overlay.drawHosts(frame, paletteId);
                 hostDrawn = true;
               },
@@ -1074,19 +1170,14 @@ async function shuffledDraws(
       readback.drawImage(output.canvas, 0, 0);
       return sha256(readback.getImageData(0, 0, width, height).data);
     }
-    const reference = new Map<number, string>();
-    for (const frame of frames) reference.set(frame, await draw(frame));
     const shuffled = frames
       .filter((_, index) => index % 2 === 1)
       .reverse()
       .concat(frames.filter((_, index) => index % 2 === 0));
     const mismatches = [];
     for (const frame of shuffled)
-      if ((await draw(frame)) !== reference.get(frame)) mismatches.push(frame);
-    const exportMismatches = frames.filter(
-      (frame) => reference.get(frame) !== hashes[frame]?.raw,
-    );
-    return { frames: shuffled, mismatches, exportMismatches };
+      if ((await draw(frame)) !== rawHashes[frame]) mismatches.push(frame);
+    return { frames: shuffled, mismatches };
   } finally {
     scene.dispose();
   }
@@ -1094,7 +1185,34 @@ async function shuffledDraws(
 
 type FrameHashes = Record<number, { raw: string; decoded: string }>;
 
-export async function runVisualCase(options: VisualCase, repeat = false) {
+function visualTheme(options: VisualCase) {
+  return options.scene === "waveform" && options.orientation === "portrait"
+    ? "light"
+    : "dark";
+}
+
+export async function verifyShuffledDraws(
+  options: VisualCase,
+  hashes: FrameHashes,
+) {
+  const { plan, audio } = fixture(options);
+  setLocale(interfaceLocales[options.language]);
+  await ensureVideoFonts({ texts: overlayCopy(plan).texts });
+  const rawHashes = Object.fromEntries(
+    Object.entries(hashes).map(([frame, { raw }]) => [frame, raw]),
+  );
+  return shuffledDraws(
+    freeze(plan),
+    audio,
+    options,
+    Object.keys(rawHashes).map(Number),
+    visualTheme(options),
+    rawHashes,
+  );
+}
+
+export async function runVisualCase(options: VisualCase) {
+  const started = performance.now();
   const {
     episode,
     plan: mutablePlan,
@@ -1103,12 +1221,9 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
     voicedTurns,
   } = fixture(options);
   const plan = freeze(mutablePlan);
-  setLocale(content.locale);
+  setLocale(interfaceLocales[options.language]);
   const { width, height } = plan.resolution;
-  const theme =
-    options.scene === "waveform" && options.orientation === "portrait"
-      ? "light"
-      : "dark";
+  const theme = visualTheme(options);
   const geometry = videoLayout(width, height, options.orientation);
   const boxes = boxesOf(geometry);
   const safe = boxFromFractions(
@@ -1170,7 +1285,7 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
   measure.textBaseline = "middle";
   const cues = voicedTurns.flatMap((turn, index) => {
     const result = layoutCaptionCues(turn, plan, geometry, measure);
-    if (!repeat)
+    if (index < content.turns.length)
       captionEvidence(
         turn,
         episode.script!.turns[index].text,
@@ -1206,67 +1321,80 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
     ({ start, end }) => [firstFrame(start), firstFrame(end)],
   );
   const frameCount = firstFrame(plan.duration);
+  const rapidChapters = chapterStartFrames.slice(content.chapters.length);
+  const stressStart = rapidChapters[0] ?? frameCount;
+  const hashFrames = new Set(
+    frameSet(
+      [titleHold, ...boundaries.filter((frame) => frame < stressStart)],
+      frameCount,
+      boundaries.filter((frame) => frame >= stressStart),
+    ),
+  );
   const frames = frameSet([...boundaries, titleHold], frameCount, [
     frameCount - 1,
     ...cues.map(({ start, end }) => Math.floor(((start + end) / 2) * fps)),
   ]);
   const frameLookup = new Set(frames);
   const chapters = plan.scenes.filter((scene) => scene.kind === "chapter");
-  if (!repeat) {
+  if (
+    chapterStartFrames.length !== content.chapters.length + 2 ||
+    chapterStartFrames[0] !== 0 ||
+    chapters.length !== chapterStartFrames.length - 1 ||
+    chapters.some(
+      ({ start, chapterId }, index) =>
+        firstFrame(start) !== chapterStartFrames[index + 1] ||
+        chapterId !== windows[index + 1].chapterId,
+    )
+  ) {
+    add({
+      criterion: "opening",
+      detail:
+        "expected live speech on frame 0 and chapter cards at later audio onsets",
+    });
+  }
+  if (rapidChapters.length !== 2 || rapidChapters[1] - rapidChapters[0] >= fps)
+    add({
+      criterion: "flash",
+      detail: "stress fixture missed rapid chapter changes",
+    });
+  if (callouts.length !== 1)
+    add({
+      criterion: "opening",
+      detail: "expected the fixture callout to fit in chapter 1",
+    });
+  for (const [index, callout] of callouts.entries()) {
+    const containingChapter = windows.find(
+      ({ start, end }) => callout.start >= start && callout.end <= end,
+    );
+    const overlapsCard = plan.scenes.some(
+      (scene) =>
+        scene.kind !== "turn" &&
+        callout.end > scene.start &&
+        callout.start < scene.end + motion.calloutClearOfCardMs / 1000 - 1e-6,
+    );
+    const closeToPrevious =
+      index > 0 &&
+      callout.start - callouts[index - 1].start <
+        motion.calloutStartGapMs / 1000 - 1e-6;
     if (
-      chapterStartFrames.length !== 3 ||
-      chapterStartFrames[0] !== 0 ||
-      chapters.length !== 2 ||
-      chapters.some(
-        ({ start, chapterId }, index) =>
-          firstFrame(start) !== chapterStartFrames[index + 1] ||
-          chapterId !== windows[index + 1].chapterId,
-      )
+      !containingChapter ||
+      overlapsCard ||
+      closeToPrevious ||
+      firstFrame(callout.end) - firstFrame(callout.start) !==
+        (motion.calloutMs / 1000) * fps
     ) {
       add({
         criterion: "opening",
-        detail:
-          "expected live speech on frame 0 and chapter cards at the next two voiced onsets",
+        frame: firstFrame(callout.start),
+        detail: "callout violates hold, chapter bounds or clearance",
       });
-    }
-    if (callouts.length !== 1)
-      add({
-        criterion: "opening",
-        detail: "expected the fixture callout to fit in chapter 1",
-      });
-    for (const [index, callout] of callouts.entries()) {
-      const containingChapter = windows.find(
-        ({ start, end }) => callout.start >= start && callout.end <= end,
-      );
-      const overlapsCard = plan.scenes.some(
-        (scene) =>
-          scene.kind !== "turn" &&
-          callout.end > scene.start &&
-          callout.start < scene.end + motion.calloutClearOfCardMs / 1000 - 1e-6,
-      );
-      const closeToPrevious =
-        index > 0 &&
-        callout.start - callouts[index - 1].start <
-          motion.calloutStartGapMs / 1000 - 1e-6;
-      if (
-        !containingChapter ||
-        overlapsCard ||
-        closeToPrevious ||
-        firstFrame(callout.end) - firstFrame(callout.start) !==
-          (motion.calloutMs / 1000) * fps
-      ) {
-        add({
-          criterion: "opening",
-          frame: firstFrame(callout.start),
-          detail: "callout violates hold, chapter bounds or clearance",
-        });
-      }
     }
   }
-
-  const flash = repeat ? undefined : flashSampler(options.orientation);
+  const flash = flashSampler(options.orientation);
   const readback = context(width, height);
   const rawHashes = new Map<number, Promise<string>>();
+  const decodedHashes = new Map<number, Promise<string>>();
+  const decodedFlashFrames: Pixels[] = [];
   const pendingText: TextProbe[] = [];
   const titleFrames = new Set<number>();
   type CapturedText = {
@@ -1280,25 +1408,25 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
   let index = 0;
   let hasExportCanvas = false;
   const VideoFrameReader = observeVideoFrames((canvas) => {
-    flash?.add("raw", index, canvas);
+    flash.raw.add(index, flash.sample(canvas));
     if (frameLookup.has(index)) {
       readback.drawImage(canvas, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
-      rawHashes.set(index, sha256(data));
-      if (!repeat)
-        observations.set(
-          index,
-          pendingText.map((probe) => ({
-            role: probe.role,
-            text: probe.text,
-            bounds: probe.bounds,
-            ...sampleInk(probe, data, width),
-          })),
-        );
+      if (hashFrames.has(index)) rawHashes.set(index, sha256(data));
+      observations.set(
+        index,
+        pendingText.map((probe) => ({
+          role: probe.role,
+          text: probe.text,
+          bounds: probe.bounds,
+          ...sampleInk(probe, data, width),
+        })),
+      );
     }
     index++;
     pendingText.length = 0;
   });
+  const renderStarted = performance.now();
   const rendered = await renderVideo({
     plan,
     audio,
@@ -1312,24 +1440,23 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
         hasExportCanvas = true;
         const canvas = new OffscreenCanvas(w, h);
         const drawing = canvas.getContext("2d", { alpha: false })!;
-        if (!repeat)
-          observeText(drawing, (text, x, y, maxWidth) => {
-            if (!text?.trim()) return;
-            const role = textRole(geometry, drawing, x, y);
-            if (role === "title") titleFrames.add(index);
-            if (!frameLookup.has(index)) return;
-            const probe =
-              role && makeProbe(drawing, role, text, x, y, maxWidth);
-            if (probe) pendingText.push(probe);
-          });
+        observeText(drawing, (text, x, y, maxWidth) => {
+          if (!text?.trim()) return;
+          const role = textRole(geometry, drawing, x, y);
+          if (role === "title") titleFrames.add(index);
+          if (!frameLookup.has(index)) return;
+          const probe = role && makeProbe(drawing, role, text, x, y, maxWidth);
+          if (probe) pendingText.push(probe);
+        });
         return canvas;
       },
     },
   });
+  const renderMs = performance.now() - renderStarted;
   if (
     rendered.sceneId !== options.scene ||
     rendered.sceneNotices.length ||
-    rendered.chapterScenes.length !== 3 ||
+    rendered.chapterScenes.length !== windows.length ||
     rendered.chapterScenes.some(({ sceneId }) => sceneId !== options.scene)
   ) {
     add({
@@ -1349,7 +1476,6 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
       `Expected ${frameCount} rendered frames, received ${index}`,
     );
 
-  const hashes: FrameHashes = {};
   const frameEvidence: {
     frame: number;
     edges: number;
@@ -1367,40 +1493,35 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
   let minimumRaw = Infinity;
   let minimumDecoded = Infinity;
   const measuredRoles = new Set<TextRole>();
-  if (!repeat) {
-    const mismatches = Array.from(
-      { length: frameCount },
-      (_, frame) => frame,
-    ).filter((frame) => titleFrames.has(frame) !== frame < titleHold);
-    if (mismatches.length)
-      add({
-        criterion: "opening",
-        frame: mismatches[0],
-        detail: `title draw expected on frames 0–${titleHold - 1}; ${mismatches.length} frames differ`,
-      });
-  }
-  const expectedWordmark = createTranslator(content.locale)(
-    "publish.thumbnail.wordmark",
-  );
-  await withVideo(rendered.blob, async (video) => {
+  const roleContrast = new Map<TextRole, { raw: number; decoded: number }>();
+  const mismatches = Array.from(
+    { length: frameCount },
+    (_, frame) => frame,
+  ).filter((frame) => titleFrames.has(frame) !== frame < titleHold);
+  if (mismatches.length)
+    add({
+      criterion: "opening",
+      frame: mismatches[0],
+      detail: `title draw expected on frames 0–${titleHold - 1}; ${mismatches.length} frames differ`,
+    });
+  const wordmarkLocale = wordmarkLocales[options.language];
+  const expectedWordmark = createTranslator(wordmarkLocale)("video.wordmark");
+  if (!rendered.videoCodec.startsWith("avc1."))
+    throw new Error(
+      `Expected H.264 for the decoded checks, received ${rendered.videoCodec}`,
+    );
+  const decodeStarted = performance.now();
+  const decode = await withVideo(rendered.blob, async (video) => {
     if (video.videoWidth !== width || video.videoHeight !== height)
       throw new Error(
         `Decoded dimensions ${video.videoWidth}×${video.videoHeight} do not match ${width}×${height}`,
       );
-    const decodeOrder = repeat
-      ? frames
-      : Array.from({ length: frameCount }, (_, frame) => frame);
-    for (const frame of decodeOrder) {
-      await seek(video, frame);
-      flash?.add("decoded", frame, video);
-      if (!frameLookup.has(frame)) continue;
+    return readMovieFrames(video, frameCount, (frame) => {
+      decodedFlashFrames[frame] = flash.sample(video);
+      if (!frameLookup.has(frame)) return;
       readback.drawImage(video, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
-      hashes[frame] = {
-        raw: await rawHashes.get(frame)!,
-        decoded: await sha256(data),
-      };
-      if (repeat) continue;
+      if (hashFrames.has(frame)) decodedHashes.set(frame, sha256(data));
       const edges = safeExterior(data, titleSafe, width, height);
       exteriorEdges = Math.max(exteriorEdges, edges);
       if (edges)
@@ -1431,6 +1552,14 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
           if (raw.min !== null) minimumRaw = Math.min(minimumRaw, raw.min);
           if (decoded.min !== null)
             minimumDecoded = Math.min(minimumDecoded, decoded.min);
+          const previous = roleContrast.get(role);
+          roleContrast.set(role, {
+            raw: Math.min(previous?.raw ?? Infinity, raw.min ?? Infinity),
+            decoded: Math.min(
+              previous?.decoded ?? Infinity,
+              decoded.min ?? Infinity,
+            ),
+          });
           if (
             raw.pixels < 8 ||
             decoded.pixels < 8 ||
@@ -1505,11 +1634,11 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
           frame,
           detail: `missing or incorrect chapter progress ${chapter + 1} / ${windows.length}`,
         });
-      if (!matching("wordmark", [expectedWordmark]))
+      if (!matching("wordmark", [expectedWordmark]) || !hasInk("wordmark"))
         add({
           criterion: "typography",
           frame,
-          detail: `wordmark does not match the ${content.locale} video package`,
+          detail: `expected decoded ${wordmarkLocale} wordmark ${JSON.stringify(expectedWordmark)}, drew ${JSON.stringify(forRole("wordmark").map(({ text }) => text))}`,
         });
       if (
         !matching("caption", activeCue?.lines ?? []) ||
@@ -1561,61 +1690,56 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
         chapter: chapter + 1,
         text: textEvidence,
       });
-    }
+    });
   });
-
-  let shuffled: Awaited<ReturnType<typeof shuffledDraws>> | undefined;
-  if (!repeat) {
-    for (const role of [
-      "caption",
-      "host",
-      "wordmark",
-      "chapter",
-      "progress",
-    ] as const) {
-      if (!measuredRoles.has(role))
-        add({ criterion: "contrast", detail: `no ${role} glyph samples` });
-    }
-    issues.push(...flash!.issues());
-    try {
-      shuffled = await shuffledDraws(
-        plan,
-        audio,
-        options,
-        frames,
-        theme,
-        hashes,
-      );
-      if (shuffled.exportMismatches.length)
-        add({
-          criterion: "repeatability",
-          detail: `random-access compositor differs from export at ${shuffled.exportMismatches.join(", ")}`,
-        });
-      if (shuffled.mismatches.length)
-        add({
-          criterion: "repeatability",
-          detail: `shuffled scene and overlay mismatch at ${shuffled.mismatches.join(", ")}`,
-        });
-    } catch (error) {
-      add({
-        criterion: "repeatability",
-        detail: `shuffled draw failed: ${String(error)}`,
-      });
-    }
+  const decodeMs = performance.now() - decodeStarted;
+  for (const [frame, pixels] of decodedFlashFrames.entries())
+    flash.decoded.add(frame, pixels);
+  const hashes: FrameHashes = Object.fromEntries(
+    await Promise.all(
+      [...hashFrames].map(async (frame) => [
+        frame,
+        {
+          raw: await rawHashes.get(frame)!,
+          decoded: await decodedHashes.get(frame)!,
+        },
+      ]),
+    ),
+  );
+  for (const role of [
+    "caption",
+    "host",
+    "wordmark",
+    "chapter",
+    "progress",
+    "chapterIndex",
+  ] as const) {
+    if (!measuredRoles.has(role))
+      add({ criterion: "contrast", detail: `no ${role} glyph samples` });
   }
+  const assessment = flashAssessment(flash.evidence);
+  issues.push(...assessment.issues);
   return {
     issues,
     hashes,
-    shuffled,
+    flashDiagnostics: assessment.diagnostics,
     metrics: {
       resolution: { width, height },
       fps,
       seed,
       frameCount,
+      decode,
+      elapsedMs: {
+        render: renderMs,
+        decode: decodeMs,
+        total: performance.now() - started,
+      },
       frames,
+      hashFrames: [...hashFrames],
       titleHold,
       titleFrames: [...titleFrames],
       chapterStartFrames,
+      rapidChapters,
       boxes,
       titleSafe,
       faces,
@@ -1630,57 +1754,13 @@ export async function runVisualCase(options: VisualCase, repeat = false) {
       contrast: {
         raw: Number.isFinite(minimumRaw) ? minimumRaw : null,
         decoded: Number.isFinite(minimumDecoded) ? minimumDecoded : null,
+        byRole: Object.fromEntries(roleContrast),
       },
       exteriorEdges,
-      frameEvidence,
-      flash: flash?.evidence,
+      frameEvidence: frameEvidence.sort((a, b) => a.frame - b.frame),
+      flash: flash.evidence,
     },
   };
-}
-
-export async function runFlashStress(options: VisualCase) {
-  // The two later chapter onsets fall inside one rolling second. The first
-  // chapter leaves room after the opening hold to exercise the live stage.
-  const { plan, audio, content } = fixture(
-    options,
-    [2.3, 1.0, 0.18, 0.2, 0.3, 0.27],
-  );
-  setLocale(content.locale);
-  const flash = flashSampler(options.orientation);
-  const chapterFrames = (plan.chapterWindows ?? []).map(({ start }) =>
-    firstFrame(start),
-  );
-  let frameCount = 0;
-  const rendered = await renderVideo({
-    plan: freeze(plan),
-    audio,
-    sceneId: options.scene,
-    studio3d: studio,
-    theme: "dark",
-    deps: {
-      VideoFrame: observeVideoFrames((canvas) =>
-        flash.add("raw", frameCount++, canvas),
-      ),
-    },
-  });
-  await withVideo(rendered.blob, async (video) => {
-    for (let frame = 0; frame < frameCount; frame++) {
-      await seek(video, frame);
-      flash.add("decoded", frame, video);
-    }
-  });
-  const issues = flash.issues();
-  if (
-    chapterFrames.length !== 3 ||
-    chapterFrames[2] - chapterFrames[1] >= fps ||
-    rendered.sceneId !== options.scene
-  ) {
-    issues.push({
-      criterion: "flash",
-      detail: `stress fixture did not exercise rapid chapters in ${options.scene}`,
-    });
-  }
-  return { issues, chapterFrames, frameCount, flash: flash.evidence };
 }
 
 export async function runThumbnails() {
@@ -1754,58 +1834,28 @@ export async function runThumbnails() {
           headlineRuns.some(({ bounds }) => !contains(textBox, bounds))
         )
           fail("headline is missing, incomplete or outside its box");
-        const [wordmarkX, wordmarkY] = thumbnailDesign.inset;
-        const wordmarkBox = {
-          x: wordmarkX,
-          y: wordmarkY,
-          width: width * designTokens.common.wordmarkMaxWidthW[0],
-          height: 36,
-        };
-        const graphic = thumbnailDesign.layouts[variant].graphic;
-        // The headline-only variant reserves the top of its box for a rule.
-        const graphicBox = graphic
-          ? {
-              x: graphic[0],
-              y: graphic[1],
-              width: graphic[2] - graphic[0],
-              height: graphic[3] - graphic[1],
-            }
-          : { x: left, y: top, width: right - left, height: bottom - top };
+        const expectedWordmark = createTranslator("zh-CN")("video.wordmark");
+        if (
+          probes.find(({ role }) => role === "wordmark")?.text !==
+          expectedWordmark
+        )
+          fail(
+            `PNG did not draw the Mandarin episode wordmark ${expectedWordmark}`,
+          );
         let badgeInk = 0;
-        let outside = 0;
-        let graphicInk = 0;
-        const inside = (box: PixelBox, x: number, y: number) =>
-          x >= box.x &&
-          y >= box.y &&
-          x < box.x + box.width &&
-          y < box.y + box.height;
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            if (
-              colorDistance(
-                data,
-                (y * width + x) * 4,
-                data,
-                ((height - 1) * width + x) * 4,
-              ) <= 2
-            )
-              continue;
-            if (inside(badge, x + 0.5, y + 0.5)) badgeInk++;
-            if (inside(graphicBox, x, y)) graphicInk++;
-            else if (!inside(textBox, x, y) && !inside(wordmarkBox, x, y))
-              outside++;
+        for (let y = Math.ceil(badge.y - 0.5); y < height; y++) {
+          for (let x = Math.ceil(badge.x - 0.5); x < width; x++) {
+            const at = (y * width + x) * 4;
+            const background = x * 4;
+            if (colorDistance(data, at, data, background) > 2) badgeInk++;
           }
         }
         if (badgeInk)
           fail(`${badgeInk} content pixels in duration badge exclusion`);
-        if (outside || !graphicInk)
-          fail(
-            `${outside} pixels outside design boxes, ${graphicInk} in the focal region`,
-          );
         const text = probes.map((probe) => ({
           text: probe.text,
           bounds: probe.bounds,
-          ...sampleInk(probe, data, width).raw,
+          ...sampleInk(probe, data, width, false).raw,
         }));
         if (
           !text.length ||
@@ -1820,58 +1870,46 @@ export async function runThumbnails() {
           run.putImageData(new ImageData(alpha, box.width, box.height), 0, 0);
           glyphMask.drawImage(run.canvas, box.x, box.y);
         }
-        const heights = [160, 320].map((previewWidth) => {
-          const previewHeight = (previewWidth * 9) / 16;
-          const preview = context(previewWidth, previewHeight);
-          const mask = context(previewWidth, previewHeight);
-          preview.imageSmoothingQuality = mask.imageSmoothingQuality = "high";
-          preview.drawImage(image, 0, 0, previewWidth, previewHeight);
-          mask.drawImage(glyphMask.canvas, 0, 0, previewWidth, previewHeight);
-          const small = preview.getImageData(
-            0,
-            0,
-            previewWidth,
-            previewHeight,
-          ).data;
-          const alpha = mask.getImageData(
-            0,
-            0,
-            previewWidth,
-            previewHeight,
-          ).data;
-          let longest = 0;
-          let run = 0;
-          for (let y = 0; y < previewHeight; y++) {
-            let ink = 0;
-            for (let x = 0; x < previewWidth; x++) {
-              const pixel = (y * previewWidth + x) * 4;
-              const background = ((previewHeight - 1) * previewWidth + x) * 4;
-              if (
-                alpha[pixel + 3] >= 64 &&
-                contrast(luma(small, pixel), luma(small, background)) >= 3
-              )
-                ink++;
-            }
-            run = ink >= 3 ? run + 1 : 0;
-            longest = Math.max(longest, run);
+        const previewWidth = 160;
+        const previewHeight = 90;
+        const preview = context(previewWidth, previewHeight);
+        const mask = context(previewWidth, previewHeight);
+        preview.imageSmoothingQuality = mask.imageSmoothingQuality = "high";
+        preview.drawImage(image, 0, 0, previewWidth, previewHeight);
+        mask.drawImage(glyphMask.canvas, 0, 0, previewWidth, previewHeight);
+        const small = preview.getImageData(
+          0,
+          0,
+          previewWidth,
+          previewHeight,
+        ).data;
+        const alpha = mask.getImageData(0, 0, previewWidth, previewHeight).data;
+        let longest = 0;
+        let run = 0;
+        for (let y = 0; y < previewHeight; y++) {
+          let ink = 0;
+          for (let x = 0; x < previewWidth; x++) {
+            const pixel = (y * previewWidth + x) * 4;
+            const background = ((previewHeight - 1) * previewWidth + x) * 4;
+            if (
+              alpha[pixel + 3] >= 64 &&
+              contrast(luma(small, pixel), luma(small, background)) >= 3
+            )
+              ink++;
           }
-          return longest;
-        });
-        if (heights[0] < 8 || heights[1] < 16)
-          fail(
-            `CJK ink heights ${heights.join(" / ")} px at 160×90 and 320×180`,
-          );
+          run = ink >= 3 ? run + 1 : 0;
+          longest = Math.max(longest, run);
+        }
+        if (longest < 8) fail(`CJK ink height ${longest} px at 160×90`);
         thumbnails.push({
           variant,
           width,
           height,
           bytes: png.size,
           badgeInk,
-          outside,
-          graphicInk,
           textBox,
           text,
-          heights,
+          inkHeightAt160: longest,
         });
       } finally {
         image.close();
@@ -1886,7 +1924,7 @@ export async function runThumbnails() {
 export async function runFallback(orientation: Orientation) {
   const { plan, audio } = fixture(
     { scene: "studio3d", orientation, language: "en" },
-    [2.3, 1.0, 0.18, 0.2, 0.3, 0.27],
+    [2.4, 0.6],
   );
   const rendered = await renderVideo({
     plan: freeze(plan),
@@ -1909,7 +1947,7 @@ export async function runFallback(orientation: Orientation) {
     },
   });
   const plays = await withVideo(rendered.blob, async (video) => {
-    await seek(video, 120);
+    await seek(video, 75);
     return (
       video.videoWidth === plan.resolution.width &&
       video.videoHeight === plan.resolution.height

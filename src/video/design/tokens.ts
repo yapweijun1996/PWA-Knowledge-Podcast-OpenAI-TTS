@@ -22,7 +22,7 @@ export const designTokens = {
     waveWidthW: .24, waveBarsPerHost: 36, waveMaxHalfHeightH: .058,
     orbCenters: [[.34, .345], [.66, .345]], orbDiameterH: .195,
     typeH: { title: .082, chapter: .059, caption: .050,
-             host: .028, callout: .030, progress: .022, wordmark: .022 },
+             host: .028, callout: .030, progress: .024, wordmark: .028 },
     // max lines, CJK graphemes per line, Latin graphemes per line
     text: { title: [2,10,24], chapter: [2,16,36], caption: [2,16,42],
             host: [1,10,22], callout: [2,18,32], wordmark: [1,10,22] }
@@ -46,14 +46,15 @@ export const designTokens = {
     waveWidthW: .27, waveBarsPerHost: 20, waveMaxHalfHeightH: .039,
     orbCenters: [[.25, .30], [.61, .30]], orbDiameterH: .118,
     typeH: { title: .046, chapter: .036, caption: .032,
-             host: .020, callout: .023, progress: .017, wordmark: .016 },
+             host: .020, callout: .023, progress: .019, wordmark: .021 },
     text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
   },
   common: {
     titleSafe: [.05, .05, .95, .95],
-    weight: { title: 800, chapter: 800, caption: 600, host: 600,
-              callout: 600, progress: 600, wordmark: 600, thumbnail: 800 },
+    weight: { title: 800, chapter: 800, caption: 600, host: 800,
+              callout: 600, progress: 800, wordmark: 800, thumbnail: 800,
+              thumbnailWordmark: 600 },
     leading: { title: 1.14, chapter: 1.16, caption: 1.22, callout: 1.18 },
     letterSpacingEm: { CJK: 0, Latin: 0 },
     radiusH: { caption: .012, callout: .012, host: .014, waveBar: .003 },
@@ -65,6 +66,7 @@ export const designTokens = {
                hostMarker: .003, cardRule: .005 },
     hostMarkerBoxH: .018, hostMarkerGapH: .006, progressLabelGapH: .008,
     wordmarkMaxWidthW: [.24, .33],
+    thumbnailWordmarkSizeH: .022,
     motion: {
       titleMs: [2000, 1500], chapterMs: [1600, 1333],
       cardDecorationInMs: 167, cardDecorationOutMs: 133,

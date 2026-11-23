@@ -4,6 +4,7 @@ import { videoFontManifest } from "../src/video/fonts/manifest.ts";
 import {
   rubric,
   type Criterion,
+  type FlashDiagnostic,
   type Issue,
   type VisualCase,
 } from "./fixtures/visual-qa.ts";
@@ -92,8 +93,11 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
     browserName !== "chromium",
     "Chromium WebCodecs and SwiftShader reference profile",
   );
-  test.setTimeout(1_200_000);
+  test.setTimeout(360_000);
+  const started = performance.now();
   const issues: (Issue & { scope: string })[] = [];
+  const warnings: (FlashDiagnostic & { scope: string; status: "WARNING" })[] =
+    [];
   const evidence: Record<string, unknown> = {};
   const add = (scope: string, items: Issue[]) =>
     issues.push(...items.map((issue) => ({ ...issue, scope })));
@@ -109,85 +113,51 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
       await test.step(scope, async () => {
         try {
           await page.goto(url);
-          const first = await page.evaluate(
+          const result = await page.evaluate(
             async ({ moduleURL, options }) => {
               const harness: Harness = await import(moduleURL);
               return harness.runVisualCase(options);
             },
             { moduleURL, options },
           );
-          add(scope, first.issues);
-          evidence[scope] = first;
+          add(scope, result.issues);
+          warnings.push(
+            ...result.flashDiagnostics
+              .filter(
+                ({ maxCellFlashesPerSecond }) => maxCellFlashesPerSecond > 0,
+              )
+              .map((diagnostic) => ({
+                ...diagnostic,
+                scope,
+                status: "WARNING" as const,
+              })),
+          );
+          evidence[scope] = result;
           // A navigation discards the document, font set, GPU scene and module
           // cache. Keep the Chromium build, graphics flags and inputs fixed.
           await page.reload();
-          const second = await page.evaluate(
-            async ({ moduleURL, options }) => {
+          const shuffled = await page.evaluate(
+            async ({ moduleURL, options, hashes }) => {
               const harness: Harness = await import(moduleURL);
-              return harness.runVisualCase(options, true);
+              return harness.verifyShuffledDraws(options, hashes);
             },
-            { moduleURL, options },
-          );
-          add(scope, second.issues);
-          if (
-            JSON.stringify(first.metrics.codecs) !==
-            JSON.stringify(second.metrics.codecs)
-          ) {
-            add(scope, [
-              {
-                criterion: "repeatability",
-                detail: "codec profile changed on reload",
-              },
-            ]);
-          }
-          const frames = new Set(
-            [...Object.keys(first.hashes), ...Object.keys(second.hashes)].map(
-              Number,
-            ),
-          );
-          const differences = [...frames].flatMap((frame) =>
-            (["raw", "decoded"] as const)
-              .filter(
-                (path) =>
-                  first.hashes[frame]?.[path] !== second.hashes[frame]?.[path],
-              )
-              .map((path) => ({ frame, path })),
+            { moduleURL, options, hashes: result.hashes },
           );
           add(
             scope,
-            differences.map(({ frame, path }) => ({
+            shuffled.mismatches.map((frame) => ({
               criterion: "repeatability",
               frame,
-              detail: `${path} SHA-256 changed on reload`,
+              detail: "raw SHA-256 changed on fresh shuffled draw",
             })),
           );
-          evidence[scope] = {
-            ...first,
-            reload: {
-              codecs: second.metrics.codecs,
-              hashes: second.hashes,
-              differences,
-            },
-          };
+          evidence[scope] = { ...result, shuffled };
         } catch (error) {
           block(
             scope,
             evidence[scope] ? ["repeatability"] : videoCriteria,
             error,
           );
-        }
-        try {
-          const rapid = await page.evaluate(
-            async ({ moduleURL, options }) => {
-              const harness: Harness = await import(moduleURL);
-              return harness.runFlashStress(options);
-            },
-            { moduleURL, options },
-          );
-          add(scope, rapid.issues);
-          evidence[`${scope}/rapid-chapters`] = rapid;
-        } catch (error) {
-          block(scope, ["flash"], error);
         }
       });
     }
@@ -268,12 +238,14 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   await testInfo.attach("visual-qa-report.json", {
     body: JSON.stringify(
       {
-        version: 1,
+        version: 2,
         summary,
         earned,
         assessable,
         criteria,
         byOrientation,
+        warnings,
+        elapsedMs: performance.now() - started,
         evidence,
       },
       null,

@@ -84,6 +84,17 @@ test("mixed cues need additive time and count spaces within Latin runs", () => {
   });
 });
 
+test("flags the café cue when its voiced window is too fast", () => {
+  const cue = {
+    text: "We met in the cafe\u0301 after lunch.",
+    start: 0,
+    end: 2.137,
+  };
+  near(requiredSeconds(cue.text, "en"), 7 / 3);
+  const { flags } = rebalanceCues([cue], { start: cue.start, end: cue.end });
+  assert.deepEqual(flags, [{ cueIndex: 0, code: "caption.tooFast" }]);
+});
+
 test("repair moves a boundary between cues without changing text, order or metadata", () => {
   const original = Object.freeze([
     Object.freeze({ text: housingTitle, start: 0, end: 1, speaker: "A" }),

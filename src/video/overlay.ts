@@ -151,7 +151,9 @@ export function overlayCopy(
   labels?: ReadonlyMap<Host, string>,
 ) {
   const episodeLocale = isLocale(plan.locale) ? plan.locale : "en";
-  const wordmark = createTranslator(episodeLocale)("video.wordmark");
+  const wordmark = createTranslator(plan.wordmarkLocale ?? episodeLocale)(
+    "video.wordmark",
+  );
   const hostLabels = Object.fromEntries(
     hostIds.map((name) => [name, t("video.caption.speaker", { name })]),
   ) as Record<Host, string>;
@@ -467,7 +469,7 @@ export function prepareOverlay(
       emphasis,
     );
     context.font = canvasFont("host");
-    context.fillStyle = active ? palette.ink : palette.secondaryInk;
+    context.fillStyle = palette.ink;
     linesAt(
       context,
       [names[host]],
@@ -532,7 +534,7 @@ export function prepareOverlay(
       const palette = palettes[paletteId];
       const { card, chapter, chapterIndex, turn, time } = frame;
       if (wordmark) {
-        context.fillStyle = palette.secondaryInk;
+        context.fillStyle = palette.ink;
         context.font = canvasFont("wordmark");
         linesAt(
           context,
@@ -614,7 +616,7 @@ export function prepareOverlay(
         }
         if (label) {
           context.font = canvasFont("progress");
-          context.fillStyle = palette.secondaryInk;
+          context.fillStyle = palette.ink;
           linesAt(
             context,
             [label],

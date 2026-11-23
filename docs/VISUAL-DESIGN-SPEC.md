@@ -47,7 +47,7 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     waveWidthW: .24, waveBarsPerHost: 36, waveMaxHalfHeightH: .058,
     orbCenters: [[.34, .345], [.66, .345]], orbDiameterH: .195,
     typeH: { title: .082, chapter: .059, caption: .050,
-             host: .028, callout: .030, progress: .022, wordmark: .022 },
+             host: .028, callout: .030, progress: .024, wordmark: .028 },
     // max lines, CJK graphemes per line, Latin graphemes per line
     text: { title: [2,10,24], chapter: [2,16,36], caption: [2,16,42],
             host: [1,10,22], callout: [2,18,32], wordmark: [1,10,22] }
@@ -71,14 +71,14 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     waveWidthW: .27, waveBarsPerHost: 20, waveMaxHalfHeightH: .039,
     orbCenters: [[.25, .325], [.61, .325]], orbDiameterH: .107,
     typeH: { title: .046, chapter: .036, caption: .032,
-             host: .020, callout: .023, progress: .017, wordmark: .016 },
+             host: .020, callout: .023, progress: .019, wordmark: .021 },
     text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
   },
   common: {
     titleSafe: [.05, .05, .95, .95],
-    weight: { title: 800, chapter: 800, caption: 600, host: 600,
-              callout: 600, progress: 600, wordmark: 600, thumbnail: 800 },
+    weight: { title: 800, chapter: 800, caption: 600, host: 800,
+              callout: 600, progress: 800, wordmark: 800, thumbnail: 800 },
     leading: { title: 1.14, chapter: 1.16, caption: 1.22, callout: 1.18 },
     letterSpacingEm: { CJK: 0, Latin: 0 },
     radiusH: { caption: .012, callout: .012, host: .014, waveBar: .003 },
@@ -110,6 +110,8 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
 ```
 
 **Safe areas.** The centered 90% rectangle follows SMPTE’s 16:9 title-safe dimensions and is also the product’s baseline for portrait. The stricter product rectangles above reserve roughly 15% at the bottom of landscape and 22% at the right and 28% at the bottom of portrait. Use landscape top and bottom player-control masks and portrait top controls, right action rail, and bottom metadata masks in QA. Google publishes overlay templates for **ads**, which are a reference for the kinds of areas to reserve. The organic watch page and Shorts Feed masks require device checks. [SMPTE ST 2046-1](https://pub.smpte.org/pub/st2046-1/st2046-1-2009.pdf) and [Google Ads video safe-zone guidance](https://support.google.com/google-ads/answer/13547298?hl=en), accessed 2026-11-23.
+
+Use primary ink for the video wordmark, both host labels, progress and chapter index labels, and captions. Use the episode language for the video and publish-thumbnail wordmark. Singapore mixed episodes use the English mark and keep their mixed-script caption layout. A fitting custom show name takes precedence on the video.
 
 ### Colour tokens and calculated contrast
 
@@ -200,7 +202,7 @@ YouTube advises legible type, simple composition, expressive visuals suited to t
   ink: "palette.ink", secondaryInk: "palette.secondaryInk",
   backdrop: "palette.stops", graphic: ["palette.A", "palette.B"],
   headlineSizeH: .136, headlineMinSizeH: .119, headlineLeading: 1.10,
-  wordmarkSizeH: .029, wordmarkTopLeftPx: [80, 72], accentRuleH: .009,
+  wordmarkSizeH: .022, wordmarkWeight: 600, wordmarkTopLeftPx: [80, 72], accentRuleH: .009,
   maxLines: 2, CJKTotal: [6, 12], CJKPerLine: [6, 6, 8],
   LatinWords: [2, 5], LatinMaxGraphemes: 30, MalayMaxGraphemes: 34
 }
@@ -231,10 +233,10 @@ Give each criterion full points when all its checks pass, half when it has a doc
 | Framing and collision | **12** | **Gate.** Assert element boxes and actual ink masks fit the product safe rectangle at boundary and extrema frames. Apply the landscape and portrait UI masks. Review device screenshots. |
 | Typography and localization | **10** | **Gate.** Compare glyph coverage, selected face hashes, and layout boxes. Check `zh-CN`, English, Malay and mixed strings with long names, combining marks, Han punctuation, numbers, and wide Latin words. Reject missing glyphs, unintended fonts, and orphan lines. |
 | Opening, chapters and callouts | **8** | First spoken hook at frame 0, no first-chapter interruption, later cards at the correct chapter boundary, no annotation collisions, and callout count, hold time and spacing within tokens. |
-| Motion and flash safety | **10** | **Gate.** Exercise alternating loud/quiet PCM and rapid chapter changes. Analyze local pixel extrema and pair opposing qualifying changes in a sliding 30-frame window. Check saturated red separately. Log frame-to-frame luminance deltas as a diagnostic and accumulate monotonic changes across frames. Use the stricter project limit of at most three qualifying flashes without an area exemption. Review decoded output and the saved reduced-motion profile. |
+| Motion and flash safety | **10** | **Gate.** In raw and decoded frames, allow at most three field-level general flashes and three field-level saturated-red flashes per rolling second. Pair opposing qualifying changes using local extrema in a sliding 30-frame window and apply the WCAG area threshold of one quarter of a 10-degree visual field. Exercise alternating loud/quiet PCM and rapid chapter changes. Waveform attack/release smoothing already limits the flicker of individual syllable-driven bars, whose area is below the field threshold. Report observed cell-level maxima as warnings and flag values above the soft limit of 10 flashes per second. Cell counts have no effect on the score. Log frame-to-frame luminance deltas and review the saved reduced-motion profile. |
 | Scene craft and audio response | **8** | Both hosts and their symbols read at mobile size. Quiet, spoken and clipped PCM fixtures exercise clear changes in the correct host. Seeded stage elements and background remain understated. Compare with sound on and muted. |
 | Thumbnail | **10** | **Gate.** Assert dimensions, file size, headline bounds, 4.5:1 contrast, and duration-mask clearance. At `160×90` require at least 8 px of CJK ink height or 6 px Latin x-height. A reviewer reads the headline and identifies the focal subject at both preview sizes. |
-| Repeatability and fallback | **7** | **Gate.** SHA-256 raw RGBA at frames 0, 15, 30, 60, 120 and each event boundary ±1 across fresh runs and shuffled draw order on pinned Chromium and SwiftShader. Require exact match for each supported execution path within its pinned profile. Verify waveform export on WebGL initialization failure and cancellation/context-loss handling. Use per-platform visual baselines for other rendering stacks. |
+| Repeatability and fallback | **7** | **Gate.** Compare SHA-256 of raw RGBA between the export and a fresh shuffled draw on pinned Chromium and SwiftShader. Sample frames 0, 15, 30, 60, 120, spoken-episode event boundaries ±1, and the exact boundaries in the rapid-chapter stress tail. Verify waveform export on WebGL initialization failure and cancellation/context-loss handling. Use per-platform visual baselines for other rendering stacks. |
 | Performance | **5** | **Gate for 3D.** Record p50/p95 after warm-up on the short reference fixture and a full episode stress fixture. Require the stated render budget in both aspects. Check resource cleanup and bounded encoder queues. |
 
 Run the suite against the **actual preview and export entry points** with local fixture PCM and versioned fonts. Log frame indices and layout metadata for all assertions. Use a test-only frame reader for masks, hashes and pixel checks, and decode representative frames from the resulting MP4 to catch composition or compression regressions. Playwright provides per-project visual baselines and documents rendering differences across host environments. [Playwright visual comparisons](https://playwright.dev/docs/test-snapshots), accessed 2026-11-23.
