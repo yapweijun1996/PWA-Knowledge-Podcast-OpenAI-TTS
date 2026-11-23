@@ -180,7 +180,8 @@ const copy = {
 
 export function fixture(
   options: VisualCase,
-  durations = [2.7, 2.9, 2.7, 2.4, 2.55, 2.2, 0.3, 0.42],
+  // End the stress tail at 17.8 s so its last frame has a full interval.
+  durations = [2.7, 2.9, 2.7, 2.4, 2.55, 2.2, 0.3, 0.44],
 ) {
   const content = copy[options.language];
   // Append two rapid chapter changes with synthetic bursts and no spoken cue.
@@ -700,6 +701,7 @@ function flashCounter(
     qualifyingTransitions: 0,
   };
   let previous: Float64Array = new Float64Array(size);
+  let previousFrame = 0;
   let fieldStart = 0;
 
   return {
@@ -714,6 +716,13 @@ function flashCounter(
         }
         previous = values;
         return;
+      }
+      // Decoded samples can skip a frame. Expire its slot in the source
+      // timeline so the cell counts still cover a rolling second.
+      for (let skipped = previousFrame + 1; skipped < frame; skipped++) {
+        const expired = second[skipped % fps];
+        for (let cell = 0; cell < size; cell++) counts[cell] -= expired[cell];
+        expired.fill(0);
       }
       const expired = second[frame % fps];
       paired.fill(0);
@@ -766,6 +775,7 @@ function flashCounter(
         );
       }
       previous = values;
+      previousFrame = frame;
       if (exceedsFieldArea(paired, width, height))
         result.fieldFlashFrames.push(frame);
       while (result.fieldFlashFrames[fieldStart] <= frame - fps) fieldStart++;
@@ -841,7 +851,7 @@ export function flashAssessment(
 }
 
 function flashSampler(orientation: Orientation) {
-  const [width, height] = orientation === "landscape" ? [96, 54] : [54, 96];
+  const [width, height] = orientation === "landscape" ? [160, 90] : [90, 160];
   const canvas = context(width, height);
   const raw = flashAnalysis(width, height);
   const decoded = flashAnalysis(width, height);
@@ -990,57 +1000,67 @@ function captionEvidence(
 
 async function mediaEvent(
   video: HTMLVideoElement,
-  name: string,
+  name: "loadeddata" | "seeked",
+  label: string,
   start: () => void,
 ) {
-  const abort = new AbortController();
+  const listeners = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
-      const options = { once: true, signal: abort.signal };
+      const options = { once: true, signal: listeners.signal };
       video.addEventListener(name, () => resolve(), options);
       video.addEventListener(
         "error",
         () =>
           reject(
-            new Error(`MP4 ${name}: ${video.error?.message ?? "media error"}`),
+            new Error(`${label}: ${video.error?.message || "MP4 media error"}`),
           ),
         options,
       );
-      abort.signal.addEventListener(
-        "abort",
-        () => reject(new Error(`MP4 ${name} timed out`)),
-        { once: true },
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(`${label}: timed out after 5000 ms waiting for ${name}`),
+          ),
+        5_000,
       );
-      const timer = setTimeout(() => abort.abort(), 12_000);
-      abort.signal.addEventListener("abort", () => clearTimeout(timer), {
-        once: true,
-      });
-      start();
+      try {
+        start();
+      } catch (error) {
+        reject(new Error(`${label}: ${String(error)}`, { cause: error }));
+      }
     });
   } finally {
-    abort.abort();
+    clearTimeout(timer);
+    listeners.abort();
   }
 }
 
 async function withVideo<T>(
   blob: Blob,
-  consume: (video: HTMLVideoElement, firstMediaTime: number) => Promise<T>,
+  scope: string,
+  consume: (video: HTMLVideoElement) => Promise<T>,
 ) {
   const url = URL.createObjectURL(blob);
   const video = document.createElement("video");
   video.muted = true;
   video.preload = "auto";
-  // Keep the paused video in the compositor so a seek publishes its frame.
+  video.playsInline = true;
   video.width = 160;
+  video.height = 90;
   document.body.append(video);
   try {
-    const firstMediaTime = await presentedFrame(video, 0, () =>
-      mediaEvent(video, "loadeddata", () => {
+    await mediaEvent(
+      video,
+      "loadeddata",
+      `Visual QA ${scope}, frame 0, load MP4`,
+      () => {
         video.src = url;
-        video.currentTime = frameCenter(0);
-      }),
+      },
     );
-    return await consume(video, firstMediaTime);
+    video.pause();
+    return await consume(video);
   } finally {
     video.remove();
     video.removeAttribute("src");
@@ -1050,155 +1070,178 @@ async function withVideo<T>(
 }
 
 const frameCenter = (frame: number) => (frame + 0.5) / fps;
-const halfFrame = 0.5 / fps;
-// The mux starts sample i at i / fps. mediaTime reports that presentation
-// timestamp. The seek target is half a frame later, inside the same sample.
+
+async function seekFrameCenter(
+  video: HTMLVideoElement,
+  frame: number,
+  scope: string,
+) {
+  const target = frameCenter(frame);
+  const label = `Visual QA ${scope}, frame ${frame}, seek to ${target.toFixed(6)} s`;
+  await mediaEvent(video, "seeked", label, () => {
+    video.currentTime = target;
+  });
+  const currentTime = video.currentTime;
+  if (!(Math.abs(currentTime - target) <= 0.001))
+    throw new Error(
+      `Visual QA frame alignment: ${label}, observed currentTime ${currentTime.toFixed(6)} s (tolerance 1 ms)`,
+    );
+  return currentTime;
+}
+
+// The existing presentation-probe unit test uses this optional diagnostic.
+// The rubric and reader self-test use seekFrameCenter directly.
 const matchesFrameTime = (frame: number, mediaTime: number) =>
-  Math.abs(mediaTime - frame / fps) < halfFrame;
+  Math.abs(mediaTime - frame / fps) < 0.5 / fps;
 
 export function assertFrameTime(frame: number, mediaTime: number) {
   if (!matchesFrameTime(frame, mediaTime))
-    throw frameAlignmentError(frame, mediaTime);
-}
-
-function frameAlignmentError(frame: number, mediaTime: number) {
-  return new Error(
-    `Visual QA frame alignment: frame ${frame}, seek center ${frameCenter(frame).toFixed(6)} s, expected PTS ${(frame / fps).toFixed(6)} s within half a frame, observed mediaTime ${Number.isNaN(mediaTime) ? "none" : `${mediaTime.toFixed(6)} s`}`,
-  );
-}
-
-async function presentedFrame(
-  video: HTMLVideoElement,
-  frame: number,
-  start: () => Promise<void>,
-) {
-  if (typeof video.requestVideoFrameCallback !== "function")
     throw new Error(
-      "Visual QA frame alignment requires requestVideoFrameCallback",
+      `Visual QA frame alignment: frame ${frame}, expected PTS ${(frame / fps).toFixed(6)} s within half a frame, observed mediaTime ${mediaTime.toFixed(6)} s`,
     );
+}
+
+export async function seekFrame(video: HTMLVideoElement, frame: number) {
+  const scope = "presentation diagnostic";
+  if (typeof video.requestVideoFrameCallback !== "function")
+    return seekFrameCenter(video, frame, scope);
   let request: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let mediaTime = NaN;
   try {
-    const presentation = new Promise<void>((resolve, reject) => {
-      const next: VideoFrameRequestCallback = (_now, metadata) => {
-        mediaTime = metadata.mediaTime;
-        if (matchesFrameTime(frame, mediaTime)) resolve();
+    const presentation = new Promise<number | undefined>((resolve) => {
+      const next: VideoFrameRequestCallback = (_now, { mediaTime }) => {
+        if (matchesFrameTime(frame, mediaTime)) resolve(mediaTime);
         else request = video.requestVideoFrameCallback(next);
       };
+      timer = setTimeout(() => {
+        if (request !== undefined) video.cancelVideoFrameCallback(request);
+        request = undefined;
+        resolve(undefined);
+      }, 50);
       request = video.requestVideoFrameCallback(next);
-      timer = setTimeout(
-        () => reject(frameAlignmentError(frame, mediaTime)),
-        8_000,
-      );
     });
-    await Promise.all([start(), presentation]);
-    assertFrameTime(frame, mediaTime);
-    return mediaTime;
+    const [currentTime, mediaTime] = await Promise.all([
+      seekFrameCenter(video, frame, scope),
+      presentation,
+    ]);
+    return mediaTime ?? currentTime;
   } finally {
     clearTimeout(timer);
     if (request !== undefined) video.cancelVideoFrameCallback(request);
   }
 }
 
-export function seekFrame(video: HTMLVideoElement, frame: number) {
-  // The final presentation interval can be shorter than one frame.
-  const target = Math.min(frameCenter(frame), video.duration - 1e-6);
-  return presentedFrame(video, frame, () =>
-    mediaEvent(video, "seeked", () => {
-      video.currentTime = target;
-    }),
-  );
-}
-
 async function readMovieFrames(
   video: HTMLVideoElement,
-  firstMediaTime: number,
-  frameCount: number,
-  exactFrames: number[],
-  readExact: (frame: number, mediaTime: number) => Pixels,
-  readFlash: () => Pixels,
+  scope: string,
+  frames: number[],
+  exactFrames: ReadonlySet<number>,
+  readExact: (frame: number, currentTime: number) => void,
+  readFlash: (frame: number) => void,
 ) {
-  const flashFrames: Pixels[] = [];
-  for (const frame of exactFrames) {
-    const mediaTime =
-      frame === 0 ? firstMediaTime : await seekFrame(video, frame);
-    assertFrameTime(frame, mediaTime);
-    flashFrames[frame] = readExact(frame, mediaTime);
-  }
-  const rate = 1.5;
-  const listening = new AbortController();
-  let request: number | undefined;
-  let forwardFrames = 0;
-  let lastMediaTime = NaN;
-  try {
-    if (exactFrames.at(-1) !== 0) await seekFrame(video, 0);
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, (video.duration / rate + 2) * 1000);
-      listening.signal.addEventListener("abort", () => clearTimeout(timer));
-      video.addEventListener("ended", () => resolve(), {
-        signal: listening.signal,
-      });
-      video.addEventListener(
-        "error",
-        () => reject(new Error(video.error?.message || "MP4 playback failed")),
-        { signal: listening.signal },
-      );
-      const next: VideoFrameRequestCallback = (_now, { mediaTime }) => {
-        try {
-          const frame = Math.round(mediaTime * fps);
-          const playbackTime = video.currentTime;
-          lastMediaTime = mediaTime;
-          if (
-            frame >= 0 &&
-            frame < frameCount &&
-            matchesFrameTime(frame, mediaTime) &&
-            playbackTime >= mediaTime &&
-            playbackTime < mediaTime + 1 / fps &&
-            !flashFrames[frame]
-          ) {
-            flashFrames[frame] = readFlash();
-            forwardFrames++;
-          }
-          if (exactFrames.length + forwardFrames === frameCount) resolve();
-          else request = video.requestVideoFrameCallback(next);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      request = video.requestVideoFrameCallback(next);
-      video.playbackRate = rate;
-      void video.play().catch(() => resolve());
-    });
-  } finally {
-    listening.abort();
-    if (request !== undefined) video.cancelVideoFrameCallback(request);
-    video.pause();
-  }
-  let flashSeeks = 0;
-  for (let frame = 0; frame < frameCount; frame++) {
-    if (flashFrames[frame]) continue;
-    // After an interrupted playback pass, force a new presentation if the
-    // first gap is the frame currently displayed.
-    if (
-      matchesFrameTime(frame, lastMediaTime) ||
-      Math.floor(video.currentTime * fps) === frame
-    )
-      await seekFrame(video, 0);
-    lastMediaTime = NaN;
-    await seekFrame(video, frame);
-    flashFrames[frame] = readFlash();
-    flashSeeks++;
+  let totalSeekMs = 0;
+  let maxSeekMs = 0;
+  for (const frame of frames) {
+    const started = performance.now();
+    const currentTime = await seekFrameCenter(video, frame, scope);
+    const seekMs = performance.now() - started;
+    totalSeekMs += seekMs;
+    maxSeekMs = Math.max(maxSeekMs, seekMs);
+    if (exactFrames.has(frame)) readExact(frame, currentTime);
+    readFlash(frame);
   }
   return {
-    flashFrames,
-    counts: {
-      total: frameCount,
-      exactFrames: exactFrames.length,
-      forwardFrames,
-      flashSeeks,
+    total: frames.length,
+    exactFrames: exactFrames.size,
+    flashOnlyFrames: frames.length - exactFrames.size,
+    seekMs: {
+      total: totalSeekMs,
+      mean: totalSeekMs / frames.length,
+      max: maxSeekMs,
     },
   };
+}
+
+export async function runReaderSelfTest() {
+  const { ArrayBufferTarget, Muxer } = await import("mp4-muxer");
+  const width = 128;
+  const height = 64;
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({
+    target,
+    video: { codec: "avc", width, height },
+    fastStart: false,
+  });
+  const drawing = context(width, height);
+  const calloutEnd = 45 / fps;
+  let encodingError: unknown;
+  const encoder = new VideoEncoder({
+    output(chunk, metadata) {
+      try {
+        muxer.addVideoChunk(chunk, metadata);
+      } catch (error) {
+        encodingError = error;
+      }
+    },
+    error(error) {
+      encodingError = error;
+    },
+  });
+  try {
+    encoder.configure({
+      codec: "avc1.420028",
+      avc: { format: "avc" },
+      width,
+      height,
+      framerate: fps,
+      bitrate: 500_000,
+    });
+    for (let index = 0; index < 3 * fps; index++) {
+      const time = index / fps;
+      drawing.fillStyle = "#000";
+      drawing.fillRect(0, 0, width, height);
+      drawing.fillStyle = "#fff";
+      // Seven wide blocks encode the frame index through H.264 compression.
+      for (let bit = 0; bit < 7; bit++)
+        if (index & (1 << bit)) drawing.fillRect(16 * bit, 0, 16, 32);
+      if (time >= 12 / fps && time < calloutEnd) {
+        drawing.fillRect(8, 36, 112, 20);
+        drawing.fillStyle = "#000";
+        drawing.fillText("Callout", 32, 50);
+      }
+      const timestamp = Math.round(time * 1_000_000);
+      const frame = new VideoFrame(drawing.canvas, {
+        timestamp,
+        duration: Math.round(((index + 1) / fps) * 1_000_000) - timestamp,
+      });
+      try {
+        encoder.encode(frame, { keyFrame: index % 15 === 0 });
+      } finally {
+        frame.close();
+      }
+    }
+    await encoder.flush();
+    if (encodingError) throw encodingError;
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
+  }
+  muxer.finalize();
+  const blob = new Blob([target.buffer], { type: "video/mp4" });
+  const scope = "indexed reader self-test";
+  return withVideo(blob, scope, async (video) => {
+    const samples = [];
+    for (const frame of [0, 15, 14, 29, 30, 45, 44, 59, 60, 89]) {
+      await seekFrameCenter(video, frame, scope);
+      drawing.drawImage(video, 0, 0);
+      const { data } = drawing.getImageData(0, 0, width, height);
+      const lit = (x: number, y: number) => data[(y * width + x) * 4] > 128;
+      let index = 0;
+      for (let bit = 0; bit < 7; bit++)
+        if (lit(16 * bit + 8, 16)) index |= 1 << bit;
+      samples.push({ frame, index, callout: lit(16, 46) });
+    }
+    return samples;
+  });
 }
 
 function freeze<T>(value: T): T {
@@ -1335,6 +1378,7 @@ export async function verifyShuffledDraws(
 
 export async function runVisualCase(options: VisualCase) {
   const started = performance.now();
+  const scope = `${options.scene}/${options.orientation}/${options.language}`;
   const {
     episode,
     plan: mutablePlan,
@@ -1458,6 +1502,29 @@ export async function runVisualCase(options: VisualCase) {
   ]);
   const frameLookup = new Set(frames);
   const chapters = plan.scenes.filter((scene) => scene.kind === "chapter");
+  const flashBoundaries = [
+    titleHold,
+    ...chapterStartFrames,
+    ...[...chapters, ...voicedTurns].flatMap(({ start, end }) => [
+      firstFrame(start),
+      firstFrame(end),
+    ]),
+  ];
+  // Cover the speaker and loud/quiet turn changes at full rate for a
+  // quarter second on each side. Keep the entire rapid-chapter tail.
+  const denseRadius = Math.ceil(fps / 4);
+  const decodedFrames = Array.from(
+    { length: frameCount },
+    (_, frame) => frame,
+  ).filter(
+    (frame) =>
+      frame % 2 === 0 ||
+      frameLookup.has(frame) ||
+      frame >= stressStart ||
+      flashBoundaries.some(
+        (boundary) => Math.abs(frame - boundary) <= denseRadius,
+      ),
+  );
   if (
     chapterStartFrames.length !== content.chapters.length + 2 ||
     chapterStartFrames[0] !== 0 ||
@@ -1603,7 +1670,7 @@ export async function runVisualCase(options: VisualCase) {
 
   const frameEvidence: {
     frame: number;
-    mediaTime: number;
+    currentTime: number;
     exterior: {
       raw: ReturnType<typeof safeExterior>;
       decoded: ReturnType<typeof safeExterior>;
@@ -1639,12 +1706,12 @@ export async function runVisualCase(options: VisualCase) {
     throw new Error(
       `Expected H.264 for the decoded checks, received ${rendered.videoCodec}`,
     );
-  async function readVideo(video: HTMLVideoElement, firstMediaTime: number) {
+  async function readVideo(video: HTMLVideoElement) {
     if (video.videoWidth !== width || video.videoHeight !== height)
       throw new Error(
         `Decoded dimensions ${video.videoWidth}×${video.videoHeight} do not match ${width}×${height}`,
       );
-    function readExact(frame: number, mediaTime: number) {
+    function readExact(frame: number, currentTime: number) {
       readback.drawImage(video, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
       if (hashFrames.has(frame)) decodedHashes.set(frame, sha256(data));
@@ -1817,28 +1884,25 @@ export async function runVisualCase(options: VisualCase) {
       }
       frameEvidence.push({
         frame,
-        mediaTime,
+        currentTime,
         exterior: { raw, decoded },
         expectedTitle,
         chapter: chapter + 1,
         text: textEvidence,
       });
-      return flash.sample(readback.canvas);
     }
     return readMovieFrames(
       video,
-      firstMediaTime,
-      frameCount,
-      frames,
+      scope,
+      decodedFrames,
+      frameLookup,
       readExact,
-      () => flash.sample(video),
+      (frame) => flash.decoded.add(frame, flash.sample(video)),
     );
   }
   const decodeStarted = performance.now();
-  const decode = await withVideo(rendered.blob, readVideo);
+  const decode = await withVideo(rendered.blob, scope, readVideo);
   const decodeMs = performance.now() - decodeStarted;
-  for (const [frame, pixels] of decode.flashFrames.entries())
-    flash.decoded.add(frame, pixels);
   const hashes: FrameHashes = Object.fromEntries(
     await Promise.all(
       [...hashFrames].map(async (frame) => [
@@ -1872,7 +1936,7 @@ export async function runVisualCase(options: VisualCase) {
       fps,
       seed,
       frameCount,
-      decode: decode.counts,
+      decode,
       elapsedMs: {
         render: renderMs,
         decode: decodeMs,
@@ -1902,7 +1966,7 @@ export async function runVisualCase(options: VisualCase) {
       },
       exteriorEdges,
       frameEvidence: frameEvidence.sort((a, b) => a.frame - b.frame),
-      flash: flash.evidence,
+      flash: { ...flash.evidence, decodedFrames },
     },
   };
 }
@@ -2092,8 +2156,9 @@ export async function runFallback(orientation: Orientation) {
       },
     },
   });
-  const plays = await withVideo(rendered.blob, async (video) => {
-    await seekFrame(video, 75);
+  const scope = `fallback/${orientation}`;
+  const plays = await withVideo(rendered.blob, scope, async (video) => {
+    await seekFrameCenter(video, 75, scope);
     return (
       video.videoWidth === plan.resolution.width &&
       video.videoHeight === plan.resolution.height

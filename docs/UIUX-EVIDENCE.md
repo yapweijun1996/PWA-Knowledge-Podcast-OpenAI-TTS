@@ -126,22 +126,25 @@ npm run e2e:factory -- --project=render --no-deps tests/visual-qa.browser.ts
 | Contrast | Observes the renderer's text positions and fonts, then draws isolated glyph masks on test canvases. For each measured run it compares core ink with the actual pre-text background in raw pixels and uses nearby, background-matched decoded pixels for the MP4 ratio. The minimum is 4.5:1 for caption, host, wordmark, chapter and progress text. | The sample covers glyph interiors with a usable nearby background. Grayscale and colour-vision simulation of host identity remain review items. |
 | Framing | Checks every reported element box and sampled glyph bounds against the product rectangle. Reports strong raw edges and decoded components of at least eight connected edge pixels beyond the common 5% title-safe inset. Records both counts and the first coordinates. | A smooth, low-contrast element could escape the exterior edge test. Exact 3D subtraction would need a background-only frame entry point with the same scene, palette and frame index. YouTube overlay and device screenshots still need review. |
 | Opening and chapters | Checks the title draw on frames 0–59 in landscape and 0–44 in portrait, decoded title and caption ink at frame 0, and sampled card and caption continuity, chapter titles at their first voiced frames, `n / total` and an eligible callout's hold and clearance. | The fixture exercises one callout per episode. Topic art recognition and editorial timing remain review items. |
-| Flash safety | Samples every raw and decoded frame on a 96×54 or 54×96 grid. Reuses exact-seek frames, samples aligned forward presentations, and seeks any gaps. Uses WCAG luminance, accumulated excursions and opposing changes in rolling 30-frame windows. Gates on field flashes and logs per-cell and saturated-red results separately. | Downsampling can lose smaller or shorter visual changes. The results cover the reference exports and the rapid chapter changes. Review of the saved reduced-motion profile and other viewing conditions remains open. |
+| Flash safety | Samples every raw frame and centre-seeks decoded frames on a 160×90 or 90×160 grid. Decoded sampling is 30 fps around chapter, speaker and PCM level changes and throughout the rapid chapter tail, with at least 15 samples per second elsewhere. Pairs opposing luminance changes in rolling windows of 30 source frames. Gates on general and saturated-red field flashes and logs cell counts as diagnostics. | Spatial downsampling can lose small changes. Sampling every other decoded frame can miss one-frame changes away from the denser windows. Review of the saved reduced-motion profile and other viewing conditions remains open. |
 | Repeatability and fallback | Records raw and decoded RGBA SHA-256 at frames 0, 15, 30, 60, 120 and selected event boundaries. Replays the production overlay and scene draw contracts in a fresh page with shuffled frame order and compares with the export's raw hashes. Forces WebGL startup failure and checks a playable waveform export. | The replay uses a test compositor because the encoder submits frames in order. The hashes apply within this Chromium/SwiftShader profile. Context loss, cancellation and full-episode resource use need separate evidence. |
-| Thumbnails | Encodes all three variants and checks the decoded PNGs for 1280×720 dimensions, size below 2 MB, layout and duration-badge clearance, 4.5:1 text contrast and at least 8 px of CJK ink at 160×90. It also checks the 320×180 preview. | A reviewer reads each headline and identifies the focal subject at feed sizes. |
+| Thumbnails | Encodes all three variants and checks the decoded PNGs for 1280×720 dimensions, size below 2 MB, layout and duration-badge clearance, 4.5:1 text contrast and at least 8 px of CJK ink at 160×90. | A reviewer reads each headline and identifies the focal subject at 160×90 and 320×180. |
 
 The test attaches `visual-qa-report.json` and prints a Markdown score line.
 The attachment maps all ten section 8 criteria to their rubric weights,
-automated points, status and frame evidence. It includes combined and
-per-orientation scores. The automated checks assess **62 of 100 points**.
+automated points, status and frame evidence. It includes combined,
+per-orientation and per-fixture scores. The automated checks assess **62 of 100 points**.
 The remaining points cover manual or separate evidence, including scene craft,
 spoken sync and performance. The automated percentage and the independent
 review use different evidence and denominators. The spec's 85/100 release bar
 still requires the full review. [Visual design rubric](VISUAL-DESIGN-SPEC.md#8-release-rubric-and-playwright-checks)
 
-T63 Chromium execution after the G2 changes is `NOT_RUN` in this worktree.
-The previous merged run reported 22 of 62 points (35%) in 5.2 minutes.
-The attachment now records the measured presentation time for each exact sample,
-reports timing mismatches as harness errors, and counts exact seeks, aligned
-forward frames, and flash gap seeks. Render and decode timings support measuring
-progress toward the four-minute target in the next Chromium run.
+The manager's merged Chromium run passed 47 browser tests and scored 0 of 62
+in the visual rubric after the fixture evaluations timed out. Chromium
+execution after the G3 reader change is `NOT_RUN` in this worktree. The
+attachment records the observed `currentTime` for each full-resolution
+sample, total seeks and mean and maximum seek times. The test prints the
+per-fixture render, decode and fresh-draw timing against the 40 s target.
+Seek and fixture errors appear as `BLOCKED` alongside scores from completed
+fixtures. A three-second clip with frame indices encoded as pixel blocks
+checks adjacent seeks and a callout ending exactly at frame 45.
