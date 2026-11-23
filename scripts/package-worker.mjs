@@ -18,11 +18,12 @@ const files = [
   ...["index.html", "sw.js", "manifest.webmanifest", "icon.svg", "icon-192.png",
       "icon-512.png", "pcm-capture-worklet.js"].map((file) => "dist-private/" + file),
   ...bundles,
-  ...["audio", "claims", "errors", "http", "jobs", "languages", "main", "mp3", "openai",
-      "production", "qa", "research", "research-audit", "script", "session", "store",
-      "transcript", "worker-lock"].map((file) => "server/" + file + ".mjs"),
+  ...["audio", "http", "jobs", "main", "mp3", "production", "session", "store",
+      "worker-lock"].map((file) => "server/" + file + ".mjs"),
   ...["audio-record", "edit", "episode-backup", "episode-record", "factory",
       "preferences"].map((file) => "shared/" + file + ".ts"),
+  ...["claims", "errors", "languages", "openai", "qa", "research", "research-audit",
+      "script", "transcript"].map((file) => "shared/pipeline/" + file + ".ts"),
 ];
 for (const file of files) {
   if (!lstatSync(file).isFile()) throw new Error("Expected a regular release file: " + file);

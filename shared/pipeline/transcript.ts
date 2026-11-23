@@ -1,6 +1,7 @@
-import { PublicError } from "./errors.mjs";
+import { PublicError } from "./errors.ts";
+import type { OpenAI } from "./openai.ts";
 
-const normalize = (text) =>
+const normalize = (text: string) =>
   Array.from(
     text
       .normalize("NFKC")
@@ -8,7 +9,7 @@ const normalize = (text) =>
       .replace(/[^\p{L}\p{N}]/gu, ""),
   );
 
-export function similarity(intended, spoken) {
+export function similarity(intended: string, spoken: string) {
   const a = normalize(intended);
   const b = normalize(spoken);
   if (!a.length || !b.length) return 0;
@@ -29,12 +30,20 @@ export function similarity(intended, spoken) {
   return Math.round(100 * (1 - row[b.length] / Math.max(a.length, b.length)));
 }
 
-export async function transcribe(openai, model, audio, intended, signal) {
+export async function transcribe(
+  openai: OpenAI,
+  model: string,
+  audio: BlobPart,
+  intended: string,
+  signal: AbortSignal,
+) {
   const form = new FormData();
   form.append("model", model);
   form.append("file", new Blob([audio], { type: "audio/wav" }), "episode.wav");
   form.append("response_format", "json");
-  const response = await openai("audio/transcriptions", form, signal);
+  const response = (await openai("audio/transcriptions", form, signal)) as
+    | { text?: unknown }
+    | null;
   const text = typeof response?.text === "string" ? response.text.trim() : "";
   if (!text || text.length > 12_000)
     throw new PublicError(

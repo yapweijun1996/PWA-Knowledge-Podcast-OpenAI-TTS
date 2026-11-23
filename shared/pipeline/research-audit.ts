@@ -1,8 +1,9 @@
-import { collectEvidence } from "./claims.mjs";
-import { responseParts } from "./openai.mjs";
-import { PublicError } from "./errors.mjs";
+import type { Claim, Research } from "../factory.ts";
+import { collectEvidence } from "./claims.ts";
+import { responseParts, type OpenAI, type ResponsesResult } from "./openai.ts";
+import { PublicError } from "./errors.ts";
 
-const publisher = (url) => {
+const publisher = (url: string) => {
   const host = new URL(url).hostname.replace(/^www\./, "");
   const parts = host.split(".");
   const suffix = parts.slice(-2).join(".");
@@ -11,8 +12,14 @@ const publisher = (url) => {
     .join(".");
 };
 
-export async function crossCheckResearch(openai, model, topic, draft, signal) {
-  const response = await openai(
+export async function crossCheckResearch(
+  openai: OpenAI,
+  model: string,
+  topic: string,
+  draft: Research,
+  signal: AbortSignal,
+): Promise<Research> {
+  const response = (await openai(
     "responses",
     {
       model,
@@ -32,7 +39,7 @@ Use "qualified" when evidence is partial or from the same underlying work, "disp
       }),
     },
     signal,
-  );
+  )) as ResponsesResult;
   if (
     !response.output?.some(
       (item) => item.type === "web_search_call" && item.status === "completed",
@@ -61,13 +68,13 @@ Use "qualified" when evidence is partial or from the same underlying work, "disp
   const initialSources = new Map(
     draft.sources.map((source) => [source.id, source]),
   );
-  const claims = draft.claims.map((claim) => {
+  const claims = draft.claims.map((claim): Claim => {
     const checks = audit.claims.filter((check) => check.text === claim.id);
     const prior = new Set(
-      claim.sourceIds.map((id) => publisher(initialSources.get(id).url)),
+      claim.sourceIds.map((id) => publisher(initialSources.get(id)!.url)),
     );
     const fresh = checks.flatMap((check) =>
-      check.sourceIds.map((id) => auditSources.get(id)),
+      check.sourceIds.map((id) => auditSources.get(id)!),
     );
     const independent = fresh.some(
       (source) => !prior.has(publisher(source.url)),

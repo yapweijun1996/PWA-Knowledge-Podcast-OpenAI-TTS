@@ -3,13 +3,13 @@ import { languages, limits } from "../shared/factory.ts";
 import { assembly, duration, wave } from "./audio.mjs";
 import { editEpisode } from "../shared/edit.ts";
 import { readEpisode } from "../shared/episode-record.ts";
-import { assessAudio } from "./qa.mjs";
-import { crossCheckResearch } from "./research-audit.mjs";
-import { PublicError } from "./errors.mjs";
-import { researchTopic } from "./research.mjs";
-import { makeOutline, makeScript } from "./script.mjs";
+import { assessAudio } from "../shared/pipeline/qa.ts";
+import { crossCheckResearch } from "../shared/pipeline/research-audit.ts";
+import { PublicError } from "../shared/pipeline/errors.ts";
+import { researchTopic } from "../shared/pipeline/research.ts";
+import { makeOutline, makeScript } from "../shared/pipeline/script.ts";
 import { episodeId } from "./store.mjs";
-import { transcribe } from "./transcript.mjs";
+import { transcribe } from "../shared/pipeline/transcript.ts";
 
 const clipName = (episode, model, turn) => {
   const input = [

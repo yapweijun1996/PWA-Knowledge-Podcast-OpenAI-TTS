@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultPreferences, limits } from "../shared/factory.ts";
 import { productionBounds, readPreferences } from "../shared/preferences.ts";
-import { PublicError } from "./errors.mjs";
-import { responseParts } from "./openai.mjs";
+import { PublicError } from "../shared/pipeline/errors.ts";
+import { responseParts } from "../shared/pipeline/openai.ts";
 import { writeAtomic } from "./store.mjs";
 
 const day = 86_400_000;

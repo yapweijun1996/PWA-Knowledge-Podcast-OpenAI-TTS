@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { PublicError } from "./errors.mjs";
+import { PublicError } from "../shared/pipeline/errors.ts";
 
 const cookie = "__Host-podcast-owner";
 const hours = 12;

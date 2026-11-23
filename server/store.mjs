@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { PublicError } from "./errors.mjs";
+import { PublicError } from "../shared/pipeline/errors.ts";
 
 import { episodeId } from "../shared/factory.ts";
 export { episodeId };

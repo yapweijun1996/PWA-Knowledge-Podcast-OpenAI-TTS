@@ -1,4 +1,8 @@
-export function assessAudio(episode) {
+import type { Episode, Finished } from "../factory.ts";
+
+export function assessAudio(
+  episode: Pick<Episode, "plan" | "research"> & { finished: Finished },
+): NonNullable<Finished["qa"]> {
   const { finished, plan } = episode;
   const transcript = finished.transcript;
   const reasons = [];
@@ -6,7 +10,7 @@ export function assessAudio(episode) {
   else {
     if (transcript.similarity < 88)
       reasons.push("转录与脚本的字面相似度低于 88%。");
-    const numbers = (text) =>
+    const numbers = (text: string) =>
       text.normalize("NFKC").match(/[0-9]+(?:[.,][0-9]+)*/g) ?? [];
     const intended = numbers(finished.intendedText);
     const heard = numbers(transcript.text);
