@@ -8,8 +8,8 @@ const halfFovTangent = Math.tan((cameraFov * Math.PI) / 360);
 const viewHeight = 2 * halfFovTangent;
 
 export const pedestalFootRadius = 0.98;
-export const groundRingHalfWidth = 0.16;
-export const groundRingMaxAlpha = 0.25;
+export const groundRingWidthH = 0.003;
+export const groundRingMaxAlpha = 0.18;
 
 export function studioLayout(width: number, height: number) {
   const aspect = width / height;
@@ -147,7 +147,7 @@ export const orbScaleAt = (
   emphasis: number,
   reducedMotion = false,
 ) =>
-  1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.035 * unit(emphasis));
+  1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.04 * unit(emphasis));
 
 export const haloOpacityAt = (energy: number, reducedMotion = false) =>
   0.09 + (reducedMotion ? 0 : 0.03 * unit(energy));

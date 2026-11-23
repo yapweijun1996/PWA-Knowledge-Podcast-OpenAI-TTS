@@ -203,16 +203,16 @@ export async function measureStudio3d({
             0.0722 * convert(image.data[offset + 2])
           );
         };
-        const downscaled = createCanvas();
-        downscaled.width = Math.floor(width / 4);
-        downscaled.height = Math.floor(height / 4);
-        const smallContext = downscaled.getContext("2d");
-        smallContext.drawImage(
-          composite.canvas, 0, 0, downscaled.width, downscaled.height,
-        );
-        const small = smallContext.getImageData(
-          0, 0, downscaled.width, downscaled.height,
-        );
+        const resizedImage = (targetWidth, targetHeight) => {
+          const downscaled = createCanvas();
+          downscaled.width = targetWidth;
+          downscaled.height = targetHeight;
+          const context = downscaled.getContext("2d");
+          context.drawImage(composite.canvas, 0, 0, targetWidth, targetHeight);
+          return context.getImageData(0, 0, targetWidth, targetHeight);
+        };
+        const small = resizedImage(Math.floor(width / 4), Math.floor(height / 4));
+        const thumbnail = portrait ? null : resizedImage(160, 90);
         const luma = (x, y) => sample(small, x, y, (channel) => channel / 255);
         const maxStep = (length, read) => {
           let largest = 0;
@@ -249,6 +249,27 @@ export async function measureStudio3d({
           const x = anchorX * width;
           const y = centerY * height;
           const luminance = (px, py) => sample(pixels, px, py, linear);
+          // Measure the same disc in both frames. Inset the rest silhouette
+          // slightly to keep the backdrop out of the smooth and faceted samples.
+          const discLuminance = (image) => {
+            const centerX = anchorX * image.width;
+            const centerY = (y * image.height) / height;
+            const radius = (0.95 * orbRadius * image.height) / height;
+            const radiusSquared = radius ** 2;
+            let total = 0;
+            let count = 0;
+            for (let py = Math.floor(centerY - radius); py < centerY + radius; py++) {
+              for (let px = Math.floor(centerX - radius); px < centerX + radius; px++) {
+                const distanceSquared =
+                  (px + 0.5 - centerX) ** 2 + (py + 0.5 - centerY) ** 2;
+                if (distanceSquared <= radiusSquared) {
+                  total += sample(image, px, py, linear);
+                  count++;
+                }
+              }
+            }
+            return total / count;
+          };
           // Sample above the equatorial bands to isolate body light from band light.
           const body = [];
           for (let row = -2; row <= 2; row++)
@@ -278,12 +299,20 @@ export async function measureStudio3d({
             luminance(footX, footY - height * 0.003) -
             luminance(footX, footY + height * 0.0025);
           const groundRing = mean(ring.map(([px, py]) => luminance(px, py)));
+          // The front arc is nearly horizontal here. Read native rows from the
+          // pedestal side of the stroke through its peak and out to the floor.
+          const groundRingProfiles = ring.map(([px, py]) =>
+            Array.from({ length: 9 }, (_, row) => luminance(px, py + row - 4)),
+          );
           return {
             body: mean(body),
+            disc: discLuminance(pixels),
+            thumbnailDisc: thumbnail ? discLuminance(thumbnail) : null,
             rim: mean(rim),
             rimContrast: Math.min(...contrast),
             pedestalStep,
             groundRing,
+            groundRingProfiles,
           };
         });
         // One period of the backdrop dither along each row isolates the wash.

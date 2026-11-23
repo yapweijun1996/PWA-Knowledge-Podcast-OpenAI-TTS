@@ -116,8 +116,8 @@ test("studio clamps intensity and applies the specified mood multipliers", () =>
   assert.deepEqual(motionMultipliers("urgent", 4), { audio: 1, camera: 1 });
   assert.deepEqual(motionMultipliers("urgent", -1), { audio: 0, camera: 1 });
   assert.equal(orbScaleAt(-1, -1), 1);
-  near(orbScaleAt(0, 1), 1.035);
-  near(orbScaleAt(2, 2), 1.048);
+  near(orbScaleAt(0, 1), 1.04);
+  near(orbScaleAt(2, 2), 1.053);
   assert.ok(orbScaleAt(2, 2) <= 1.06);
   assert.equal(orbScaleAt(1, 1, true), orbScaleAt(1, 0, true));
   assert.equal(haloOpacityAt(2), 0.12);
