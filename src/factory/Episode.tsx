@@ -1,25 +1,22 @@
 import { useEffect, useState } from "react";
 import {
   activeHosts,
-  languages,
   limits,
   voices,
   type Edit,
   type Episode,
   type EpisodeSummary,
+  type Language,
   type Stage,
+  type Voice,
 } from "../../shared/factory";
 import { download } from "../audio";
+import { createTranslator, useI18n, type MessageKey } from "../i18n";
 
 import { Claims, Evidence, InlineSources } from "./Evidence";
 import { EpisodePlayButton } from "./PlaybackBar";
-import {
-  audioClock as clock,
-  episodeState,
-  stageNames,
-  type AudioCheck,
-} from "./library-model";
-import type { Playback } from "./playback";
+import { episodeState, type AudioCheck } from "./library-model";
+import { formatPlaybackClock, type Playback } from "./playback";
 import { useCheckedWav } from "./useLibraryAudio";
 import { playbackTrack } from "./usePlayback";
 import "./episode.css";
@@ -33,12 +30,48 @@ const stages: Stage[] = [
   "audio",
   "transcript",
 ];
-const states = {
-  running: "进行中",
-  failed: "失败",
-  cancelled: "已取消",
-  interrupted: "已中断",
-};
+const stageKeys = {
+  research: "episode.stages.research",
+  outline: "episode.stages.outline",
+  script: "episode.stages.script",
+  audio: "episode.stages.audio",
+  transcript: "episode.stages.transcript",
+} as const satisfies Record<Stage, MessageKey>;
+
+const stateKeys = {
+  running: "episode.stages.running",
+  failed: "episode.stages.failed",
+  cancelled: "episode.stages.cancelled",
+  interrupted: "episode.stages.interrupted",
+} as const;
+
+const languageKeys = {
+  en: "episode.header.languageEnglish",
+  zh: "episode.header.languageMandarin",
+  ms: "episode.header.languageMalay",
+  sg: "episode.header.languageSingaporeMixed",
+} as const satisfies Record<Language, MessageKey>;
+
+const voiceKeys = {
+  marin: "episode.script.voiceMarin",
+  cedar: "episode.script.voiceCedar",
+  coral: "episode.script.voiceCoral",
+  alloy: "episode.script.voiceAlloy",
+} as const satisfies Record<Voice, MessageKey>;
+
+const reviewReasonKeys = [
+  "episode.review.noComparison",
+  "episode.review.lowSimilarity",
+  "episode.review.numberDifference",
+  "episode.review.limitedSources",
+  "episode.review.durationDifference",
+] as const;
+const sourceText = createTranslator("zh-CN");
+// Existing episodes store the original QA sentences as strings.
+const savedReviewReasons = new Map(
+  reviewReasonKeys.map((key) => [sourceText(key), key]),
+);
+
 export function EpisodeWorkspace({
   episode,
   assets,
@@ -72,12 +105,16 @@ export function EpisodeWorkspace({
   onBackup: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
+  const { locale, t, formatters } = useI18n();
+  const clock = (seconds: number) =>
+    formatPlaybackClock(seconds, formatters.number);
   const [consentFor, setConsentFor] = useState("");
   const [draft, setDraft] = useState<{ revision: number; edit: Edit } | null>(
     null,
   );
   const [preview, setPreview] = useState<string | null>(null);
-  const running = episode.job?.status === "running";
+  const { job } = episode;
+  const running = job?.status === "running";
   const checkpoint =
     episodeState(episode, savedAudio, worker).status === "checkpoint";
   const currentAudio = episode.finished?.revision === episode.revision;
@@ -101,8 +138,8 @@ export function EpisodeWorkspace({
       : !finished?.transcript
         ? "transcript"
         : null;
-  const retrying = kind && episode.job && !running;
-  const consentKey = `${kind}:${episode.revision}:${episode.job?.stage}:${episode.job?.status}`;
+  const retrying = kind && !running ? job : undefined;
+  const consentKey = `${kind}:${episode.revision}:${job?.stage}:${job?.status}`;
   const consent = consentKey === consentFor;
   const planned =
     script &&
@@ -113,9 +150,9 @@ export function EpisodeWorkspace({
       ),
       voices: episode.voices,
     });
-  const total =
-    planned &&
-    Object.values(planned.texts).reduce((sum, text) => sum + text.length, 0);
+  const total = planned
+    ? Object.values(planned.texts).reduce((sum, text) => sum + text.length, 0)
+    : 0;
   const changedElsewhere =
     draft !== null && draft.revision !== episode.revision;
   const activeClip = preview ? currentRender?.clips[preview] : undefined;
@@ -123,6 +160,17 @@ export function EpisodeWorkspace({
   const clipTrack = preview && playbackTrack(episode, clipAudio, preview);
   const finishedTrack = playbackTrack(episode, savedAudio);
   const mp3 = finished?.mp3 ? assets[finished.mp3] : undefined;
+  const jobStatus =
+    job && t(checkpoint ? "episode.stages.checkpoint" : stateKeys[job.status]);
+  const jobStage = job && t(stageKeys[job.stage]);
+  const voiceSummaries = hosts.map((host) =>
+    t("episode.script.voiceSummary", {
+      host,
+      voice: t(voiceKeys[episode.voices[host]!]),
+    }),
+  );
+  const contentLanguage =
+    episode.language === "sg" ? undefined : episode.language;
 
   useEffect(() => {
     onDirty(!!draft);
@@ -147,12 +195,24 @@ export function EpisodeWorkspace({
         <div className="factory-row episode-heading">
           <div>
             <small className="episode-metadata">
-              {languages[episode.language]} · {hosts.length} 位主持
               {episode.plan
-                ? ` · 目标 ${clock(episode.plan.targetSeconds)}`
-                : ""}
+                ? formatters.plural(
+                    "episode.header.metadataWithTarget",
+                    hosts.length,
+                    {
+                      language: t(languageKeys[episode.language]),
+                      duration: clock(episode.plan.targetSeconds),
+                    },
+                  )
+                : formatters.plural("episode.header.metadata", hosts.length, {
+                    language: t(languageKeys[episode.language]),
+                  })}
             </small>
-            <h2 id="episode-title" tabIndex={-1}>
+            <h2
+              id="episode-title"
+              tabIndex={-1}
+              lang={script ? contentLanguage : undefined}
+            >
               {script?.title ?? episode.topic}
             </h2>
             {script && script.title !== episode.topic && (
@@ -163,57 +223,71 @@ export function EpisodeWorkspace({
             className="text-button"
             disabled={working || running || !!draft}
             onClick={() => {
-              if (
-                window.confirm(
-                  "删除这期节目和已同步的音频？若仍有本机检查点，联网后也会删除。",
-                )
-              )
+              if (window.confirm(t("episode.header.deleteConfirmation")))
                 onDelete();
             }}
           >
-            删除
+            {t("episode.header.delete")}
           </button>
         </div>
-        {episode.plan && <p className="muted">{episode.plan.rationale}</p>}
+        {episode.plan && (
+          <p className="muted" lang="zh">
+            {episode.plan.rationale}
+          </p>
+        )}
         {savedAudio && (
           <div className="factory-actions episode-audio-jump">
             <a className="outline" href="#audio-title">
-              {currentAudio ? "前往成品音频" : "前往上一版成品音频"}
+              {t(
+                currentAudio
+                  ? "episode.audio.jumpToCurrent"
+                  : "episode.audio.jumpToPrevious",
+              )}
             </a>
           </div>
         )}
-        <ol className="factory-stage episode-stage" aria-label="制作阶段">
+        <ol
+          className="factory-stage episode-stage"
+          aria-label={t("episode.stages.label")}
+        >
           {stages.map((stage, index) => (
             <li
               key={stage}
               data-state={
                 stageDone[index]
                   ? "done"
-                  : episode.job?.stage === stage
-                    ? episode.job.status
+                  : job?.stage === stage
+                    ? job.status
                     : "waiting"
               }
             >
-              <span>{stageNames[stage]}</span>
+              <span>{t(stageKeys[stage])}</span>
               <small>
                 {stageDone[index]
-                  ? "已保存"
-                  : episode.job?.stage === stage
-                    ? checkpoint
-                      ? "上次保存的进度"
-                      : states[episode.job.status]
-                    : "待开始"}
+                  ? t("episode.stages.saved")
+                  : job?.stage === stage
+                    ? jobStatus
+                    : t("episode.stages.waiting")}
               </small>
             </li>
           ))}
         </ol>
-        {episode.job && (
+        {job && jobStatus && jobStage && (
           <p
             role={running ? "status" : "alert"}
             className={running ? "muted" : "error"}
           >
-            {episode.job.message ??
-              `${checkpoint ? "上次保存的进度" : states[episode.job.status]} · ${stageNames[episode.job.stage]}${episode.job.stage === "audio" ? `（${clipCount}/${script?.turns.length ?? 0} 段已保存）` : ""}`}
+            {job.message ??
+              (job.stage === "audio"
+                ? formatters.plural("episode.job.audioProgress", clipCount, {
+                    status: jobStatus,
+                    stage: jobStage,
+                    total: script?.turns.length ?? 0,
+                  })
+                : t("episode.job.progress", {
+                    status: jobStatus,
+                    stage: jobStage,
+                  }))}
           </p>
         )}
         {running && (
@@ -222,7 +296,7 @@ export function EpisodeWorkspace({
             disabled={working || disconnected}
             onClick={onCancel}
           >
-            取消任务
+            {t("episode.job.cancel")}
           </button>
         )}
         {!running && kind && (
@@ -236,7 +310,7 @@ export function EpisodeWorkspace({
                   setConsentFor(event.target.checked ? consentKey : "")
                 }
               />
-              我同意本次 OpenAI 请求可能计费。已提交的请求在取消后仍可能计费。
+              {t("episode.job.consent")}
             </label>
             <button
               className="primary"
@@ -249,12 +323,20 @@ export function EpisodeWorkspace({
               }}
             >
               {retrying
-                ? "重试" + stageNames[episode.job!.stage]
-                : {
-                    draft: "继续制作整集",
-                    audio: currentAudio ? "重新配音并核对" : "生成整集配音",
-                    transcript: "转录并对照脚本",
-                  }[kind]}
+                ? t("episode.job.retry", {
+                    stage: t(stageKeys[retrying.stage]),
+                  })
+                : t(
+                    (
+                      {
+                        draft: "episode.job.continue",
+                        audio: currentAudio
+                          ? "episode.job.regenerateAudio"
+                          : "episode.job.generateAudio",
+                        transcript: "episode.job.transcribe",
+                      } as const
+                    )[kind],
+                  )}
             </button>
           </div>
         )}
@@ -266,11 +348,17 @@ export function EpisodeWorkspace({
         >
           <div className="factory-row episode-result-heading">
             <h3 id="audio-title" tabIndex={-1}>
-              {currentAudio ? "成品音频" : "上一版成品音频"}
+              {t(
+                currentAudio
+                  ? "episode.audio.current"
+                  : "episode.audio.previous",
+              )}
             </h3>
             {savedAudio && finishedTrack && (
               <p className="muted">
-                AI 生成的主持声音 · {clock(savedAudio.duration)} · WAV
+                {t("episode.audio.metadata", {
+                  duration: clock(savedAudio.duration),
+                })}
               </p>
             )}
           </div>
@@ -296,16 +384,21 @@ export function EpisodeWorkspace({
                       )
                     }
                   >
-                    {clock(chapter.start)} · {chapter.title}
+                    {t("playback.chapters.entry", {
+                      time: clock(chapter.start),
+                      title: chapter.title,
+                    })}
                   </button>
                 ))}
               </div>
             </>
           ) : (
             <p className="muted">
-              {savedAudio === undefined
-                ? "正在检查已保存的 WAV…"
-                : "此浏览器没有可用的成品 WAV。"}
+              {t(
+                savedAudio === undefined
+                  ? "episode.audio.checking"
+                  : "episode.audio.unavailable",
+              )}
             </p>
           )}
           <div className="factory-actions">
@@ -314,55 +407,70 @@ export function EpisodeWorkspace({
                 className="text-button"
                 type="button"
                 onClick={() =>
-                  download(savedAudio.blob, `podcast-${episode.id}.wav`)
+                  download(
+                    savedAudio.blob,
+                    t("episode.audio.wavFilename", { id: episode.id }),
+                  )
                 }
               >
-                下载 WAV
+                {t("episode.audio.downloadWav")}
               </button>
             )}
             {mp3 instanceof Blob && (
               <button
                 className="text-button"
                 type="button"
-                onClick={() => download(mp3, `podcast-${episode.id}.mp3`)}
+                onClick={() =>
+                  download(
+                    mp3,
+                    t("episode.audio.mp3Filename", { id: episode.id }),
+                  )
+                }
               >
-                下载 MP3
+                {t("episode.audio.downloadMp3")}
               </button>
             )}
           </div>
           <div className="episode-review" data-status={finished.qa?.status}>
             <p>
-              {finished.qa?.status === "matched"
-                ? savedAudio
-                  ? "自动转录比对通过。请试听语音与出处。"
-                  : "已保存自动转录比对结果。"
-                : finished.transcript
-                  ? "已转录 · 待试听核对"
-                  : "待转录核对"}
+              {t(
+                finished.qa?.status === "matched"
+                  ? savedAudio
+                    ? "episode.review.matched"
+                    : "episode.review.matchedSaved"
+                  : finished.transcript
+                    ? "episode.review.listen"
+                    : "episode.review.transcribe",
+              )}
             </p>
             {!!finished.qa?.reasons.length && (
               <ul>
-                {finished.qa.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
+                {finished.qa.reasons.map((reason) => {
+                  const key = savedReviewReasons.get(reason);
+                  return <li key={reason}>{key ? t(key) : reason}</li>;
+                })}
               </ul>
             )}
           </div>
           {finished.transcript && (
             <div className="factory-transcript">
-              <h4>音频转录与脚本对照</h4>
+              <h4>{t("episode.transcript.title")}</h4>
               <p className="muted">
-                字面相似度 {finished.transcript.similarity}
-                %。口音、同音字和数字写法都可能影响分数；请试听核对。
+                {t("episode.transcript.similarity", {
+                  similarity: formatters.number(
+                    finished.transcript.similarity / 100,
+                    { style: "percent" },
+                  ),
+                })}
               </p>
               <div className="factory-voices episode-transcript-compare">
                 <div>
-                  <strong>预定脚本</strong>
-                  <p>{finished.intendedText}</p>
+                  <strong>{t("episode.transcript.intended")}</strong>
+                  <p lang={contentLanguage}>{finished.intendedText}</p>
                 </div>
                 <div>
-                  <strong>从成品音频转录</strong>
-                  <p>{finished.transcript.text}</p>
+                  <strong>{t("episode.transcript.actual")}</strong>
+                  <p lang={contentLanguage}>{finished.transcript.text}</p>
                 </div>
               </div>
             </div>
@@ -374,9 +482,23 @@ export function EpisodeWorkspace({
         <section className="factory-panel" aria-labelledby="dialogue-title">
           <div className="factory-row">
             <div>
-              <h3 id="dialogue-title">节目脚本</h3>
+              <h3 id="dialogue-title">{t("episode.stages.script")}</h3>
               <p className="muted">
-                {script.turns.length} 段 · {total} 字符
+                {formatters.plural(
+                  "episode.script.summary",
+                  script.turns.length,
+                  {
+                    characters: formatters.plural(
+                      "episode.script.characters",
+                      total,
+                      {
+                        characters: formatters.number(total, {
+                          useGrouping: locale !== "zh-CN",
+                        }),
+                      },
+                    ),
+                  },
+                )}
               </p>
             </div>
             {!draft && (
@@ -387,15 +509,16 @@ export function EpisodeWorkspace({
                   setDraft({ revision: episode.revision, edit: planned })
                 }
               >
-                编辑脚本与声音
+                {t("episode.script.edit")}
               </button>
             )}
           </div>
           {draft && (
             <>
               <label className="field">
-                节目标题
+                {t("episode.script.episodeTitle")}
                 <input
+                  lang={contentLanguage}
                   maxLength={100}
                   value={planned.title}
                   onChange={(event) =>
@@ -409,7 +532,7 @@ export function EpisodeWorkspace({
               <div className="factory-voices">
                 {hosts.map((host) => (
                   <label className="field" key={host}>
-                    主持 {host} 的声音
+                    {t("episode.script.hostVoice", { host })}
                     <select
                       value={planned.voices[host]}
                       onChange={(event) =>
@@ -426,7 +549,9 @@ export function EpisodeWorkspace({
                       }
                     >
                       {voices.map((voice) => (
-                        <option key={voice}>{voice}</option>
+                        <option key={voice} value={voice}>
+                          {t(voiceKeys[voice])}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -436,24 +561,27 @@ export function EpisodeWorkspace({
           )}
           {!draft && (
             <p className="muted">
-              {hosts
-                .map((host) => `主持 ${host} · ${episode.voices[host]}`)
-                .join("　")}
+              {locale === "zh-CN"
+                ? voiceSummaries.join("　")
+                : formatters.list(voiceSummaries)}
             </p>
           )}
           {episode.outline?.chapters.map((chapter) => (
             <div key={chapter.id} className="factory-chapter">
-              <h4>{chapter.title}</h4>
+              <h4 lang={contentLanguage}>{chapter.title}</h4>
               {script.turns
                 .filter((turn) => turn.chapterId === chapter.id)
                 .map((turn) => (
                   <article className="factory-turn" key={turn.id}>
                     <strong className="factory-host" data-host={turn.host}>
-                      主持 {turn.host}
+                      {t("episode.script.host", { host: turn.host })}
                     </strong>
                     {draft ? (
                       <textarea
-                        aria-label={`主持 ${turn.host} · ${turn.id}`}
+                        aria-label={t("episode.script.turnLabel", {
+                          host: turn.host,
+                          id: turn.id,
+                        })}
                         maxLength={limits.turn}
                         rows={3}
                         value={planned.texts[turn.id]}
@@ -471,11 +599,13 @@ export function EpisodeWorkspace({
                         }
                       />
                     ) : (
-                      <p>{turn.text}</p>
+                      <p lang={contentLanguage}>{turn.text}</p>
                     )}
                     {(turn.edited || turn.claimIds.length > 0) && (
                       <div className="factory-turn-meta">
-                        {turn.edited && <small>人工编辑 · 请复核归属</small>}
+                        {turn.edited && (
+                          <small>{t("episode.script.edited")}</small>
+                        )}
                         {episode.research && turn.claimIds.length > 0 && (
                           <>
                             <InlineSources
@@ -484,7 +614,10 @@ export function EpisodeWorkspace({
                             />
                             <details>
                               <summary>
-                                查看引用（{turn.claimIds.length}）
+                                {formatters.plural(
+                                  "episode.script.viewCitations",
+                                  turn.claimIds.length,
+                                )}
                               </summary>
                               <Claims
                                 research={episode.research}
@@ -500,10 +633,12 @@ export function EpisodeWorkspace({
                         className="text-button"
                         onClick={() => setPreview(turn.id)}
                       >
-                        试听此段
+                        {t("episode.script.preview")}
                       </button>
                     )}
-                    {preview === turn.id && activeClip && !draft &&
+                    {preview === turn.id &&
+                      activeClip &&
+                      !draft &&
                       (clipTrack && clipAudio ? (
                         <EpisodePlayButton
                           engine={playback}
@@ -512,9 +647,11 @@ export function EpisodeWorkspace({
                         />
                       ) : (
                         <p className="muted" role="status">
-                          {clipAudio === undefined
-                            ? "正在检查片段…"
-                            : "此浏览器没有可用的配音片段。"}
+                          {t(
+                            clipAudio === undefined
+                              ? "episode.script.checkingClip"
+                              : "episode.script.clipUnavailable",
+                          )}
                         </p>
                       ))}
                   </article>
@@ -525,7 +662,7 @@ export function EpisodeWorkspace({
             <div className="factory-action">
               {changedElsewhere && (
                 <p className="error" role="alert">
-                  其他标签页已更新脚本。请复制需要保留的修改，再放弃本次编辑。
+                  {t("episode.script.changedElsewhere")}
                 </p>
               )}
               <button
@@ -537,21 +674,21 @@ export function EpisodeWorkspace({
                   !planned.title.trim() ||
                   new Set(hosts.map((host) => planned.voices[host])).size !==
                     hosts.length ||
-                  (total ?? 0) > limits.script ||
+                  total > limits.script ||
                   Object.values(planned.texts).some((text) => !text.trim())
                 }
                 onClick={async () => {
                   if (await onEdit(draft.revision, planned)) setDraft(null);
                 }}
               >
-                保存脚本
+                {t("episode.script.save")}
               </button>
               <button
                 className="outline"
                 disabled={working}
                 onClick={() => setDraft(null)}
               >
-                放弃修改
+                {t("episode.script.discard")}
               </button>
             </div>
           )}
@@ -563,7 +700,7 @@ export function EpisodeWorkspace({
           disabled={working || !!draft}
           onClick={onBackup}
         >
-          备份本期节目
+          {t("episode.exports.backup")}
         </button>
         {script && (
           <>
@@ -574,11 +711,11 @@ export function EpisodeWorkspace({
                   new Blob([JSON.stringify(episode, null, 2)], {
                     type: "application/json",
                   }),
-                  "podcast-record.json",
+                  t("episode.exports.recordFilename"),
                 )
               }
             >
-              导出制作记录
+              {t("episode.exports.record")}
             </button>
           </>
         )}

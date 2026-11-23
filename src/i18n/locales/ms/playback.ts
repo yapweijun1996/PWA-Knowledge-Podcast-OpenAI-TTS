@@ -1,1 +1,55 @@
-export default [] as const;
+export default [
+  ["playback.seek.label", "Kedudukan main balik"],
+  ["playback.seek.position", "{position} daripada {duration}"],
+  ["playback.episode.play", "Mainkan audio episod"],
+  ["playback.episode.pause", "Jeda audio episod"],
+  ["playback.episode.playClip", "Mainkan klip"],
+  ["playback.episode.pauseClip", "Jeda klip"],
+  ["playback.episode.clipTitle", "{title} · Pradengar narasi hos {host}"],
+  ["playback.bar.preview", "Pradengar narasi"],
+  ["playback.bar.loading", "Sedang memuatkan audio…"],
+  ["playback.bar.play", "Mainkan"],
+  ["playback.bar.pause", "Jeda"],
+  ["playback.bar.label", "Pemain audio"],
+  ["playback.bar.empty", "Tiada audio dipilih"],
+  ["playback.bar.expand", "Buka paparan sedang dimainkan"],
+  ["playback.dialog.title", "Sedang dimainkan"],
+  ["playback.dialog.close", "Tutup"],
+  ["playback.dialog.rate", "Kelajuan main balik"],
+  ["playback.dialog.speed", "{speed}×"],
+  ["playback.chapters.title", "Bab"],
+  ["playback.chapters.entry", "{time} · {title}"],
+  [
+    "playback.error.unplayable",
+    "Audio ini tidak dapat dimainkan. Pilih semula atau pulihkan sandaran episod.",
+  ],
+  [
+    "playback.error.openFailed",
+    "Audio ini tidak dapat dibuka. Sila cuba lagi.",
+  ],
+  [
+    "playback.error.autoplayBlocked",
+    "Pelayar menyekat main balik. Tekan Mainkan sekali lagi.",
+  ],
+  [
+    "playback.error.startFailed",
+    "Main balik tidak dapat dimulakan. Sila cuba lagi.",
+  ],
+  [
+    "playback.error.savedAudioUnavailable",
+    "Audio yang terakhir dimainkan telah berubah atau tidak tersedia. Pilih audio semula.",
+  ],
+  [
+    "playback.error.episodeRemoved",
+    "Episod telah dipadam dan main balik dihentikan.",
+  ],
+  ["playback.error.audioChanged", "Audio telah berubah. Sila pilih semula."],
+  [
+    "playback.error.localAudioUnavailable",
+    "Audio setempat telah berubah atau tidak tersedia. Pilih audio semula.",
+  ],
+  [
+    "playback.error.validationFailed",
+    "Audio setempat gagal disahkan. Pulihkan sandaran episod.",
+  ],
+] as const;

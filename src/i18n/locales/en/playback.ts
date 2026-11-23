@@ -1,1 +1,52 @@
-export default [] as const;
+export default [
+  ["playback.seek.label", "Playback position"],
+  ["playback.seek.position", "{position} of {duration}"],
+  ["playback.episode.play", "Play episode audio"],
+  ["playback.episode.pause", "Pause episode audio"],
+  ["playback.episode.playClip", "Play clip"],
+  ["playback.episode.pauseClip", "Pause clip"],
+  ["playback.episode.clipTitle", "{title} · Host {host} narration preview"],
+  ["playback.bar.preview", "Narration preview"],
+  ["playback.bar.loading", "Loading audio…"],
+  ["playback.bar.play", "Play"],
+  ["playback.bar.pause", "Pause"],
+  ["playback.bar.label", "Audio player"],
+  ["playback.bar.empty", "No audio selected"],
+  ["playback.bar.expand", "Open the now playing panel"],
+  ["playback.dialog.title", "Now playing"],
+  ["playback.dialog.close", "Close"],
+  ["playback.dialog.rate", "Playback speed"],
+  ["playback.dialog.speed", "{speed}×"],
+  ["playback.chapters.title", "Chapters"],
+  ["playback.chapters.entry", "{time} · {title}"],
+  [
+    "playback.error.unplayable",
+    "This audio cannot be played. Select it again or restore the episode backup.",
+  ],
+  [
+    "playback.error.openFailed",
+    "This audio could not be opened. Please try again.",
+  ],
+  [
+    "playback.error.autoplayBlocked",
+    "The browser blocked playback. Press Play again.",
+  ],
+  ["playback.error.startFailed", "Playback could not start. Please try again."],
+  [
+    "playback.error.savedAudioUnavailable",
+    "The last played audio changed or is unavailable. Select audio again.",
+  ],
+  [
+    "playback.error.episodeRemoved",
+    "The episode was deleted. Playback stopped.",
+  ],
+  ["playback.error.audioChanged", "The audio changed. Select it again."],
+  [
+    "playback.error.localAudioUnavailable",
+    "The local audio changed or is unavailable. Select audio again.",
+  ],
+  [
+    "playback.error.validationFailed",
+    "The local audio failed validation. Restore the episode backup.",
+  ],
+] as const;

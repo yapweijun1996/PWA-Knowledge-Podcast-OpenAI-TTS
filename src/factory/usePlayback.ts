@@ -51,7 +51,8 @@ export function playbackTrack(
   return {
     ...identity,
     clipId,
-    title: host ? `${title} · 主持 ${host} 配音预览` : title,
+    title,
+    clipHost: host,
     duration: audio.duration,
     bytes: audio.blob.size,
     chapters:
@@ -146,18 +147,18 @@ export function usePlayback(
     const source = audio && record && playbackTrack(record.episode, audio);
     if (source && sameAudio(source, saved))
       engine.load(source, audio.blob, saved.position);
-    else engine.invalidate("上次播放的音频已变更或不可用，请重新选择。");
+    else engine.invalidate({ key: "playback.error.savedAudioUnavailable" });
   }, [engine, getAudio, libraryReady, records]);
 
   useLayoutEffect(() => {
     if (!track || engine.getSnapshot().track !== track) return;
     if (!activeRecord) {
-      engine.invalidate("节目已删除，播放已停止。");
+      engine.invalidate({ key: "playback.error.episodeRemoved" });
       return;
     }
     const identity = audioIdentity(activeRecord.episode, track.clipId);
     if (!identity || !sameAudio(identity, track)) {
-      engine.invalidate("音频已变更，请重新选择。");
+      engine.invalidate({ key: "playback.error.audioChanged" });
       return;
     }
     const blob = activeRecord.assets[track.asset];
@@ -166,14 +167,14 @@ export function usePlayback(
       blob.type !== "audio/wav" ||
       blob.size !== track.bytes
     ) {
-      engine.invalidate("本地音频已变更或不可用，请重新选择。");
+      engine.invalidate({ key: "playback.error.localAudioUnavailable" });
       return;
     }
     // Keep the validated URL while IndexedDB supplies a fresh Blob wrapper for the same asset.
     let current = true;
     void checkWav(blob).then((audio) => {
       if (current && !audio && engine.getSnapshot().track === track)
-        engine.invalidate("本地音频未通过验证，请恢复节目备份。");
+        engine.invalidate({ key: "playback.error.validationFailed" });
     });
     return () => {
       current = false;
