@@ -1,44 +1,51 @@
+import { t } from "../i18n/index.ts";
 import { renderVideo, type VideoRenderPlan } from "./render.ts";
 
-const plan: VideoRenderPlan = {
-  duration: 5,
-  fps: 30,
-  resolution: { width: 1920, height: 1080 },
-  estimated: false,
-  allowVp9: true,
-  chapters: [{ title: "第一章 · 浏览器视频", start: 0, timestamp: "0:00" }],
-  scenes: [
-    { kind: "intro", title: "波形与字幕", start: 0, end: 1 },
-    {
-      kind: "chapter",
-      chapterId: "fixture",
-      title: "第一章 · 浏览器视频",
-      start: 1,
-      end: 2,
-    },
-    {
-      kind: "turn",
-      chapterId: "fixture",
-      turnId: "fixture",
-      speakerId: "A",
-      start: 2,
-      end: 5,
-      audioStart: 0,
-      captions: [
-        {
-          start: 2,
-          end: 3.5,
-          lines: ["这段音频由浏览器生成。", "Waveform and caption fixture"],
-        },
-        {
-          start: 3.5,
-          end: 5,
-          lines: ["波形会随音量变化。", "The waveform follows the audio."],
-        },
-      ],
-    },
-  ],
-};
+function fixturePlan(): VideoRenderPlan {
+  const chapter = t("video.probe.chapter");
+  return {
+    duration: 5,
+    fps: 30,
+    resolution: { width: 1920, height: 1080 },
+    estimated: false,
+    allowVp9: true,
+    chapters: [{ title: chapter, start: 0, timestamp: "0:00" }],
+    scenes: [
+      { kind: "intro", title: t("video.probe.title"), start: 0, end: 1 },
+      {
+        kind: "chapter",
+        chapterId: "fixture",
+        title: chapter,
+        start: 1,
+        end: 2,
+      },
+      {
+        kind: "turn",
+        chapterId: "fixture",
+        turnId: "fixture",
+        speakerId: "A",
+        start: 2,
+        end: 5,
+        audioStart: 0,
+        captions: [
+          {
+            start: 2,
+            end: 3.5,
+            lines: [
+              t("video.probe.browserAudio"),
+              t("video.probe.captionFixture"),
+            ],
+          },
+          {
+            start: 3.5,
+            end: 5,
+            lines: [t("video.probe.volume"), t("video.probe.followsAudio")],
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function waitForMedia(
   video: HTMLVideoElement,
@@ -59,7 +66,13 @@ function waitForMedia(
     video.addEventListener(
       "error",
       () => {
-        reject(new Error(`无法播放视频样片。${video.error?.message ?? ""}`));
+        reject(
+          new Error(
+            t("video.probe.playbackFailed", {
+              detail: video.error?.message ?? "",
+            }),
+          ),
+        );
       },
       options,
     );
@@ -90,7 +103,7 @@ export async function runVideoProbe() {
   });
   const start = performance.now();
   const { blob, ...receipt } = await renderVideo({
-    plan,
+    plan: fixturePlan(),
     audio: { sampleRate, channels: [samples] },
     theme: "dark",
   });
@@ -114,7 +127,11 @@ export async function runVideoProbe() {
       Math.abs(video.duration - receipt.durationSeconds) > 0.05
     ) {
       throw new Error(
-        `视频样片规格不符：${video.videoWidth}×${video.videoHeight}，${video.duration} 秒。`,
+        t("video.probe.unexpectedFormat", {
+          width: String(video.videoWidth),
+          height: String(video.videoHeight),
+          duration: String(video.duration),
+        }),
       );
     }
     await waitForMedia(

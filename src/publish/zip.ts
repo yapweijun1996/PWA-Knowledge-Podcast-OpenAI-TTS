@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.ts";
+
 type ZipEntry = { name: string; blob: Blob };
 
 const fieldLimit = 0xffffffff;
@@ -34,7 +36,7 @@ export async function createStoredZip(
   entries: readonly ZipEntry[],
 ): Promise<Blob> {
   if (entries.length >= 0xffff) {
-    throw new RangeError("ZIP 文件数量超出上限。");
+    throw new RangeError(t("publish.zip.tooManyFiles"));
   }
   const localParts: BlobPart[] = [];
   const centralParts: BlobPart[] = [];
@@ -43,7 +45,7 @@ export async function createStoredZip(
   for (const { name, blob } of entries) {
     const filename = encoder.encode(name);
     if (!filename.length || filename.length > 0xffff) {
-      throw new RangeError("ZIP 文件名长度无效。");
+      throw new RangeError(t("publish.zip.invalidFilename"));
     }
     // Zero-filled headers store files without compression or extra fields.
     const local = new Uint8Array(30);
@@ -51,7 +53,7 @@ export async function createStoredZip(
     const nextOffset = offset + local.length + filename.length + blob.size;
     centralSize += central.length + filename.length;
     if (nextOffset + centralSize + 22 >= fieldLimit) {
-      throw new RangeError("文件包超出 ZIP 大小上限。");
+      throw new RangeError(t("publish.zip.tooLarge"));
     }
     const crc = await crc32(blob);
 

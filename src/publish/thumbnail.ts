@@ -1,3 +1,7 @@
+import type { Language } from "../../shared/factory.ts";
+import { createTranslator, t } from "../i18n/index.ts";
+import { publishLocales } from "./package.ts";
+
 export const thumbnailSize = { width: 1280, height: 720 } as const;
 export type ThumbnailTheme = "light" | "dark";
 
@@ -55,7 +59,11 @@ function wrapTitle(ctx: ThumbnailContext, title: string) {
 /** Draw onto an existing 1280×720 canvas with its default transform. */
 export function drawThumbnail(
   ctx: ThumbnailContext,
-  { title, theme }: { title: string; theme: ThumbnailTheme },
+  {
+    title,
+    theme,
+    language,
+  }: { title: string; theme: ThumbnailTheme; language?: Language },
 ) {
   const colors = palettes[theme];
   ctx.save();
@@ -78,9 +86,11 @@ export function drawThumbnail(
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = colors.title;
+    const translate = language ? createTranslator(publishLocales[language]) : t;
     const lines = wrapTitle(
       ctx,
-      title.replace(/\s+/gu, " ").trim() || "未命名节目",
+      title.replace(/\s+/gu, " ").trim() ||
+        translate("publish.content.untitled"),
     );
     const firstY = 350 - ((lines.length - 1) * lineHeight) / 2;
     for (const [index, line] of lines.entries()) {

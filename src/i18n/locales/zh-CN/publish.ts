@@ -1,1 +1,61 @@
-export default [] as const;
+export default [
+  ["publish.content.untitled", "未命名节目"],
+  ["publish.content.chapterNumber", "第 {number} 章"],
+  ["publish.description.intro", "节目简介：{title}"],
+  ["publish.description.summary", "本期内容：{chapters}。"],
+  ["publish.description.chaptersHeading", "章节"],
+  [
+    "publish.description.tooFewChapters",
+    "章节不足三段，未在简介中添加时间点。现有时间点见 {chaptersFile}。",
+  ],
+  [
+    "publish.description.fullChapterList",
+    "完整时间点见章节文件（{chaptersFile}）。",
+  ],
+  ["publish.description.sourcesHeading", "参考资料"],
+  ["publish.description.namedSource", "- {title}： {url}"],
+  ["publish.description.omittedSources", "部分来源因篇幅限制未列出。"],
+  ["publish.description.noSources", "暂无可列出的研究来源。"],
+  ["publish.description.aiNotice", "本节目包含由 AI 生成的旁白。"],
+  ["publish.content.podcastTag", "播客"],
+  ["publish.files.title", "title.txt"],
+  ["publish.files.description", "description.txt"],
+  ["publish.files.tags", "tags.txt"],
+  ["publish.files.chapters", "chapters.txt"],
+  ["publish.files.checklist", "checklist.md"],
+  ["publish.files.thumbnail", "thumbnail.png"],
+  ["publish.files.video", "video.mp4"],
+  ["publish.checklist.heading", "# YouTube 手动上传检查清单"],
+  [
+    "publish.checklist.settings",
+    "请在 YouTube Studio 核对设置的准确名称。本清单中的设置名称未经验证。",
+  ],
+  [
+    "publish.checklist.upload",
+    "- [ ] 手动上传 `{videoFile}`，填写 `{titleFile}`、`{descriptionFile}` 和 `{tagsFile}` 中的元数据。",
+  ],
+  ["publish.checklist.audience", "- [ ] 设置受众，确认视频是否面向儿童。"],
+  [
+    "publish.checklist.aiDisclosure",
+    "- [ ] 为 AI 生成的旁白启用「经过修改或合成的内容」（altered or synthetic content）披露。",
+  ],
+  [
+    "publish.checklist.thumbnail",
+    "- [ ] 添加 `{thumbnailFile}` 作为自定义缩略图。",
+  ],
+  [
+    "publish.checklist.visibility",
+    "- [ ] 设置可见性，建议先设为私享，预览无误后再选择发布范围。",
+  ],
+  [
+    "publish.checklist.estimatedChapters",
+    "- [ ] 参照 `{chaptersFile}` 验证章节。当前时间点包含估算，请对照最终视频逐一校正。如果不足三章，简介会省略时间点，章节文件保留已有时间点。",
+  ],
+  [
+    "publish.checklist.measuredChapters",
+    "- [ ] 参照 `{chaptersFile}` 验证章节。请对照最终视频逐一核对时间点。如果不足三章，简介会省略时间点，章节文件保留已有时间点。",
+  ],
+  ["publish.zip.tooManyFiles", "ZIP 文件数量超出上限。"],
+  ["publish.zip.invalidFilename", "ZIP 文件名长度无效。"],
+  ["publish.zip.tooLarge", "文件包超出 ZIP 大小上限。"],
+] as const;

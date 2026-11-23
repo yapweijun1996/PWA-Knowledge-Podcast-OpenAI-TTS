@@ -1,4 +1,10 @@
-import { limits, type Episode } from "../../shared/factory.ts";
+import { limits, type Episode, type Language } from "../../shared/factory.ts";
+import {
+  createFormatters,
+  createTranslator,
+  t,
+  type Locale,
+} from "../i18n/index.ts";
 import type { TimelinePlan } from "../video/timeline.ts";
 import { createStoredZip } from "./zip.ts";
 
@@ -18,9 +24,14 @@ const byteLength = (text: string) => encoder.encode(text).length;
 const descriptionLimit = 5000;
 // Leave room for research links even when a timeline has many chapter breaks.
 const chapterListLimit = 2000;
-const aiNotice = "本节目包含由 AI 生成的旁白。";
-const omittedSources = "部分来源因篇幅限制未列出。";
 const plainText = "text/plain;charset=utf-8";
+
+export const publishLocales = {
+  en: "en",
+  zh: "zh-CN",
+  ms: "ms",
+  sg: "en", // Singapore mixed-language episodes use English as their base.
+} as const satisfies Record<Language, Locale>;
 
 function cleanLine(text: string) {
   return text
@@ -37,9 +48,13 @@ function shorten(text: string, limit: number) {
     .trimEnd();
 }
 
-function descriptionChapters(lines: readonly string[]) {
+function descriptionChapters(
+  lines: readonly string[],
+  translate: typeof t,
+  chaptersFile: string,
+) {
   if (lines.length < 3) {
-    return "章节不足三段，未在简介中添加时间点。现有时间点见 chapters.txt。";
+    return translate("publish.description.tooFewChapters", { chaptersFile });
   }
 
   const selected: string[] = [];
@@ -50,9 +65,13 @@ function descriptionChapters(lines: readonly string[]) {
     selected.push(line);
   }
   if (selected.length < lines.length) {
-    selected.push("完整时间点见章节文件（chapters.txt）。");
+    selected.push(
+      translate("publish.description.fullChapterList", { chaptersFile }),
+    );
   }
-  return ["章节", ...selected].join("\n");
+  return [translate("publish.description.chaptersHeading"), ...selected].join(
+    "\n",
+  );
 }
 
 function sourceURL(raw: string) {
@@ -70,8 +89,13 @@ function sourceURL(raw: string) {
   }
 }
 
-function descriptionSources(episode: Episode, budget: number) {
-  const lines = ["参考资料"];
+function descriptionSources(
+  episode: Episode,
+  budget: number,
+  translate: typeof t,
+) {
+  const lines = [translate("publish.description.sourcesHeading")];
+  const omittedSources = translate("publish.description.omittedSources");
   const seen = new Set<string>();
   let remaining = budget - byteLength(`${lines[0]}\n${omittedSources}`);
   let omitted = false;
@@ -82,7 +106,9 @@ function descriptionSources(episode: Episode, budget: number) {
 
     const title = cleanLine(source.title);
     const link = `- ${url}`;
-    const label = title ? `- ${title}： ${url}` : link;
+    const label = title
+      ? translate("publish.description.namedSource", { title, url })
+      : link;
     const line = byteLength(label) + 1 <= remaining ? label : link;
     const size = byteLength(line) + 1;
     if (size > remaining) {
@@ -93,25 +119,31 @@ function descriptionSources(episode: Episode, budget: number) {
     lines.push(line);
   }
   if (omitted) lines.push(omittedSources);
-  if (lines.length === 1) lines.push("暂无可列出的研究来源。");
+  if (lines.length === 1)
+    lines.push(translate("publish.description.noSources"));
   return lines.join("\n");
 }
 
-function uploadChecklist(plan: TimelinePlan) {
-  const chapterReview = plan.estimated
-    ? "当前时间点包含估算，请对照最终视频逐一校正。"
-    : "请对照最终视频逐一核对时间点。";
+function uploadChecklist(
+  estimated: boolean,
+  fileNames: Record<string, string>,
+) {
   return [
-    "# YouTube 手动上传检查清单",
+    t("publish.checklist.heading"),
     "",
-    "请在 YouTube Studio 核对设置的准确名称。本清单中的设置名称未经验证。",
+    t("publish.checklist.settings"),
     "",
-    "- [ ] 手动上传 `video.mp4`，填写 `title.txt`、`description.txt` 和 `tags.txt` 中的元数据。",
-    "- [ ] 设置受众，确认视频是否面向儿童。",
-    "- [ ] 为 AI 生成的旁白启用「经过修改或合成的内容」（altered or synthetic content）披露。",
-    "- [ ] 添加 `thumbnail.png` 作为自定义缩略图。",
-    "- [ ] 设置可见性，建议先设为私享，预览无误后再选择发布范围。",
-    `- [ ] 参照 \`chapters.txt\` 验证章节。${chapterReview}如果不足三章，简介会省略时间点，章节文件保留已有时间点。`,
+    t("publish.checklist.upload", fileNames),
+    t("publish.checklist.audience"),
+    t("publish.checklist.aiDisclosure"),
+    t("publish.checklist.thumbnail", fileNames),
+    t("publish.checklist.visibility"),
+    t(
+      estimated
+        ? "publish.checklist.estimatedChapters"
+        : "publish.checklist.measuredChapters",
+      fileNames,
+    ),
   ].join("\n");
 }
 
@@ -121,33 +153,60 @@ export function buildPublishPackage({
   videoBlob,
   thumbnailBlob,
 }: PublishInput) {
+  const locale = publishLocales[episode.language];
+  const translate = createTranslator(locale);
+  const formatters = createFormatters(locale, translate);
+  const fileNames = {
+    titleFile: t("publish.files.title"),
+    descriptionFile: t("publish.files.description"),
+    tagsFile: t("publish.files.tags"),
+    chaptersFile: t("publish.files.chapters"),
+    checklistFile: t("publish.files.checklist"),
+    thumbnailFile: t("publish.files.thumbnail"),
+    videoFile: t("publish.files.video"),
+  };
   const topic = shorten(cleanLine(episode.topic), limits.topic);
   const scriptTitle = cleanLine(episode.script?.title ?? "");
-  const title = shorten(scriptTitle || topic || "未命名节目", 100);
+  const title = shorten(
+    scriptTitle || topic || translate("publish.content.untitled"),
+    100,
+  );
   const chapters = plan.chapters.map(({ timestamp, title }, index) => ({
     timestamp,
-    title: shorten(cleanLine(title), 70) || `第 ${index + 1} 章`,
+    title:
+      shorten(cleanLine(title), 70) ||
+      translate("publish.content.chapterNumber", {
+        number: formatters.number(index + 1, { useGrouping: false }),
+      }),
   }));
   const chapterLines = chapters.map(
     ({ timestamp, title }) => `${timestamp} ${title}`,
   );
   const chapterTitles = [...new Set(chapters.map(({ title }) => title))];
-  const summary = [`节目简介：${topic || title}`];
+  const summary = [
+    translate("publish.description.intro", { title: topic || title }),
+  ];
   if (chapterTitles.length) {
-    summary.push(`本期内容：${chapterTitles.slice(0, 3).join("、")}。`);
+    const titles = chapterTitles.slice(0, 3);
+    // Preserve the source copy's ideographic commas between all chapter titles.
+    const list =
+      locale === "zh-CN" ? titles.join("、") : formatters.list(titles);
+    summary.push(translate("publish.description.summary", { chapters: list }));
   }
   const introduction = [
     summary.join("\n"),
-    descriptionChapters(chapterLines),
+    descriptionChapters(chapterLines, translate, fileNames.chaptersFile),
   ].join("\n\n");
+  const aiNotice = translate("publish.description.aiNotice");
   const sources = descriptionSources(
     episode,
     descriptionLimit - byteLength(`${introduction}\n\n\n\n${aiNotice}`),
+    translate,
   );
   const description = [introduction, sources, aiNotice].join("\n\n");
   const tags = [
     ...new Set(
-      ["播客", topic, ...chapterTitles]
+      [translate("publish.content.podcastTag"), topic, ...chapterTitles]
         .map((tag) => shorten(cleanLine(tag.replace(/[,，]/gu, " ")), 50))
         .filter(Boolean),
     ),
@@ -156,24 +215,32 @@ export function buildPublishPackage({
     .join(", ");
 
   const files: PublishFile[] = [
-    { name: "title.txt", text: title, mime: plainText },
-    { name: "description.txt", text: description, mime: plainText },
-    { name: "tags.txt", text: tags, mime: plainText },
-    { name: "chapters.txt", text: chapterLines.join("\n"), mime: plainText },
+    { name: fileNames.titleFile, text: title, mime: plainText },
+    { name: fileNames.descriptionFile, text: description, mime: plainText },
+    { name: fileNames.tagsFile, text: tags, mime: plainText },
     {
-      name: "checklist.md",
-      text: uploadChecklist(plan),
+      name: fileNames.chaptersFile,
+      text: chapterLines.join("\n"),
+      mime: plainText,
+    },
+    {
+      name: fileNames.checklistFile,
+      text: uploadChecklist(plan.estimated, fileNames),
       mime: "text/markdown;charset=utf-8",
     },
   ];
   if (thumbnailBlob)
     files.push({
-      name: "thumbnail.png",
+      name: fileNames.thumbnailFile,
       blob: thumbnailBlob,
       mime: "image/png",
     });
   if (videoBlob)
-    files.push({ name: "video.mp4", blob: videoBlob, mime: "video/mp4" });
+    files.push({
+      name: fileNames.videoFile,
+      blob: videoBlob,
+      mime: "video/mp4",
+    });
 
   return {
     files,
