@@ -169,7 +169,7 @@ export function podcastHTTP({
       res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
       res.setHeader(
         "Content-Security-Policy",
-        "frame-ancestors 'none'; connect-src 'self' blob:",
+        "frame-ancestors 'none'; connect-src 'self' https://api.openai.com blob:",
       );
       res.setHeader("Cache-Control", "no-store");
       try {

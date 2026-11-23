@@ -22,3 +22,11 @@ for (const mode of ["production", "private"]) {
     assert.ok(directives.includes("script-src 'self'"));
   });
 }
+
+test("the worker response header also allows browser BYOK connections to OpenAI", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../server/http.mjs", import.meta.url), "utf8");
+  const header = /"Content-Security-Policy",\s*"([^"]+)"/.exec(source)?.[1] ?? "";
+  assert.match(header, /connect-src 'self' https:\/\/api\.openai\.com blob:/);
+  assert.match(header, /frame-ancestors 'none'/);
+});
