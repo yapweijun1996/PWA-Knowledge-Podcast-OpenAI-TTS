@@ -1,5 +1,6 @@
 import type { Language } from "../../shared/factory.ts";
 import { createTranslator, t } from "../i18n/index.ts";
+import { wrapText } from "../text/wrap.ts";
 import { publishLocales } from "./package.ts";
 
 export const thumbnailSize = { width: 1280, height: 720 } as const;
@@ -25,36 +26,6 @@ const maxLines = 3;
 const inset = 104;
 const lineHeight = 102;
 const textWidth = thumbnailSize.width - 2 * inset;
-
-function wrapTitle(ctx: ThumbnailContext, title: string) {
-  const lines: string[] = [];
-  let line = "";
-  for (const character of title) {
-    const next = line + character;
-    if (!line || ctx.measureText(next).width <= textWidth) {
-      line = next;
-      continue;
-    }
-    if (lines.length === maxLines - 1) {
-      const characters = Array.from(line.trimEnd());
-      while (
-        characters.length &&
-        ctx.measureText(`${characters.join("")}…`).width > textWidth
-      ) {
-        characters.pop();
-      }
-      lines.push(`${characters.join("").trimEnd()}…`);
-      return lines;
-    }
-
-    const space = next.lastIndexOf(" ");
-    const end = space > 0 ? space : line.length;
-    lines.push(next.slice(0, end));
-    line = next.slice(end).trimStart();
-  }
-  if (line) lines.push(line);
-  return lines;
-}
 
 /** Draw onto an existing 1280×720 canvas with its default transform. */
 export function drawThumbnail(
@@ -86,12 +57,10 @@ export function drawThumbnail(
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = colors.title;
-    const translate = language ? createTranslator(publishLocales[language]) : t;
-    const lines = wrapTitle(
-      ctx,
-      title.replace(/\s+/gu, " ").trim() ||
-        translate("publish.content.untitled"),
-    );
+    const locale = language && publishLocales[language];
+    const translate = locale ? createTranslator(locale) : t;
+    const label = title.trim() || translate("publish.content.untitled");
+    const lines = wrapText(ctx, label, textWidth, locale, maxLines);
     const firstY = 350 - ((lines.length - 1) * lineHeight) / 2;
     for (const [index, line] of lines.entries()) {
       ctx.fillText(line, inset, firstY + index * lineHeight, textWidth);

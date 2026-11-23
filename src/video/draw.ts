@@ -1,5 +1,6 @@
 import type { Host } from "../../shared/factory.ts";
 import { t } from "../i18n/index.ts";
+import { joinCaptionLines, wrapText } from "../text/wrap.ts";
 import type { TimelinePlan } from "./timeline.ts";
 import { videoThemes, type VideoTheme } from "./themes.ts";
 
@@ -22,52 +23,6 @@ export type PcmAudio = {
 type TurnScene = Extract<TimelinePlan["scenes"][number], { kind: "turn" }>;
 
 const font = 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif';
-const graphemes = new Intl.Segmenter("zh", { granularity: "grapheme" });
-const cjk =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff01-\uff60]/u;
-const closing = /^[、。，．・：；？！…）］｝〉》」』】〕〗〙〛’”]/u;
-const opening = /^[（［｛〈《「『【〔〖〘〚‘“]/u;
-
-export function wrapText(
-  context: Pick<DrawingContext, "measureText">,
-  text: string,
-  maxWidth: number,
-): string[] {
-  const characters = Array.from(
-    graphemes.segment(text.trim().replace(/\s+/gu, " ")),
-    ({ segment }) => segment,
-  );
-  const lines: string[] = [];
-  let start = 0;
-  while (start < characters.length) {
-    let end = start;
-    let softBreak = start;
-    let line = "";
-    while (end < characters.length) {
-      const next = characters[end];
-      const previous = characters[end - 1];
-      if (
-        end > start &&
-        !opening.test(previous) &&
-        !closing.test(next) &&
-        (next === " " ||
-          previous === " " ||
-          cjk.test(next) ||
-          cjk.test(previous))
-      ) {
-        softBreak = end;
-      }
-      if (end > start && context.measureText(line + next).width > maxWidth)
-        break;
-      line += next;
-      end++;
-    }
-    if (end < characters.length && softBreak > start) end = softBreak;
-    lines.push(characters.slice(start, end).join("").trimEnd());
-    start = characters[end] === " " ? end + 1 : end;
-  }
-  return lines;
-}
 
 export function sampleAmplitude(
   channel: Float32Array | Int16Array,
@@ -130,12 +85,14 @@ function drawLines(
   x: number,
   y: number,
   lineHeight: number,
+  maxWidth: number,
 ) {
   lines.forEach((line, index) => {
     context.fillText(
       line,
       x,
       y + (index - (lines.length - 1) / 2) * lineHeight,
+      maxWidth,
     );
   });
 }
@@ -148,12 +105,22 @@ export function drawFrame(
   theme: VideoTheme,
   time: number,
   speakerLabels?: ReadonlyMap<Host, string>,
+  textLayouts?: Map<string, string[]>,
 ) {
   const { width, height } = plan.resolution;
   const scale = Math.min(width, height) / 1080;
   const portrait = height > width;
   const colors = videoThemes[theme];
   const scene = latestStarted(plan.scenes, time);
+
+  function layout(text: string, maxWidth: number) {
+    const key = `${context.font}\n${maxWidth}\n${text}`;
+    const cached = textLayouts?.get(key);
+    if (cached) return cached;
+    const lines = wrapText(context, text, maxWidth);
+    textLayouts?.set(key, lines);
+    return lines;
+  }
 
   context.fillStyle = colors.background;
   context.fillRect(0, 0, width, height);
@@ -172,14 +139,18 @@ export function drawFrame(
     const titleWidth = width * 0.78;
     let size = (portrait ? 72 : 94) * scale;
     context.font = `700 ${size}px ${font}`;
-    let lines = wrapText(context, scene.title, titleWidth);
-    while (lines.length * size * 1.2 > height * 0.29 && size > 1) {
+    let lines = layout(scene.title, titleWidth);
+    while (
+      size > 1 &&
+      (lines.length * size * 1.2 > height * 0.29 ||
+        lines.some((line) => context.measureText(line).width > titleWidth))
+    ) {
       size *= 0.85;
       context.font = `700 ${size}px ${font}`;
-      lines = wrapText(context, scene.title, titleWidth);
+      lines = layout(scene.title, titleWidth);
     }
     context.fillStyle = colors.text;
-    drawLines(context, lines, width / 2, height * 0.52, size * 1.2);
+    drawLines(context, lines, width / 2, height * 0.52, size * 1.2, titleWidth);
     return;
   }
 
@@ -222,8 +193,6 @@ export function drawFrame(
   const size = (portrait ? 54 : 62) * scale;
   context.fillStyle = colors.text;
   context.font = `650 ${size}px ${font}`;
-  const lines = cue.lines.flatMap((line) =>
-    wrapText(context, line, panelWidth),
-  );
-  drawLines(context, lines, width / 2, height * 0.75, size * 1.22);
+  const lines = layout(joinCaptionLines(cue.lines), panelWidth);
+  drawLines(context, lines, width / 2, height * 0.75, size * 1.22, panelWidth);
 }

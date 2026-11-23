@@ -48,6 +48,8 @@ type EncoderQueue = Pick<
 const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
 const maxEncodedBytes = 128 * 1024 * 1024;
+const videoBitrate = 900_000;
+const keyFrameIntervalSeconds = 4;
 const audioBlockSize = 4096;
 const opusSampleRate = 48_000;
 const opusFrameDuration = 20_000;
@@ -241,8 +243,8 @@ export async function renderVideo({
     width,
     height,
     framerate: fps,
-    bitrate: 5_000_000,
-    latencyMode: "realtime" as const,
+    bitrate: videoBitrate,
+    latencyMode: "quality" as const,
   };
   const h264: VideoEncoderConfig = {
     ...videoSettings,
@@ -253,21 +255,22 @@ export async function renderVideo({
     ...videoSettings,
     codec: fps > 30 ? "vp09.00.41.08" : "vp09.00.40.08",
   };
-  const hasAvc = await waitFor(
-    isSupported(() => VideoEncoderClass.isConfigSupported(h264)),
-    stop,
-  );
-  const hasVp9 =
-    !hasAvc &&
-    plan.allowVp9 === true &&
-    (await waitFor(
-      isSupported(() => VideoEncoderClass.isConfigSupported(vp9)),
-      stop,
-    ));
-  if (!hasAvc && !hasVp9)
-    throw new Error(t("video.render.unsupportedVideoCodec"));
-
-  const videoConfig = hasAvc ? h264 : vp9;
+  async function supportedVideoConfig(config: VideoEncoderConfig) {
+    const variable = { ...config, bitrateMode: "variable" as const };
+    for (const candidate of [variable, config]) {
+      const supported = await waitFor(
+        isSupported(() => VideoEncoderClass.isConfigSupported(candidate)),
+        stop,
+      );
+      if (supported) return candidate;
+    }
+  }
+  const avcConfig = await supportedVideoConfig(h264);
+  const videoConfig =
+    avcConfig ??
+    (plan.allowVp9 === true ? await supportedVideoConfig(vp9) : undefined);
+  if (!videoConfig) throw new Error(t("video.render.unsupportedVideoCodec"));
+  const hasAvc = avcConfig !== undefined;
   let audioConfig: AudioEncoderConfig = {
     codec: "mp4a.40.2",
     sampleRate: pcm.sampleRate,
@@ -416,6 +419,11 @@ export async function renderVideo({
     onProgress?.(0);
     let audioOffset = 0;
     let keyFrameAt = 0;
+    const keyFrameInterval = Math.max(
+      1,
+      Math.round(keyFrameIntervalSeconds * fps),
+    );
+    const textLayouts = new Map<string, string[]>();
     for (let index = 0; index < totalFrames; index++) {
       stop.throwIfAborted();
       if (index - encodedVideoFrames >= maxVideoFramesInFlight) {
@@ -429,7 +437,7 @@ export async function renderVideo({
       stop.throwIfAborted();
 
       const time = index / fps;
-      drawFrame(context, plan, pcm, theme, time, speakerLabels);
+      drawFrame(context, plan, pcm, theme, time, speakerLabels, textLayouts);
       const timestamp = micros(time);
       const endTime = Math.min(duration, (index + 1) / fps);
       const frame = new VideoFrameClass(canvas, {
@@ -442,7 +450,7 @@ export async function renderVideo({
       } finally {
         frame.close();
       }
-      if (keyFrame) keyFrameAt += Math.max(1, Math.round(2 * fps));
+      if (keyFrame) keyFrameAt += keyFrameInterval;
       onProgress?.((index + 1) / (totalFrames + 1));
       stop.throwIfAborted();
 
