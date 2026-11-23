@@ -6,7 +6,7 @@ const webkit = process.env.PLAYWRIGHT_FACTORY_BROWSER === "webkit";
 const browserName = webkit ? "webkit" : ("chromium" as const);
 // Real video renders (especially software WebGL) saturate the CPU. Run them
 // alone, after the rest, so timing-sensitive tests are not starved.
-const renderTests = /factory-video(-3d)?\.browser\.ts/;
+const renderTests = /(factory-video(-3d)?|visual-qa)\.browser\.ts$/;
 
 export default defineConfig({
   testDir: "./tests",
