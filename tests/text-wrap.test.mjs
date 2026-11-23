@@ -11,6 +11,7 @@ import { drawFrame } from "../src/video/draw.ts";
 
 const trialTitle = "组屋里的混居，是怎么被设计出来的";
 const balancedTrial = ["组屋里的混居，是", "怎么被设计出来的"];
+const clauseTrial = ["组屋里的混居，", "是怎么被设计出来的"];
 
 function recordingContext(unit = 1, sizeSensitive = false) {
   return {
@@ -34,7 +35,7 @@ function recordingContext(unit = 1, sizeSensitive = false) {
   };
 }
 
-test("balances the trial title in both canvas outputs", () => {
+test("breaks the title card at its clause boundary and balances the thumbnail", () => {
   const titleCard = recordingContext(50, true);
   const plan = {
     resolution: { width: 1920, height: 1080 },
@@ -47,7 +48,7 @@ test("balances the trial title in both canvas outputs", () => {
     "dark",
     0,
   );
-  assert.deepEqual(titleCard.lines, ["Podcast Studio", ...balancedTrial]);
+  assert.deepEqual(titleCard.lines, ["Podcast Studio", ...clauseTrial]);
 
   const thumbnail = recordingContext(35);
   drawThumbnail(thumbnail, {
@@ -230,7 +231,9 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
     "你有没有想过，为什么新加坡的组屋里，不同族群能比较自然地住在一起？";
   const question = "那它怎么真的影响买卖呢？";
   const followUp = "二手组屋交易里，";
-  const rule = "对，而且它不是只讲理念，规则直接落到楼栋和邻里层面，";
+  const statement = "对，而且它不是只讲理念，";
+  const nextClause = "规则直接落到楼栋和邻里层面，";
+  const rule = statement + nextClause;
   for (const limit of [16, 11]) {
     const paginate = (text) =>
       paginateText(context, text, limit * 2, {
@@ -239,6 +242,12 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
       });
     const hookLines = paginate(hook).flatMap(({ lines }) => lines);
     assert.ok(hookLines.some((line) => line.includes("新加坡的组屋里")));
+    assert.deepEqual(paginate(statement), [
+      {
+        text: statement,
+        lines: limit === 16 ? [statement] : ["对，而且它", "不是只讲理念，"],
+      },
+    ]);
     assert.deepEqual(paginate(question + followUp), [
       {
         text: question,
@@ -250,11 +259,15 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
     const ruleLines = ruleCues.flatMap(({ lines }) => lines);
     assert.ok(ruleLines.some((line) => line.includes("讲理念")));
     assert.ok(ruleLines.some((line) => line.includes("楼栋")));
-    if (limit === 11)
-      assert.deepEqual(
-        ruleCues.map(({ text }) => text),
-        ["对，而且它不是只讲理念，", "规则直接落到楼栋和邻里层面，"],
-      );
+    assert.deepEqual(
+      ruleCues,
+      limit === 16
+        ? [{ text: rule, lines: [statement, nextClause] }]
+        : [
+            { text: statement, lines: ["对，而且它", "不是只讲理念，"] },
+            { text: nextClause, lines: ["规则直接落到", "楼栋和邻里层面，"] },
+          ],
+    );
     for (const source of [hook, question + followUp, rule]) {
       const cues = paginate(source);
       assert.equal(cues.map(({ text }) => text).join(""), source);
@@ -267,6 +280,17 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
       }
     }
   }
+});
+
+test("avoids starting a continuation with an adverb after a verb phrase when another break fits", () => {
+  const options = { locale: "zh-CN", limits: [2, 11, 26] };
+  const text = "我们解释以后也举例说明。";
+  assert.deepEqual(paginateText(recordingContext(), text, 22, options), [
+    { text, lines: ["我们解释", "以后也举例说明。"] },
+  ]);
+  assert.deepEqual(paginateText(recordingContext(), text, 12, options), [
+    { text, lines: ["我们解释以后", "也举例说明。"] },
+  ]);
 });
 
 test("prioritizes clauses and keeps decimal and CJK units attached", () => {

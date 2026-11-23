@@ -10,6 +10,7 @@ import { overlayCopy, prepareOverlay } from "../src/video/overlay.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
 import {
   assertFrameTime,
+  decodedBanding,
   fixture as visualFixture,
   flashAnalysis,
   flashAssessment,
@@ -24,7 +25,7 @@ const bottom = ({ y, height }) => y + height;
 const center = ({ y, height }) => y + height / 2;
 const cases = [
   ["landscape", 1920, 1080, 54, 907.2, 1382.4, 36],
-  ["portrait", 1080, 1920, 61.44, 1344, 756, 20],
+  ["portrait", 1080, 1920, 61.44, 1305.6, 756, 20],
 ];
 
 function recordingContext() {
@@ -115,11 +116,16 @@ for (const [
     assert.ok(bottom(wave[0]) < hostChips[0].y);
     assert.equal(layout.waveBarsPerHost, bars);
     if (orientation === "portrait") {
-      close(layout.chapter.y / height, 0.25);
+      close(layout.chapter.y / height, 0.27);
       close(layout.stage.y / height, 0.17);
       for (const rail of wave) close(center(rail) / height, 0.3);
       for (const [, y] of designTokens.portrait.orbCenters) close(y, 0.3);
       close(designTokens.portrait.orbDiameterH, 0.118);
+      close(layout.waveWash.box.y / height, 0.35);
+      close(bottom(layout.waveWash.box) / height, 0.52);
+      assert.equal(layout.waveWash.opacity, 0.06);
+    } else {
+      assert.equal(layout.waveWash, undefined);
     }
   });
 
@@ -187,7 +193,7 @@ for (const [
       const label = context.text.find(
         ({ value }) => value === overlayCopy(plan).chapterLabels[1],
       );
-      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.25);
+      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.27);
     }
   });
 
@@ -227,17 +233,23 @@ for (const [
       context.text.length = 0;
       overlay.draw(overlay.frameAt(time), "ocean");
       const plate = context.shapes.find(
-        (shape) => shape.box[0] === caption.x && shape.box[1] === caption.y,
+        ({ box }) =>
+          box[4] === layout.radius.caption &&
+          box[0] >= caption.x &&
+          box[1] >= caption.y,
       );
       assert.equal(plate.color, palettes.ocean.plate);
       assert.equal(plate.alpha, 1);
-      assert.deepEqual(plate.box, [
-        caption.x,
-        caption.y,
-        caption.width,
-        caption.height,
-        layout.radius.caption,
-      ]);
+      const [x, y, plateWidth, plateHeight] = plate.box;
+      assert.ok(
+        [x, y, plateWidth, plateHeight].every((value) => value % 2 === 0),
+      );
+      assert.ok(x >= caption.x && x - caption.x < 2);
+      assert.ok(y >= caption.y && y - caption.y < 2);
+      assert.ok(right(caption) - x - plateWidth >= 0);
+      assert.ok(right(caption) - x - plateWidth < 2);
+      assert.ok(bottom(caption) - y - plateHeight >= 0);
+      assert.ok(bottom(caption) - y - plateHeight < 2);
       if (previousPlate) assert.deepEqual(plate, previousPlate);
       const text = context.text.filter(
         (line) => line.font === videoFont(600, fontSize),
@@ -297,6 +309,122 @@ test("localized fallback names fit and the overlay freezes catalogue copy at pre
   } finally {
     setLocale("zh-CN");
   }
+});
+
+test("active and idle chip ink follows each host's speaking state", () => {
+  const context = recordingContext();
+  const plan = {
+    resolution: { width: 1920, height: 1080 },
+    hostNames: { A: "Alice", B: "Ben" },
+    scenes: ["A", "B"].map((speakerId, index) => ({
+      kind: "turn",
+      speakerId,
+      start: index,
+      end: index + 1,
+      captions: [],
+    })),
+  };
+  const overlay = prepareOverlay(context, plan);
+  for (const palette of ["aurora", "light"]) {
+    for (const [index, active] of ["Alice", "Ben"].entries()) {
+      context.text.length = context.shapes.length = 0;
+      overlay.drawHosts(overlay.frameAt(index + 0.5), palette);
+      const { ink, secondaryInk, plate } = palettes[palette];
+      assert.deepEqual(
+        context.text.map(({ value, color }) => [value, color]),
+        [
+          ["Alice", active === "Alice" ? ink : secondaryInk],
+          ["Ben", active === "Ben" ? ink : secondaryInk],
+        ],
+      );
+      const plates = context.shapes.filter(({ color }) => color === plate);
+      assert.equal(plates.length, 2);
+      for (const { box } of plates)
+        assert.ok(box.slice(0, 4).every((value) => value % 2 === 0));
+    }
+  }
+});
+
+test("decoded banding scans both axes and ignores an isolated noisy pixel", () => {
+  const width = 192;
+  const height = 128;
+  for (const orientation of ["landscape", "portrait"]) {
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const value = 20 + (x >= 96 ? 4 : 0) + (y >= 88 ? 5 : 0);
+        const offset = (y * width + x) * 4;
+        pixels.set([value, value, value, 255], offset);
+      }
+    }
+    const row = orientation === "landscape" ? 72 : 64;
+    pixels.set([100, 100, 100, 255], (168 + row * width) * 4);
+    pixels.set([100, 100, 100, 255], (184 + 48 * width) * 4);
+    const { horizontal, vertical } = decodedBanding(
+      pixels,
+      width,
+      height,
+      orientation,
+    );
+    close(horizontal.step, 4 / 255);
+    assert.equal(horizontal.x, 96);
+    close(vertical.step, 5 / 255);
+    assert.equal(vertical.y, 88);
+  }
+});
+
+test("the 2D background caches an opaque, deterministic dithered raster per size and palette", (t) => {
+  class RasterCanvas {
+    getContext() {
+      return {
+        createImageData: (width, height) => ({
+          data: new Uint8ClampedArray(width * height * 4),
+        }),
+        putImageData: ({ data }) => {
+          this.pixels = data;
+        },
+      };
+    }
+  }
+  const original = Object.getOwnPropertyDescriptor(globalThis, "OffscreenCanvas");
+  Object.defineProperty(globalThis, "OffscreenCanvas", {
+    configurable: true,
+    value: RasterCanvas,
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "OffscreenCanvas", original);
+    else delete globalThis.OffscreenCanvas;
+  });
+
+  const width = 256;
+  const height = 128;
+  const plan = { resolution: { width, height }, scenes: [] };
+  const backgrounds = [];
+  const testContext = () => ({
+    ...recordingContext(),
+    drawImage: (canvas, x, y) => {
+      assert.deepEqual([x, y], [0, 0]);
+      backgrounds.push(canvas);
+    },
+  });
+  const context = testContext();
+  prepareOverlay(context, plan).drawBackground("aurora");
+  prepareOverlay(context, plan).drawBackground("aurora");
+  prepareOverlay(context, plan).drawBackground("light");
+  prepareOverlay(testContext(), plan).drawBackground("aurora");
+  prepareOverlay(context, { ...plan, resolution: { width: 128, height } })
+    .drawBackground("aurora");
+  const [first, reused, light, fresh, resized] = backgrounds;
+  assert.strictEqual(reused, first);
+  assert.deepEqual(fresh.pixels, first.pixels);
+  assert.notDeepEqual(light.pixels, first.pixels);
+  assert.equal(resized.pixels.length, first.pixels.length / 2);
+  // Fixed-coordinate quantization bias produces adjacent variation even
+  // where the ideal Aurora gradient increases monotonically.
+  assert.ok(first.pixels[4] > first.pixels[8]);
+  assert.ok(
+    first.pixels.every((value, index) => index % 4 !== 3 || value === 255),
+  );
 });
 
 test("the wordmark uses the episode catalogue and a fitting show name takes precedence", () => {

@@ -266,6 +266,22 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
             ),
         );
         add(scope, result.issues);
+        const { banding, chapterStartFrames } = result.metrics;
+        for (const [index, frame] of chapterStartFrames.entries()) {
+          const card = index === 0 ? "title" : "chapter";
+          if (
+            !banding.some(
+              (sample) => sample.frame === frame && sample.card === card,
+            )
+          )
+            add(scope, [
+              {
+                criterion: "framing",
+                frame,
+                detail: `Missing decoded banding evidence at the ${card} onset`,
+              },
+            ]);
+        }
         warnings.push(
           ...result.flashDiagnostics
             .filter(

@@ -11,7 +11,11 @@ import { videoLayout, type PixelBox } from "./design/layout.ts";
 import { palettes, type Palette } from "./design/palettes.ts";
 import { designTokens } from "./design/tokens.ts";
 import { videoFont } from "./fonts/loader.ts";
-import type { DrawingContext, TextLayoutCache } from "./scenes/types.ts";
+import type {
+  DrawingContext,
+  SceneCanvas,
+  TextLayoutCache,
+} from "./scenes/types.ts";
 import type { VideoPaletteId } from "./themes.ts";
 import {
   beforeEnd,
@@ -57,6 +61,18 @@ function rect(
   } else {
     context.fillRect(box.x, box.y, box.width, box.height);
   }
+}
+
+function pixelAlignedPlate(box: PixelBox): PixelBox {
+  // Snap inward to the codec's 2×2 chroma grid and keep inside layout bounds.
+  const x = Math.ceil(box.x / 2) * 2;
+  const y = Math.ceil(box.y / 2) * 2;
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.floor(right(box) / 2) * 2 - x),
+    height: Math.max(0, Math.floor(bottom(box) / 2) * 2 - y),
+  };
 }
 
 function linesAt(
@@ -111,6 +127,91 @@ function srgbChannel(value: number) {
   return srgb * 255;
 }
 
+const backgroundOffsets = [0, 0.55, 1] as const;
+const linearStops = (palette: Palette) =>
+  palette.stops.map((hex) =>
+    [1, 3, 5].map((start) =>
+      linearChannel(parseInt(hex.slice(start, start + 2), 16)),
+    ),
+  );
+
+// A fixed Bayer tile, like the Studio 3D backdrop. Bias sRGB before rounding
+// to bytes to break up long quantization bands.
+const ditherSide = 8;
+function bayer2(x: number, y: number) {
+  return 2 * Math.abs(x - y) + y;
+}
+const backgroundDither = Array.from({ length: ditherSide ** 2 }, (_, index) => {
+  const x = index % ditherSide;
+  const y = Math.floor(index / ditherSide);
+  const rank =
+    16 * bayer2(x & 1, y & 1) +
+    4 * bayer2((x >> 1) & 1, (y >> 1) & 1) +
+    bayer2(x >> 2, y >> 2);
+  return ((rank + 0.5) / ditherSide ** 2 - 0.5) * 3;
+});
+const backgroundRasters = new WeakMap<
+  DrawingContext,
+  { width: number; height: number; palettes: Map<VideoPaletteId, SceneCanvas> }
+>();
+
+function rasterBackground(
+  context: DrawingContext,
+  width: number,
+  height: number,
+  paletteId: VideoPaletteId,
+) {
+  if (!context.drawImage) return;
+  let cache = backgroundRasters.get(context);
+  if (cache?.width !== width || cache.height !== height) {
+    cache = { width, height, palettes: new Map() };
+    backgroundRasters.set(context, cache);
+  }
+  const cached = cache.palettes.get(paletteId);
+  if (cached) return cached;
+
+  const canvas =
+    typeof OffscreenCanvas === "function"
+      ? new OffscreenCanvas(width, height)
+      : globalThis.document?.createElement("canvas");
+  if (!canvas) return;
+  canvas.width = width;
+  canvas.height = height;
+  const layer = canvas.getContext("2d", { alpha: false });
+  if (!layer) return;
+  const image = layer.createImageData(width, height);
+  const { data } = image;
+  const stops = linearStops(palettes[paletteId]);
+  const middle = backgroundOffsets[1];
+  const steps = 2048;
+  const ramp = Array.from({ length: steps + 1 }, (_, index) => {
+    const offset = index / steps;
+    const pair = offset < middle ? 0 : 1;
+    const amount =
+      (offset - backgroundOffsets[pair]) /
+      (backgroundOffsets[pair + 1] - backgroundOffsets[pair]);
+    return stops[pair].map((value, channel) =>
+      srgbChannel(value + (stops[pair + 1][channel] - value) * amount),
+    );
+  });
+  const scale = steps / (width ** 2 + height ** 2);
+  for (let y = 0, pixel = 0; y < height; y++) {
+    const vertical = (y + 0.5) * height;
+    const tileRow = (y % ditherSide) * ditherSide;
+    for (let x = 0; x < width; x++, pixel += 4) {
+      const color = ramp[Math.round(((x + 0.5) * width + vertical) * scale)];
+      const bias = backgroundDither[tileRow + (x % ditherSide)];
+      data[pixel] = color[0] + bias;
+      data[pixel + 1] = color[1] + bias;
+      data[pixel + 2] = color[2] + bias;
+      data[pixel + 3] = 255;
+    }
+  }
+  layer.putImageData(image, 0, 0);
+  cache.palettes.set(paletteId, canvas);
+  return canvas;
+}
+
 function backgroundFill(
   context: DrawingContext,
   width: number,
@@ -119,12 +220,7 @@ function backgroundFill(
 ) {
   const gradient = context.createLinearGradient?.(0, 0, width, height);
   if (!gradient) return palette.stops[0];
-  const colors = palette.stops.map((hex) =>
-    [1, 3, 5].map((start) =>
-      linearChannel(parseInt(hex.slice(start, start + 2), 16)),
-    ),
-  );
-  const offsets = [0, 0.55, 1];
+  const colors = linearStops(palette);
   // Canvas gradients interpolate sRGB stops. Sample the linear-light curve
   // densely here so interpolation between samples approximates the curve.
   for (let pair = 0; pair < 2; pair++) {
@@ -135,7 +231,8 @@ function backgroundFill(
         srgbChannel(value + (colors[pair + 1][channel] - value) * amount),
       );
       gradient.addColorStop(
-        offsets[pair] + (offsets[pair + 1] - offsets[pair]) * amount,
+        backgroundOffsets[pair] +
+          (backgroundOffsets[pair + 1] - backgroundOffsets[pair]) * amount,
         `rgb(${values.join(", ")})`,
       );
     }
@@ -283,6 +380,7 @@ export function prepareOverlay(
         {
           limits: geometry.text[role],
           locale,
+          preferClauseBreaks: role === "title" || role === "chapter",
           ...(role === "title" && orientation === "portrait"
             ? { total: { cjk: 12, latinWords: 4 } }
             : {}),
@@ -357,6 +455,16 @@ export function prepareOverlay(
   );
 
   function drawBackground(paletteId: VideoPaletteId) {
+    const raster = rasterBackground(
+      context,
+      geometry.width,
+      geometry.height,
+      paletteId,
+    );
+    if (raster && context.drawImage) {
+      context.drawImage(raster, 0, 0);
+      return;
+    }
     let fill = background.get(paletteId);
     if (!fill) {
       fill = backgroundFill(
@@ -473,7 +581,7 @@ export function prepareOverlay(
       hostNameWidths[host] + 2 * hostPad.x + marker + markerGap,
     );
     const badge = { ...box, x: centerX(box) - width / 2, width };
-    rect(context, badge, palette.plate, radius.host);
+    rect(context, pixelAlignedPlate(badge), palette.plate, radius.host);
     markerShape(
       badge.x + hostPad.x + marker / 2,
       centerY(badge),
@@ -483,7 +591,7 @@ export function prepareOverlay(
       emphasis,
     );
     context.font = canvasFont("host");
-    context.fillStyle = palette.ink;
+    context.fillStyle = active ? palette.ink : palette.secondaryInk;
     linesAt(
       context,
       [names[host]],
@@ -691,7 +799,7 @@ export function prepareOverlay(
           y: centerY(geometry.callout) - height / 2 + (1 - amount) * travel,
           height,
         };
-        rect(context, box, palette.plate, radius.callout);
+        rect(context, pixelAlignedPlate(box), palette.plate, radius.callout);
         if (amount > 0) {
           context.globalAlpha = amount;
           rect(
@@ -720,7 +828,7 @@ export function prepareOverlay(
 
       const cue = turn && latestStarted(cues.get(turn) ?? [], time);
       if (cue && beforeEnd(time, cue.end)) {
-        rect(context, caption, palette.plate, radius.caption);
+        rect(context, pixelAlignedPlate(caption), palette.plate, radius.caption);
         context.fillStyle = palette.ink;
         context.font = canvasFont("caption");
         linesAt(

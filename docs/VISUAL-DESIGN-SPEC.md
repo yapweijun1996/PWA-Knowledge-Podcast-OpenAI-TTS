@@ -60,14 +60,15 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .225, .78, .445],
+    chapterBox: [.08, .27, .78, .445],
     stageBox: [.09, .195, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
     hostTagMaxWidthW: .30,
-    calloutBox: [.08, .515, .78, .59],
-    captionCenterX: .43, captionBottom: .70, captionMaxWidthW: .70,
-    waveCenters: [[.25, .355], [.61, .355]],
+    calloutBox: [.08, .507, .78, .575],
+    captionCenterX: .43, captionBottom: .68, captionMaxWidthW: .70,
+    waveCenters: [[.25, .30], [.61, .30]],
+    waveWashBox: [.09, .35, .77, .52], waveWashOpacity: .06,
     waveWidthW: .27, waveBarsPerHost: 20, waveMaxHalfHeightH: .039,
     orbCenters: [[.25, .325], [.61, .325]], orbDiameterH: .107,
     typeH: { title: .046, chapter: .036, caption: .032,
@@ -88,7 +89,7 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     },
     strokeH: { progress: .004, calloutRule: .004, waveRail: .0025,
                hostMarker: .003, cardRule: .005 },
-    hostMarkerBoxH: .014, hostMarkerGapH: .006, progressLabelGapH: .008,
+    hostMarkerBoxH: .018, hostMarkerGapH: .006, progressLabelGapH: .008,
     wordmarkMaxWidthW: [.24, .33],
     motion: {
       titleMs: [2000, 1500], chapterMs: [1600, 1333],
@@ -111,11 +112,13 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
 
 **Safe areas.** The centered 90% rectangle follows SMPTE’s 16:9 title-safe dimensions and is also the product’s baseline for portrait. The stricter product rectangles above reserve roughly 15% at the bottom of landscape and 22% at the right and 28% at the bottom of portrait. Use landscape top and bottom player-control masks and portrait top controls, right action rail, and bottom metadata masks in QA. Google publishes overlay templates for **ads**, which are a reference for the kinds of areas to reserve. The organic watch page and Shorts Feed masks require device checks. [SMPTE ST 2046-1](https://pub.smpte.org/pub/st2046-1/st2046-1-2009.pdf) and [Google Ads video safe-zone guidance](https://support.google.com/google-ads/answer/13547298?hl=en), accessed 2026-11-23.
 
-Use primary ink for the video wordmark, both host labels, progress and chapter index labels, and captions. Use the episode language for the video and publish-thumbnail wordmark. Singapore mixed episodes use the English mark and keep their mixed-script caption layout. A fitting custom show name takes precedence on the video.
+Use primary ink for the video wordmark, active host label, progress and chapter index labels, and captions. Use secondary ink for the idle host label. Both host states must reach 4.5:1 after decoding. Use the episode language for the video and publish-thumbnail wordmark. Singapore mixed episodes use the English mark and keep their mixed-script caption layout. A fitting custom show name takes precedence on the video.
 
 ### Colour tokens and calculated contrast
 
 Blend the three stops at `0`, `.55`, and `1` in linear-light RGB, then write sRGB. Use the same palette in the video and thumbnail. Use solid plates for captions, badges and callouts. Use gold and rose for `sunset`, pale silver and slate for `mono`, and ice and periwinkle for `ocean`. The light variant is for waveform.
+
+Apply a fixed 8×8 Bayer tile to the full Canvas 2D gradient before quantizing to 8-bit sRGB. The bias stays within ±1.5/255 per channel and repeats at native pixel coordinates across all 2D backgrounds, including opening, chapter and end cards in either scene. Snap solid overlay plate edges inward onto even pixels for the codec's 2×2 chroma grid, retaining the text anchors and caption radius. Target 1.3 Mbit/s for video with variable rate control where supported. At 64 kbit/s mono audio, a two-minute stream payload is estimated at 19.51 MiB before mux overhead.
 
 | Palette | Background stops | Host A | Host B | Ink / secondary ink | Plate / track |
 |---|---|---|---|---|---|
@@ -230,7 +233,7 @@ Give each criterion full points when all its checks pass, half when it has a doc
 |---|---:|---|
 | Caption legibility and sync | **18** | **Gate.** Inspect cue metadata and isolated text masks for safe bounds, two lines max, legal breaks, reading rate, and complete text. Spot-check alignment against speech at the start, middle, speaker changes, and dense cues. |
 | Contrast and host identity | **12** | **Gate.** Compute ratios from the captured ink and its corresponding background. Use a glyph mask to sample interior pixels and a same-frame background-only pass for the adjacent plate or art. Test raw and decoded samples. Minimum text ratio `4.5:1`. Verify A/B in grayscale and all three CVD modes with names and shape cues present. |
-| Framing and collision | **12** | **Gate.** Assert element boxes and actual ink masks fit the product safe rectangle at boundary and extrema frames. Apply the landscape and portrait UI masks. Review device screenshots. |
+| Framing and collision | **12** | **Gate.** Assert element boxes and actual ink masks fit the product safe rectangle at boundary and extrema frames. Apply the landscape and portrait UI masks. On decoded title holds and chapter cards, require the maximum adjacent 8×8 background luma step to stay at or below 3/255 on both scan lines. Review device screenshots. |
 | Typography and localization | **10** | **Gate.** Compare glyph coverage, selected face hashes, and layout boxes. Check `zh-CN`, English, Malay and mixed strings with long names, combining marks, Han punctuation, numbers, and wide Latin words. Reject missing glyphs, unintended fonts, and orphan lines. |
 | Opening, chapters and callouts | **8** | First spoken hook at frame 0, no first-chapter interruption, later cards at the correct chapter boundary, no annotation collisions, and callout count, hold time and spacing within tokens. |
 | Motion and flash safety | **10** | **Gate.** In raw and decoded frames, allow at most three field-level general flashes and three field-level saturated-red flashes per rolling second. Pair opposing qualifying changes using local extrema in a sliding window of 30 source frames and apply the WCAG area threshold of one quarter of a 10-degree visual field. Exercise alternating loud/quiet PCM and rapid chapter changes. Waveform attack/release smoothing limits the flicker of individual syllable-driven bars, whose area is below the field threshold. Report observed cell-level maxima as warnings and flag values above the soft limit of 10 flashes per second. Cell counts have no effect on the score. Log luminance deltas between sampled frames and review the saved reduced-motion profile. |
@@ -244,6 +247,8 @@ Run the suite against the **actual preview and export entry points** with local 
 Seek a paused, visible MP4 to the centre of each sampled frame before checking decoded text, framing, hashes or flashes. Frame `i` covers `[i / fps, (i + 1) / fps)`. Seek to `(i + 0.5) / fps`, wait for `seeked`, and require `currentTime` to agree with the seek target within 1 ms. Use the decoded pixels of a frame-indexed clip to verify the reader at adjacent frames and a callout cut. For flash analysis, sample all raw frames, all decoded frames around chapter and speaker or level changes, and at least 15 decoded frames per second elsewhere. Use source frame indices for the rolling second. Treat seek failures and fixture timeouts as blocked evidence and report scores for fixtures that complete.
 
 Check the 5% title-safe exterior on both the raw and decoded samples. The detector compares RGB pixels two positions to either side of each candidate and marks a strong edge when an axial difference exceeds 24 in any channel. Every raw candidate remains a failure. In the decoded image, require a component of at least eight 8-connected strong-edge pixels. This filters isolated codec speckles while retaining connected crossings. Log the total, largest component, and first coordinate for both images. Element boxes and ink bounds still use the existing safe rectangles. The reported single decoded exterior edge at frame 350 in landscape Malay lands on the third chapter card, where the Studio 3D stage is suppressed. The exact-seek MP4 check still needs to confirm whether that edge reproduces.
+
+Check banding on the already sampled, full-resolution decoded H.264 title holds and chapter cards for waveform and Studio 3D in both orientations. Use one empty horizontal strip around `.57H` in landscape or `.55H` in portrait and one empty vertical strip around `.96W`. Along each strip, compare adjacent 8×8 blocks aligned to frame pixels over the central 6–98% of the scan axis. Average Rec. 709 luma in 8-bit sRGB code values within each block. The 8×8 average suppresses pixel-scale dither and makes block-scale jumps visible. The **3/255** ceiling allows minor decoded variation in a shallow gradient and rejects larger jumps. Report the maximum and its block coordinate on each axis.
 
 ## 9. Status and unverified items
 

@@ -143,6 +143,27 @@ export function drawWaveform(
 ) {
   const { geometry, levels } = waveform;
   const colors = palettes[paletteId];
+  const wash = geometry.waveWash;
+  if (
+    wash &&
+    context.save &&
+    context.restore &&
+    context.translate &&
+    context.scale &&
+    context.createRadialGradient
+  ) {
+    const { x, y, width, height } = wash.box;
+    context.save();
+    context.translate(x + width / 2, y + height / 2);
+    context.scale(width / 2, height / 2);
+    const gradient = context.createRadialGradient(0, 0, 0, 0, 0, 1);
+    const alpha = Math.floor(wash.opacity * 255).toString(16).padStart(2, "0");
+    gradient.addColorStop(0, `${colors.hostA}${alpha}`);
+    gradient.addColorStop(1, `${colors.hostA}00`);
+    context.fillStyle = gradient;
+    context.fillRect(-1, -1, 2, 2);
+    context.restore();
+  }
   const bins = geometry.waveBarsPerHost;
   const baselineHeight = geometry.stroke.waveRail;
   const tickHeight = Math.max(3, baselineHeight + 1);

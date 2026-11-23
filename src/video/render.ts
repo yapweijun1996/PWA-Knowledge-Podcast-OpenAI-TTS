@@ -77,12 +77,20 @@ function drawStage(
 const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
 const maxEncodedBytes = 128 * 1024 * 1024;
-const videoBitrate = 900_000;
+const estimatedMuxOverheadBytes = 1024 ** 2;
+const videoBitrate = 1_300_000;
 const keyFrameIntervalSeconds = 4;
 const audioBlockSize = 4096;
 const opusSampleRate = 48_000;
 const opusFrameDuration = 20_000;
 const micros = (seconds: number) => Math.round(seconds * 1_000_000);
+
+function assertEncodedSize(bytes: number) {
+  if (bytes > maxEncodedBytes)
+    throw new Error(
+      t("video.render.encodedSizeLimit", { size: maxEncodedBytes / 1024 ** 2 }),
+    );
+}
 
 function getPcm(audio: VideoAudio): PcmAudio {
   if (!Number.isInteger(audio.sampleRate) || audio.sampleRate <= 0) {
@@ -252,11 +260,15 @@ export async function renderVideo({
     throw new RangeError(t("video.render.invalidPlan"));
   }
   const pcm = getPcm(audio);
+  const numberOfChannels = pcm.channels.length;
+  const audioBitrate = numberOfChannels === 1 ? 64_000 : 128_000;
+  assertEncodedSize(
+    (duration * (videoBitrate + audioBitrate)) / 8 + estimatedMuxOverheadBytes,
+  );
   // Keep the encoded PCM intact while freezing audio-reactive scene geometry.
   const visualPcm = plan.reducedMotion
     ? { ...pcm, channels: pcm.channels.map(() => new Float32Array(0)) }
     : pcm;
-  const numberOfChannels = pcm.channels.length;
   const copy = overlayCopy(plan);
   const orientation = planOrientation(plan);
   const mood = plan.mood ?? "calm";
@@ -357,7 +369,7 @@ export async function renderVideo({
     codec: "mp4a.40.2",
     sampleRate: pcm.sampleRate,
     numberOfChannels,
-    bitrate: numberOfChannels === 1 ? 64_000 : 128_000,
+    bitrate: audioBitrate,
   };
   let audioCodec: "aac" | "opus" = "aac";
   const supportsAudio = (config: AudioEncoderConfig) =>
@@ -502,12 +514,7 @@ export async function renderVideo({
 
   function copyChunk(chunk: EncodedVideoChunk | EncodedAudioChunk) {
     encodedBytes += chunk.byteLength;
-    if (encodedBytes > maxEncodedBytes)
-      throw new Error(
-        t("video.render.encodedSizeLimit", {
-          size: maxEncodedBytes / 1024 ** 2,
-        }),
-      );
+    assertEncodedSize(encodedBytes);
     const bytes = new Uint8Array(chunk.byteLength);
     chunk.copyTo(bytes);
     return bytes;
@@ -723,6 +730,7 @@ export async function renderVideo({
     }
     muxer.finalize();
     const bytes = target.buffer;
+    assertEncodedSize(bytes.byteLength);
     const hash = await waitFor(subtle.digest("SHA-256", bytes), stop);
     stop.throwIfAborted();
     const sha256 = Array.from(new Uint8Array(hash), (byte) =>

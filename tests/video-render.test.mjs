@@ -381,26 +381,26 @@ test("waveform drawing snapshot covers the live opening, chapter overlay and ret
       createHash("sha256").update(JSON.stringify(calls)).digest("hex"),
     ),
     [
-      "11b81dd1f60a47249eb754e33298c4aab150e327b8ea0bcbc7723643ad81595c",
-      "adea840e04b073072e29b4d84f6f0808d72e4a41d90b172be2489a0bf7442802",
-      "8daaee83bf0e06275d5118f6426d0f94ea13d3835d2d1289e9cefd1f59d3e3e2",
-      "6ed40143723c35406ec8b9767b1531b2f19722046205d58bb4bd93a7d18b7396",
-      "9a56d9779dbe9ceeb46e7ea2b82bb423c1557eb31304d90aa0d53f4ed928f5a4",
-      "1300615c43d2f4e8f76b14e3efc36fa10e4cb4b86e9608c90166d039f067522e",
-      "0b55460ddb57d414b5a5a11d51b8aa9c3b5689530d5f6f8e3a2bc2653e185c94",
-      "9a5119a0a7eaacf1847dbba3089f75514bee25c2745669f8a3aabd4a02f21b6f",
-      "5908dc33c5832f75adb6b3852cad408a78d54aacb8d92f66cc06948b68ffecaa",
-      "a524c7b28d5c46cc77736e8e591bcfc0ca39ed438f277d3c866bf2d8ddb593f0",
-      "7fa4857ce48477fedbdb877996ba0769684ff95025c85e3c3948ed90c1988b56",
-      "3817b7a00cb7d75396a3d622f775da14ed7f9645226fe1acd303c898e39620c9",
-      "5a6c4487a5f83b043ea4fd174da522a4bcc05c260ebd3ebe929a212f4189fb7e",
-      "0ff517924e567fea26fa11a66df4d6865450c312b2e24187cae35981b753fd74",
-      "4a1db43e8285499a237c194074c438b9d2d236060aa6f0831ec47d5978b39469",
-      "e59dd0f6fed3f9cc92a8c2831d7bd69fbef6187bc3c7636a20fa4596f148c9f5",
-      "98b64c21402286d1a94a6dd59a8f198a45b4bb4027e123131e19dde3061bd0d5",
-      "91c851ff4b2260472b4e0d9ece4d61fcb05dd8b2decf59704667c8c496f72f08",
-      "77d1823867cd74f364391ca099c84fc380cd5948fcde86a00d154e9cd9df90eb",
-      "1d2bf861d66c07088a72c7ba0326e59862a8f0949b27075e590bebbd72e55034",
+      "32658351954691b7a89ff94b425796f2f82bc3910ce6ac4b39cfd094935bebe4",
+      "eb57f8cf1bf94f75fdebae23db1080070f82cdacff3996394e9fb7fe4ff81219",
+      "413e5353a3621bcc25e460b76da608cc0e193e55c57cbcd898f8edbba35ac1f9",
+      "f37b2ed06ee04d0adb859afd183f66fe0bc4c22b789048150183c2fbe8af0650",
+      "79d3f0d606b60f3a5d72eaa9368a9a47664187fcd4beb39b7bd33f9df1e8e157",
+      "54880dcce6e03bbd06c3284ba26c73a2fc8f965c279c43e3be69391e2ba50f53",
+      "3a6e4165497bd6187975e90d4eb529d40f874b4d36257c6580ce3abe4ca609f7",
+      "904e8a9d05ddde7ced054db1451a18242f72fb720a185721fb8fe9fb9fdefbec",
+      "2a26aad3e406337c38189c5143136150df16fab3dfb2cd31b0dfc9c2543e70f0",
+      "2a6efd7339979274200cbd63f6f1b4ff3775ddc9bb929a783ae612d915fccd2a",
+      "88136d198fe0e4859d80dd33e41ee8f150314d162786dd4d33a154d65596b72e",
+      "1793d48ecef48757408b9ae202e6fb72a4f1d92badfed7bbeb9aef10ba3c1116",
+      "c86d3ada95ec36283beb4ef9a8d3d3f55768eaf33e2af5da30b7f60acc85061e",
+      "b1d15e1ca878e4d5b7d1254aa1fbf94423b5c8acc90bce7d66309049a4eef012",
+      "b9cecf793dbf4db4cefcc3f784249d2dd7179e50c26f3fb0f8eac9326873786d",
+      "b4470624c55fe5e04c272408485a1e60398d36a2b97d89826b53e143ed410dee",
+      "393a31b1d254159bba9f76b1115aa71be018ca68bb7dba8d17044ceca56aa3c9",
+      "6dc88c89ee9c64b64cc6d7bceaa5308cc8e2bb233866d29f0a7deedf7545d2d2",
+      "9414ff62b34e57350b2cd65bc5fb1d86b2491c7ee5cf250b1115a7c692fea7cc",
+      "061e92eabc679c93c2d92609b0e29dbd3d9a783f0ec99ec8fac29301b1846f14",
     ],
   );
 });
@@ -913,6 +913,29 @@ test("rejects when encoded output crosses the in-memory size limit", async () =>
   assert.deepEqual(trace.digests, []);
 });
 
+test("bounds estimated render duration using the configured video and audio rates", async () => {
+  const { deps, trace } = fakeDependencies({ videoSupport: () => false });
+  for (const [channels, seconds] of [
+    [1, 781],
+    [2, 746],
+  ]) {
+    const options = {
+      audio: { ...audio, channels: Array(channels).fill(audio.channels[0]) },
+      theme: "dark",
+      deps,
+    };
+    await assert.rejects(
+      renderVideo({ ...options, plan: { ...plan, duration: seconds + 1 } }),
+      /128 MiB/,
+    );
+    await assert.rejects(
+      renderVideo({ ...options, plan: { ...plan, duration: seconds } }),
+      { message: t("video.render.unsupportedVideoCodec") },
+    );
+  }
+  assert.equal(trace.videoChecks.length, 4);
+});
+
 test("uses the quality bitrate target and a four-second keyframe interval", async () => {
   const { deps, trace } = fakeDependencies();
   await renderVideo({
@@ -926,7 +949,7 @@ test("uses the quality bitrate target and a four-second keyframe interval", asyn
       width: 1920,
       height: 1080,
       framerate: 4,
-      bitrate: 900_000,
+      bitrate: 1_300_000,
       latencyMode: "quality",
       bitrateMode: "variable",
       codec: "avc1.420028",

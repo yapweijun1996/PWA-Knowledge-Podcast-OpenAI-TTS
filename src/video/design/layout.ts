@@ -105,6 +105,10 @@ export function videoLayout(
       height: type.wordmark * common.leading.caption,
     },
     wave,
+    waveWash:
+      "waveWashBox" in tokens
+        ? { box: box(tokens.waveWashBox), opacity: tokens.waveWashOpacity }
+        : undefined,
     waveBarsPerHost: tokens.waveBarsPerHost,
     text: tokens.text,
   };

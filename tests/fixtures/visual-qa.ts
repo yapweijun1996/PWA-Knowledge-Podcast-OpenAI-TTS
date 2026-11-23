@@ -339,6 +339,58 @@ const colorDistance = (a: Pixels, i: number, b: Pixels, j: number) =>
     Math.abs(a[i + 2] - b[j + 2]),
   );
 
+const maximumBandingStep = 3 / 255;
+
+export function decodedBanding(
+  pixels: Pixels,
+  width: number,
+  height: number,
+  orientation: Orientation,
+) {
+  const blockSize = 8;
+  function scan(horizontal: boolean, fixedFraction: number) {
+    const length = horizontal ? width : height;
+    const crossLength = horizontal ? height : width;
+    const fixed =
+      Math.floor((fixedFraction * crossLength) / blockSize) * blockSize;
+    const start = Math.ceil((0.06 * length) / blockSize) * blockSize;
+    const end = 0.98 * length;
+    let previous: number | undefined;
+    let worst = {
+      step: 0,
+      x: horizontal ? start : fixed,
+      y: horizontal ? fixed : start,
+    };
+    for (let block = start; block + blockSize <= end; block += blockSize) {
+      const x = horizontal ? block : fixed;
+      const y = horizontal ? fixed : block;
+      let total = 0;
+      for (let dy = 0; dy < blockSize; dy++) {
+        for (let dx = 0; dx < blockSize; dx++) {
+          const index = ((y + dy) * width + x + dx) * 4;
+          // Use code-value luma so dark discontinuities count at their
+          // encoded magnitude. Contrast checks still use linear light.
+          total +=
+            0.2126 * pixels[index] +
+            0.7152 * pixels[index + 1] +
+            0.0722 * pixels[index + 2];
+        }
+      }
+      const mean = total / blockSize ** 2;
+      if (previous !== undefined) {
+        const step = Math.abs(mean - previous) / 255;
+        if (step > worst.step) worst = { step, x, y };
+      }
+      previous = mean;
+    }
+    return worst;
+  }
+  return {
+    horizontal: scan(true, orientation === "landscape" ? 0.57 : 0.55),
+    vertical: scan(false, 0.96),
+  };
+}
+
 function context(width: number, height: number) {
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -1686,6 +1738,10 @@ export async function runVisualCase(options: VisualCase) {
     }[];
   }[] = [];
   const exteriorEdges = { raw: 0, decoded: 0, decodedLargestComponent: 0 };
+  const banding: ({
+    frame: number;
+    card: "title" | "chapter";
+  } & ReturnType<typeof decodedBanding>)[] = [];
   let minimumRaw = Infinity;
   let minimumDecoded = Infinity;
   const measuredRoles = new Set<TextRole>();
@@ -1799,6 +1855,19 @@ export async function runVisualCase(options: VisualCase) {
           frame >= firstFrame(start) && frame < firstFrame(end),
       );
       const expectedChapter = Boolean(chapterCard);
+      if (expectedTitle || expectedChapter) {
+        const card = expectedTitle ? "title" : "chapter";
+        const steps = decodedBanding(data, width, height, options.orientation);
+        banding.push({ frame, card, ...steps });
+        for (const [axis, { step, x, y }] of Object.entries(steps)) {
+          if (step > maximumBandingStep + 1e-12)
+            add({
+              criterion: "framing",
+              frame,
+              detail: `${card} decoded ${axis} banding: ${(step * 255).toFixed(2)}/255 at (${x}, ${y}); limit 3/255`,
+            });
+        }
+      }
       const activeCue = cues.find(
         ({ start, end }) =>
           frame >= firstFrame(start) && frame < firstFrame(end),
@@ -1965,6 +2034,7 @@ export async function runVisualCase(options: VisualCase) {
         byRole: Object.fromEntries(roleContrast),
       },
       exteriorEdges,
+      banding,
       frameEvidence: frameEvidence.sort((a, b) => a.frame - b.frame),
       flash: { ...flash.evidence, decodedFrames },
     },
