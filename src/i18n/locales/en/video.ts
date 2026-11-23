@@ -131,4 +131,18 @@ export default [
   ["video.panel.ffmpegCommand", "ffmpeg -i input.mp4 -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -profile:a aac_low -b:a 128k -movflags +faststart output-aac.mp4"],
   // native-review
   ["video.panel.keyInContent", "The episode contains the current API key. Remove it before rendering. Your episode, final audio and any previously saved video were kept."],
+  ["video.panel.options.heading", "Video options"],
+  ["video.panel.options.orientation", "Orientation"],
+  ["video.panel.options.landscape", "Landscape · 16:9"],
+  ["video.panel.options.portrait", "Portrait · 9:16"],
+  ["video.panel.options.mood", "Mood"],
+  ["video.panel.options.calm", "Calm"],
+  ["video.panel.options.curious", "Curious"],
+  ["video.panel.options.urgent", "Urgent"],
+  ["video.panel.options.warm", "Warm"],
+  ["video.panel.options.serious", "Serious"],
+  ["video.panel.options.reducedMotion", "Reduce motion in the export"],
+  ["video.panel.options.guides", "Show framing guides"],
+  ["video.panel.options.stale", "This video is out of date. One or more export options changed."],
+  ["video.panel.options.dimensions", "{width} × {height} pixels"],
 ] as const;

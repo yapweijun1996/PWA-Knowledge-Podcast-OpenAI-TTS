@@ -137,4 +137,18 @@ export default [
   ["video.panel.ffmpegCommand", "ffmpeg -i input.mp4 -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -profile:a aac_low -b:a 128k -movflags +faststart output-aac.mp4"],
   // native-review
   ["video.panel.keyInContent", "Episod mengandungi kunci API semasa. Alih keluar kunci sebelum menghasilkan video. Episod, audio akhir dan video yang disimpan sebelum ini dikekalkan."],
+  ["video.panel.options.heading", "Pilihan video"],
+  ["video.panel.options.orientation", "Orientasi"],
+  ["video.panel.options.landscape", "Landskap · 16:9"],
+  ["video.panel.options.portrait", "Potret · 9:16"],
+  ["video.panel.options.mood", "Suasana"],
+  ["video.panel.options.calm", "Tenang"],
+  ["video.panel.options.curious", "Ingin tahu"],
+  ["video.panel.options.urgent", "Mendesak"],
+  ["video.panel.options.warm", "Mesra"],
+  ["video.panel.options.serious", "Serius"],
+  ["video.panel.options.reducedMotion", "Kurangkan gerakan dalam eksport"],
+  ["video.panel.options.guides", "Tunjukkan panduan bingkai"],
+  ["video.panel.options.stale", "Video ini sudah lapuk. Pilihan eksport telah berubah."],
+  ["video.panel.options.dimensions", "{width} × {height} piksel"],
 ] as const;

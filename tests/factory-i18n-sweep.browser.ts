@@ -805,6 +805,23 @@ for (const locale of locales) {
         }
         await audit("library-episode-selected");
 
+        const video = page.getByRole("region", { name: t("episode.video.title") });
+        const orientation = video.getByLabel(t("video.panel.options.orientation"));
+        const mood = video.getByLabel(t("video.panel.options.mood"));
+        const reducedMotion = video.getByLabel(t("video.panel.options.reducedMotion"));
+        const variant = video.getByLabel(t("publish.review.thumbnailVariant"));
+        const headline = video.getByLabel(t("publish.review.thumbnailHeadline"), { exact: true });
+        await expect(orientation).toBeEnabled();
+        await orientation.selectOption("portrait");
+        await mood.selectOption("warm");
+        await reducedMotion.check();
+        await variant.selectOption("headline");
+        await headline.fill("A thumbnail headline far too long for the selected layout");
+        await expect(headline).toHaveAttribute("aria-invalid", "true");
+        await expect(video.getByRole("status").filter({ hasText: t("publish.thumbnail.needsShorterHeadline") })).toBeVisible();
+        await expect(video.getByRole("img", { name: t("publish.review.thumbnailPreview") })).toBeVisible();
+        await audit("video-portrait-options-invalid-headline");
+
         await page
           .getByRole("button", { name: t("episode.script.edit") })
           .click();

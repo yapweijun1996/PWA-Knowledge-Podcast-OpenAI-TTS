@@ -252,6 +252,10 @@ export async function renderVideo({
     throw new RangeError(t("video.render.invalidPlan"));
   }
   const pcm = getPcm(audio);
+  // Keep the encoded PCM intact while freezing audio-reactive scene geometry.
+  const visualPcm = plan.reducedMotion
+    ? { ...pcm, channels: pcm.channels.map(() => new Float32Array(0)) }
+    : pcm;
   const numberOfChannels = pcm.channels.length;
   const copy = overlayCopy(plan);
   const orientation = planOrientation(plan);
@@ -283,7 +287,14 @@ export async function renderVideo({
   const studio = [defaultScene, ...chapterOverrides.values()].some(
     (scene) => scene.id === studio3dSceneId,
   )
-    ? resolveStudio3dOptions({ paletteId: plan.paletteId, ...studio3d })
+    ? resolveStudio3dOptions({
+        paletteId: plan.paletteId,
+        ...studio3d,
+        ...(plan.mood === undefined || plan.mood === "calm"
+          ? {}
+          : { moodId: plan.mood }),
+        ...(plan.reducedMotion ? { reducedMotion: true } : {}),
+      })
     : undefined;
   if (studio)
     sceneNotices.push(...studio.notices.map((reason) => ({ reason })));
@@ -446,7 +457,7 @@ export async function renderVideo({
       const result = await scene.init({
         canvas: layer,
         plan,
-        audio: pcm,
+        audio: visualPcm,
         theme,
         orientation,
         paletteId: paletteFor(scene.id),
@@ -627,7 +638,7 @@ export async function renderVideo({
             {
               canvas: active.canvas,
               plan,
-              audio: pcm,
+              audio: visualPcm,
               theme,
               orientation,
               paletteId,
@@ -642,7 +653,8 @@ export async function renderVideo({
               labelDrawn = true;
             },
           );
-          overlay.drawStageFade(overlayFrame, paletteId);
+          if (!plan.reducedMotion)
+            overlay.drawStageFade(overlayFrame, paletteId);
         }
       } else {
         overlay.drawBackground(paletteId);

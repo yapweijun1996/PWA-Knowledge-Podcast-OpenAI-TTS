@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Episode } from "../../shared/factory.ts";
 import { browserAgentArtifacts } from "../agent/artifacts.ts";
 import { download } from "../audio";
-import { useI18n, type MessageKey } from "../i18n";
-import { drawThumbnail, thumbnailSize } from "../publish/thumbnail.ts";
-import { listScenes } from "../video/scenes/registry.ts";
+import { createTranslator, useI18n, type MessageKey } from "../i18n";
 import {
-  cameraLabels,
-  paletteLabels,
-  studio3dSceneId,
-} from "../video/scenes/studio3d/presets.ts";
+  cjkHeadlineLength,
+  headlineGraphemes,
+  isCjkHeadline,
+  thumbnailHeadlineLimits,
+} from "../publish/thumbnail-headline.ts";
+import type { Orientation } from "../video/design/tokens.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
-import { redact } from "./browser-key.ts";
 import { episodeLanguageTags } from "./Evidence";
 import type { AudioCheck } from "./library-model.ts";
 import {
@@ -19,8 +18,15 @@ import {
   maxVideoSeconds,
   renameVideoChapter,
   reviewLimits,
+  resolveVideoOptions,
+  sameVideoOptions,
+  thumbnailVariants,
   useVideoRender,
   validatePublishReview,
+  videoMoods,
+  videoOrientations,
+  videoPalettes,
+  videoThumbnailInput,
   type PublishReview,
   type VideoArtifact,
 } from "./useVideoRender.ts";
@@ -33,11 +39,139 @@ const sceneNoticeLabels = {
   "unknown-camera": "video.studio3d.unknownCamera",
 } as const satisfies Record<SceneNotice["reason"], MessageKey>;
 
-function VideoPreview({ artifact }: { artifact: VideoArtifact }) {
+const optionLabels = {
+  landscape: "video.panel.options.landscape",
+  portrait: "video.panel.options.portrait",
+  aurora: "video.studio3d.palette.aurora",
+  sunset: "video.studio3d.palette.sunset",
+  mono: "video.studio3d.palette.mono",
+  ocean: "video.studio3d.palette.ocean",
+  light: "video.panel.light",
+  calm: "video.panel.options.calm",
+  curious: "video.panel.options.curious",
+  urgent: "video.panel.options.urgent",
+  warm: "video.panel.options.warm",
+  serious: "video.panel.options.serious",
+  "topic-graphic": "publish.thumbnail.variantTopicGraphic",
+  "host-pair": "publish.thumbnail.variantHostPair",
+  headline: "publish.thumbnail.variantHeadline",
+} as const satisfies Record<string, MessageKey>;
+
+function OptionSelect<T extends keyof typeof optionLabels>({
+  label,
+  choices,
+  value,
+  onChange,
+  darkPaletteGroup,
+  disabledChoice,
+}: {
+  label: MessageKey;
+  choices: readonly T[];
+  value: T;
+  onChange: (value: T) => void;
+  darkPaletteGroup?: boolean;
+  disabledChoice?: T;
+}) {
+  const { t } = useI18n();
+  const option = (choice: T) => (
+    <option key={choice} value={choice} disabled={choice === disabledChoice}>
+      {t(optionLabels[choice])}
+    </option>
+  );
+  return (
+    <label className="field">
+      {t(label)}
+      <select
+        value={value}
+        onChange={(event) => {
+          const next = choices.find((choice) => choice === event.target.value);
+          if (next && next !== disabledChoice) onChange(next);
+        }}
+      >
+        {darkPaletteGroup ? (
+          <>
+            <optgroup label={t("video.panel.dark")}>
+              {choices.filter((choice) => choice !== "light").map(option)}
+            </optgroup>
+            {choices.filter((choice) => choice === "light").map(option)}
+          </>
+        ) : (
+          choices.map(option)
+        )}
+      </select>
+    </label>
+  );
+}
+
+function useThumbnailPreview(
+  thumbnail: ReturnType<typeof videoThumbnailInput>,
+  enabled: boolean,
+) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [drawn, setDrawn] = useState<{
+    thumbnail: typeof thumbnail;
+    error?: MessageKey;
+  }>();
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    void (async () => {
+      try {
+        const [{ drawThumbnail, thumbnailSize }, { ensureVideoFonts }] =
+          await Promise.all([
+            import("../publish/thumbnail.ts"),
+            import("../video/fonts/loader.ts"),
+          ]);
+        if (!current || !canvas.current) return;
+        const image = canvas.current;
+        image.width = thumbnailSize.width;
+        image.height = thumbnailSize.height;
+        const context = image.getContext("2d", {
+          colorSpace: "srgb",
+          alpha: false,
+        });
+        if (!context) throw new Error("Thumbnail canvas unavailable");
+        const { input } = thumbnail;
+        const wordmark = createTranslator(input.locale)(
+          "publish.thumbnail.wordmark",
+        );
+        const { missingCharacters } = await ensureVideoFonts({
+          texts: thumbnail.error ? [wordmark] : [input.headline, wordmark],
+        });
+        if (!current) return;
+        const result = drawThumbnail(context, input);
+        setDrawn({
+          thumbnail,
+          error: missingCharacters.length
+            ? "publish.thumbnail.fontUnavailable"
+            : result.error,
+        });
+      } catch {
+        if (current)
+          setDrawn({ thumbnail, error: "publish.review.thumbnailFailed" });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [enabled, thumbnail]);
+  return { canvas, drawn: drawn?.thumbnail === thumbnail ? drawn : undefined };
+}
+
+function VideoPreview({
+  artifact,
+  orientation,
+  safe,
+}: {
+  artifact: VideoArtifact;
+  orientation: Orientation;
+  safe: readonly [number, number, number, number];
+}) {
   const { t, formatters } = useI18n();
   const [preview, setPreview] = useState<{ blob: Blob; url: string }>();
   const [errorUrl, setErrorUrl] = useState("");
   const [copy, setCopy] = useState<MessageKey>();
+  const [guides, setGuides] = useState(false);
   const {
     blob,
     metadata: { studioVideo: receipt },
@@ -63,15 +197,54 @@ function VideoPreview({ artifact }: { artifact: VideoArtifact }) {
   return (
     <div className="video-panel-group">
       {url && (
-        <video
-          key={url}
-          controls
-          playsInline
-          preload="metadata"
-          src={url}
-          aria-label={t("video.panel.preview")}
-          onError={() => setErrorUrl(url)}
-        />
+        <>
+          <label className="video-panel-check">
+            <input
+              type="checkbox"
+              checked={guides}
+              onChange={(event) => setGuides(event.target.checked)}
+            />
+            {t("video.panel.options.guides")}
+          </label>
+          <div className="video-preview-frame" data-orientation={orientation}>
+            <video
+              key={url}
+              controls
+              playsInline
+              preload="metadata"
+              src={url}
+              aria-label={t("video.panel.preview")}
+              onError={() => setErrorUrl(url)}
+            />
+            {guides && errorUrl !== url && (
+              <div className="video-preview-guides" aria-hidden="true">
+                <span
+                  className="video-preview-safe"
+                  style={{
+                    inset: `${safe[1] * 100}% ${(1 - safe[2]) * 100}% ${(1 - safe[3]) * 100}% ${safe[0] * 100}%`,
+                  }}
+                />
+                <span
+                  className="video-preview-mask video-preview-mask-top"
+                  style={{ blockSize: `${safe[1] * 100}%` }}
+                />
+                <span
+                  className="video-preview-mask video-preview-mask-bottom"
+                  style={{ insetBlockStart: `${safe[3] * 100}%` }}
+                />
+                {orientation === "portrait" && (
+                  <span
+                    className="video-preview-mask video-preview-mask-rail"
+                    style={{
+                      insetBlock: `${safe[1] * 100}% ${(1 - safe[3]) * 100}%`,
+                      insetInlineStart: `${safe[2] * 100}%`,
+                    }}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </>
       )}
       <div role="status" className="video-panel-status">
         {url && errorUrl === url ? t("video.panel.previewFailed") : ""}
@@ -137,6 +310,8 @@ function ReviewFields({
   saving,
   unsaved,
   rendering,
+  thumbnail,
+  thumbnailReady,
   onSave,
 }: {
   episode: Episode;
@@ -145,12 +320,13 @@ function ReviewFields({
   saving: boolean;
   unsaved: boolean;
   rendering: boolean;
+  thumbnail: ReturnType<typeof videoThumbnailInput>["input"];
+  thumbnailReady: boolean;
   onSave: (review: PublishReview) => Promise<void>;
 }) {
   const { t } = useI18n();
-  const { theme, timeline } = artifact.metadata.studioVideo;
+  const { timeline } = artifact.metadata.studioVideo;
   const language = episodeLanguageTags[episode.language];
-  const canvas = useRef<HTMLCanvasElement>(null);
   const active = useRef<AbortController>(null);
   const [exporting, setExporting] = useState(false);
   const [outcome, setOutcome] = useState<MessageKey>();
@@ -163,16 +339,6 @@ function ReviewFields({
   } as const;
   const approved = review.status === "approved" && !unsaved && !!checked.value;
   const blocked = rendering || exporting;
-
-  useEffect(() => {
-    const context = canvas.current?.getContext("2d");
-    if (context)
-      drawThumbnail(context, {
-        title: redact(checked.value?.title ?? review.title),
-        theme,
-        language: episode.language,
-      });
-  }, [review.title, checked.value?.title, theme, episode.language]);
 
   useEffect(() => {
     if (rendering) setExporting(false);
@@ -190,6 +356,7 @@ function ReviewFields({
   async function exportFile(kind: "thumbnail" | "package") {
     if (
       blocked ||
+      !thumbnailReady ||
       keyBlocked ||
       active.current ||
       (kind === "package" && !approved)
@@ -202,15 +369,12 @@ function ReviewFields({
     setOutcome(undefined);
     setExporting(true);
     try {
-      const image = canvas.current;
-      if (!image?.getContext("2d"))
-        throw new Error("Thumbnail canvas unavailable");
-      const png = await new Promise<Blob>((resolve, reject) => {
-        image.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Thumbnail encoding failed"));
-        }, "image/png");
-      });
+      const { encodeThumbnail } = await import("../publish/thumbnail.ts");
+      signal.throwIfAborted();
+      const png = await encodeThumbnail(
+        document.createElement("canvas"),
+        thumbnail,
+      );
       signal.throwIfAborted();
       if (kind === "thumbnail") {
         download(png, t("publish.files.thumbnail"));
@@ -225,6 +389,10 @@ function ReviewFields({
         const reviewed = artifact.metadata.studioVideo;
         return (
           current?.sha256 === reviewed.sha256 &&
+          sameVideoOptions(
+            resolveVideoOptions(thumbnail.variant, current),
+            resolveVideoOptions(thumbnail.variant, reviewed),
+          ) &&
           JSON.stringify(current.review) === JSON.stringify(reviewed.review)
         );
       };
@@ -233,11 +401,8 @@ function ReviewFields({
         return;
       }
       signal.throwIfAborted();
-      const zip = await buildReviewedPublishPackage(
-        episode,
-        artifact,
-        png,
-      ).zip();
+      const result = await buildReviewedPublishPackage(episode, artifact, png);
+      const zip = await result.zip();
       const approvedAtDownload = await matchesSavedApproval();
       signal.throwIfAborted();
       if (!approvedAtDownload) {
@@ -326,24 +491,15 @@ function ReviewFields({
       {checked.error && (
         <p className="error">{t(checked.error, reviewLimits)}</p>
       )}
-      <div className="video-panel-group">
-        <canvas
-          ref={canvas}
-          width={thumbnailSize.width}
-          height={thumbnailSize.height}
-          role="img"
-          aria-label={t("publish.review.thumbnailPreview")}
-        />
-        <div className="video-panel-actions">
-          <button
-            className="outline"
-            type="button"
-            disabled={blocked || keyBlocked}
-            onClick={() => void exportFile("thumbnail")}
-          >
-            {t("publish.review.downloadThumbnail")}
-          </button>
-        </div>
+      <div className="video-panel-actions">
+        <button
+          className="outline"
+          type="button"
+          disabled={blocked || keyBlocked || !thumbnailReady}
+          onClick={() => void exportFile("thumbnail")}
+        >
+          {t("publish.review.downloadThumbnail")}
+        </button>
       </div>
       <div role="status" className="video-panel-status">
         {keyBlocked
@@ -370,7 +526,9 @@ function ReviewFields({
         <button
           className="outline"
           type="button"
-          disabled={blocked || unsaved || approved || !checked.value}
+          disabled={
+            blocked || unsaved || approved || !checked.value || !thumbnailReady
+          }
           onClick={() =>
             checked.value && update({ ...checked.value, status: "approved" })
           }
@@ -388,7 +546,7 @@ function ReviewFields({
         <button
           className="primary"
           type="button"
-          disabled={blocked || !approved}
+          disabled={blocked || !approved || !thumbnailReady}
           onClick={() => void exportFile("package")}
         >
           {t("publish.review.downloadPackage")}
@@ -414,9 +572,38 @@ export function VideoPanel({
 }) {
   const { t, formatters } = useI18n();
   const video = useVideoRender(episode, audio);
-  const { state, artifact, studio3d } = video;
-  const isStudio3d = video.sceneId === studio3dSceneId;
+  const { state, artifact, camera, options, tokens } = video;
+  const dimensions = tokens?.[options.orientation].frame;
+  const isStudio3d = video.sceneId === "studio3d";
   const rendering = state.phase === "rendering" || state.phase === "cancelling";
+  const optionsDisabled = rendering || video.loading || !!video.reviewEdit;
+  const review =
+    artifact &&
+    (video.reviewEdit?.review ?? artifact.metadata.studioVideo.review);
+  const reviewTitle =
+    artifact && review
+      ? (validatePublishReview(
+          review,
+          artifact.metadata.studioVideo.timeline.chapters,
+        ).value?.title ?? review.title)
+      : undefined;
+  const thumbnail = useMemo(
+    () => videoThumbnailInput(episode, options, reviewTitle),
+    [episode, options, reviewTitle],
+  );
+  const { canvas, drawn } = useThumbnailPreview(thumbnail, !!tokens);
+  const headlineError = thumbnail.error ?? drawn?.error;
+  const { headline, locale: headlineLocale } = thumbnail.input;
+  const cjk = isCjkHeadline(headline);
+  const count = cjk
+    ? cjkHeadlineLength(headline.trim(), headlineLocale)
+    : headlineGraphemes(headline.trim().replace(/\s+/gu, " "), headlineLocale)
+        .length;
+  const limit = cjk
+    ? thumbnailHeadlineLimits.cjk[1]
+    : headlineLocale === "ms"
+      ? thumbnailHeadlineLimits.malayGraphemes
+      : thumbnailHeadlineLimits.latinGraphemes;
   const status =
     state.phase === "failed"
       ? state.message
@@ -445,37 +632,176 @@ export function VideoPanel({
     >
       <h3 id="video-panel-title">{t("episode.video.title")}</h3>
       <p className="muted">{t("video.panel.local")}</p>
-      <div className="video-panel-actions">
-        <label className="field">
-          {t("video.panel.theme")}
-          <select
-            value={video.theme}
-            disabled={rendering}
-            onChange={(event) =>
-              video.setTheme(event.target.value === "light" ? "light" : "dark")
-            }
-          >
-            <option value="light">{t("video.panel.light")}</option>
-            <option value="dark">{t("video.panel.dark")}</option>
-          </select>
-        </label>
+      <fieldset
+        className="video-panel-fields video-option-fields"
+        disabled={optionsDisabled || !tokens}
+      >
+        <legend>{t("video.panel.options.heading")}</legend>
         <label className="field">
           {t("video.panel.scene")}
           <select
             value={video.sceneId}
-            disabled={rendering || video.loading || !!video.reviewEdit}
             aria-describedby={
               isStudio3d ? "video-studio3d-description" : undefined
             }
             onChange={(event) => video.setSceneId(event.target.value)}
           >
-            {listScenes().map(({ id, label }) => (
+            {video.scenes.map(({ id, label }) => (
               <option key={id} value={id}>
                 {t(label)}
               </option>
             ))}
           </select>
         </label>
+        <OptionSelect
+          label="video.panel.options.orientation"
+          choices={videoOrientations}
+          value={options.orientation}
+          onChange={(orientation) =>
+            video.setOptions({ ...options, orientation })
+          }
+        />
+        <OptionSelect
+          label={isStudio3d ? "video.studio3d.palette" : "video.panel.theme"}
+          choices={
+            isStudio3d
+              ? videoPalettes.filter((id) => id !== "light")
+              : videoPalettes
+          }
+          value={options.paletteId}
+          onChange={(paletteId) => video.setOptions({ ...options, paletteId })}
+          darkPaletteGroup={!isStudio3d}
+        />
+        <OptionSelect
+          label="video.panel.options.mood"
+          choices={videoMoods}
+          value={options.mood}
+          onChange={(mood) => video.setOptions({ ...options, mood })}
+        />
+        <label className="video-panel-check">
+          <input
+            type="checkbox"
+            checked={options.reducedMotion}
+            onChange={(event) =>
+              video.setOptions({
+                ...options,
+                reducedMotion: event.target.checked,
+              })
+            }
+          />
+          {t("video.panel.options.reducedMotion")}
+        </label>
+        {dimensions && (
+          <p className="muted">
+            {t("video.panel.options.dimensions", {
+              width: dimensions[0],
+              height: dimensions[1],
+            })}
+          </p>
+        )}
+      </fieldset>
+      {isStudio3d && video.cameraLabels && (
+        <>
+          <p className="muted" id="video-studio3d-description">
+            {t("video.studio3d.description")}
+          </p>
+          <fieldset
+            className="video-panel-fields video-studio3d-fields"
+            aria-label={t("video.scene.studio3d")}
+            disabled={rendering || video.loading || !!video.reviewEdit}
+          >
+            <label className="field">
+              {t("video.studio3d.camera")}
+              <select
+                value={camera.cameraPresetId}
+                onChange={(event) => {
+                  const preset = event.target
+                    .value as typeof camera.cameraPresetId;
+                  if (Object.hasOwn(video.cameraLabels ?? {}, preset))
+                    video.setCamera({ ...camera, cameraPresetId: preset });
+                }}
+              >
+                {Object.entries(video.cameraLabels).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {t(label)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              {t("video.studio3d.intensity")}
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={camera.intensity}
+                aria-valuetext={formatters.number(camera.intensity, {
+                  style: "percent",
+                })}
+                onChange={(event) =>
+                  video.setCamera({
+                    ...camera,
+                    intensity: event.target.valueAsNumber,
+                  })
+                }
+              />
+            </label>
+          </fieldset>
+        </>
+      )}
+      {tokens && (
+        <fieldset
+          className="video-panel-fields video-thumbnail-options"
+          disabled={optionsDisabled}
+        >
+          <legend>{t("publish.review.thumbnailOptions")}</legend>
+          <OptionSelect
+            label="publish.review.thumbnailVariant"
+            choices={thumbnailVariants}
+            value={options.thumbnailVariant}
+            disabledChoice={video.hasTopicGraphic ? undefined : "topic-graphic"}
+            onChange={(thumbnailVariant) =>
+              video.setOptions({ ...options, thumbnailVariant })
+            }
+          />
+          <label className="field">
+            {t("publish.review.thumbnailHeadline")}
+            <input
+              lang={episodeLanguageTags[episode.language]}
+              type="text"
+              value={options.thumbnailHeadline}
+              aria-invalid={!!headlineError}
+              aria-describedby="video-headline-hint video-headline-status"
+              onChange={(event) =>
+                video.setOptions({
+                  ...options,
+                  thumbnailHeadline: event.target.value,
+                })
+              }
+            />
+          </label>
+          <p className="muted" id="video-headline-hint">
+            {t("publish.review.thumbnailHeadlineHint")}{" "}
+            {t("publish.review.thumbnailHeadlineCount", { count, limit })}
+          </p>
+          <div
+            className="video-panel-status"
+            id="video-headline-status"
+            role="status"
+          >
+            {headlineError && <p className="error">{t(headlineError)}</p>}
+          </div>
+          <canvas
+            ref={canvas}
+            width={1280}
+            height={720}
+            role="img"
+            aria-label={t("publish.review.thumbnailPreview")}
+          />
+        </fieldset>
+      )}
+      <div className="video-panel-actions">
         <button
           className="primary"
           type="button"
@@ -483,6 +809,7 @@ export function VideoPanel({
             !video.available ||
             video.support !== true ||
             rendering ||
+            video.keyInHeadline ||
             !!video.reviewEdit
           }
           onClick={() => void video.start()}
@@ -498,77 +825,12 @@ export function VideoPanel({
           {t("video.panel.cancel")}
         </button>
       </div>
-      {isStudio3d && (
-        <>
-          <p className="muted" id="video-studio3d-description">
-            {t("video.studio3d.description")}
-          </p>
-          <fieldset
-            className="video-panel-fields video-studio3d-fields"
-            aria-label={t("video.scene.studio3d")}
-            disabled={rendering || video.loading || !!video.reviewEdit}
-          >
-            <label className="field">
-              {t("video.studio3d.palette")}
-              <select
-                value={studio3d.paletteId}
-                onChange={(event) =>
-                  video.setStudio3d({
-                    ...studio3d,
-                    paletteId: event.target.value,
-                  })
-                }
-              >
-                {Object.entries(paletteLabels).map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {t(label)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              {t("video.studio3d.camera")}
-              <select
-                value={studio3d.cameraPresetId}
-                onChange={(event) =>
-                  video.setStudio3d({
-                    ...studio3d,
-                    cameraPresetId: event.target.value,
-                  })
-                }
-              >
-                {Object.entries(cameraLabels).map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {t(label)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              {t("video.studio3d.intensity")}
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={studio3d.intensity}
-                aria-valuetext={formatters.number(studio3d.intensity, {
-                  style: "percent",
-                })}
-                onChange={(event) =>
-                  video.setStudio3d({
-                    ...studio3d,
-                    intensity: event.target.valueAsNumber,
-                  })
-                }
-              />
-            </label>
-          </fieldset>
-        </>
-      )}
       <div role="status" className="video-panel-status">
         {video.stale && <p>{t("episode.video.stale")}</p>}
         {video.sceneStale && <p>{t("video.panel.sceneStale")}</p>}
+        {video.optionsStale && !video.sceneStale && (
+          <p>{t("video.panel.options.stale")}</p>
+        )}
         <p
           className={
             state.phase === "failed" || video.loadFailed ? "error" : "muted"
@@ -599,19 +861,25 @@ export function VideoPanel({
           </span>
         </div>
       )}
-      {artifact && (
+      {artifact && tokens && (
+        <VideoPreview
+          artifact={artifact}
+          orientation={options.orientation}
+          safe={tokens[options.orientation].safe}
+        />
+      )}
+      {artifact && review && (
         <>
-          <VideoPreview artifact={artifact} />
           <ReviewFields
             key={`${artifact.id}:${artifact.metadata.studioVideo.sha256}`}
             episode={episode}
             artifact={artifact}
-            review={
-              video.reviewEdit?.review ?? artifact.metadata.studioVideo.review
-            }
+            review={review}
             saving={video.reviewEdit?.saving === true}
             unsaved={!!video.reviewEdit}
             rendering={rendering}
+            thumbnail={thumbnail.input}
+            thumbnailReady={!!drawn && !headlineError}
             onSave={video.saveReview}
           />
         </>

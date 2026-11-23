@@ -20,6 +20,8 @@
 
 .video-panel :is(input, select, textarea) {
   box-sizing: border-box;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   min-block-size: var(--target-size);
   font-size: max(16px, var(--type-body));
 }
@@ -66,8 +68,83 @@
   margin-block-end: var(--space-2);
 }
 
+.video-panel-fields .field {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.video-option-fields,
 .video-studio3d-fields {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
+.video-panel-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  min-block-size: var(--target-size);
+  overflow-wrap: anywhere;
+}
+
+.video-panel-check input[type="checkbox"] {
+  flex: 0 0 auto;
+  inline-size: 1em;
+  min-block-size: 1em;
+  margin: 0;
+}
+
+.video-panel canvas {
+  inline-size: min(100%, 320px);
+}
+
+.video-preview-frame {
+  position: relative;
+  inline-size: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: #000;
+}
+
+.video-preview-frame[data-orientation="portrait"] {
+  inline-size: min(100%, 320px);
+  aspect-ratio: 9 / 16;
+}
+
+.video-preview-frame video {
+  block-size: 100%;
+  object-fit: contain;
+}
+
+.video-preview-guides,
+.video-preview-guides > span {
+  position: absolute;
+  pointer-events: none;
+}
+
+.video-preview-guides {
+  inset: 0;
+}
+
+.video-preview-safe {
+  z-index: 1;
+  border: 2px dashed #fff;
+  outline: 1px solid #000;
+}
+
+.video-preview-mask {
+  background: rgb(0 0 0 / 45%);
+}
+.video-preview-mask-top {
+  inset: 0 0 auto;
+}
+.video-preview-mask-bottom {
+  inset-inline: 0;
+  inset-block-end: 0;
+}
+.video-preview-mask-rail {
+  inset-inline-end: 0;
 }
 
 .video-panel-progress {
@@ -85,6 +162,11 @@
 }
 
 @media (max-width: 36rem) {
+  .video-option-fields,
+  .video-studio3d-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .video-panel-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

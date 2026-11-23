@@ -1,6 +1,19 @@
 import { openDB, type DBSchema } from "idb";
+import type { ThumbnailVariant } from "../publish/thumbnail.ts";
+import type { Orientation } from "../video/design/tokens.ts";
 import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
+import type { VideoPaletteId } from "../video/themes.ts";
+import type { VideoMood } from "../video/timeline.ts";
+
+export type StudioVideoOptions = {
+  orientation: Orientation;
+  paletteId: VideoPaletteId;
+  mood: VideoMood;
+  reducedMotion: boolean;
+  thumbnailVariant: ThumbnailVariant;
+  thumbnailHeadline: string;
+};
 
 export type AgentArtifact = {
   id: string;
@@ -16,6 +29,11 @@ export type AgentArtifact = {
       videoCodec: string;
       audioCodec: "aac" | "opus";
       theme: "light" | "dark";
+      options?: StudioVideoOptions;
+      width?: number;
+      height?: number;
+      orientation?: Orientation;
+      paletteId?: VideoPaletteId;
       sceneId?: string;
       studio3d?: Studio3dSettings;
       chapterScenes?: { chapterId: string; sceneId: string }[];

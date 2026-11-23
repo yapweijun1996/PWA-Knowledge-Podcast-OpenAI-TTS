@@ -98,4 +98,18 @@ export default [
   ["video.panel.ffmpegCommand", "ffmpeg -i input.mp4 -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -profile:a aac_low -b:a 128k -movflags +faststart output-aac.mp4"],
   // native-review
   ["video.panel.keyInContent", "节目内容包含当前 API 密钥，无法生成视频。请移除密钥。节目、成品音频和先前保存的视频均已保留。"],
+  ["video.panel.options.heading", "视频选项"],
+  ["video.panel.options.orientation", "画面方向"],
+  ["video.panel.options.landscape", "横向 · 16:9"],
+  ["video.panel.options.portrait", "纵向 · 9:16"],
+  ["video.panel.options.mood", "氛围"],
+  ["video.panel.options.calm", "平静"],
+  ["video.panel.options.curious", "好奇"],
+  ["video.panel.options.urgent", "紧迫"],
+  ["video.panel.options.warm", "温暖"],
+  ["video.panel.options.serious", "严肃"],
+  ["video.panel.options.reducedMotion", "减少导出视频中的动态效果"],
+  ["video.panel.options.guides", "显示构图参考线"],
+  ["video.panel.options.stale", "视频已过时。导出选项已更改。"],
+  ["video.panel.options.dimensions", "{width} × {height} 像素"],
 ] as const;

@@ -28,6 +28,7 @@ export type TimelineOptions = {
   paletteId?: PaletteId;
   mood?: VideoMood;
   transition?: Transition;
+  reducedMotion?: boolean;
 };
 
 type Interval = { start: number; end: number };
@@ -70,6 +71,7 @@ export type TimelinePlan = {
   paletteId?: PaletteId;
   mood?: VideoMood;
   transition?: Transition;
+  reducedMotion?: boolean;
 };
 
 const { motion } = designTokens.common;
@@ -335,9 +337,14 @@ export function buildTimeline(
       ? {}
       : { paletteId: options.paletteId }),
     ...(options.mood === undefined ? {} : { mood: options.mood }),
-    ...(options.transition === undefined
+    ...(options.reducedMotion === undefined
       ? {}
-      : { transition: options.transition }),
+      : { reducedMotion: options.reducedMotion }),
+    ...(options.reducedMotion
+      ? { transition: "cut" as const }
+      : options.transition === undefined
+        ? {}
+        : { transition: options.transition }),
   };
   if (options.hostNames) {
     const { A, B, C } = options.hostNames;
