@@ -518,3 +518,19 @@ for production quality without involvement) will be implemented after the
 research lands: fonts, four palettes, caption and title layout, callouts,
 thumbnails, 3D scene art direction, with a 100-point rubric reviewed by an
 independent reviewer and the manager's own screenshots.
+
+### Visual design implementation (owner delegated style; spec: docs/VISUAL-DESIGN-SPEC.md)
+
+- [x] **T58 fonts and caption timing**, **T59 layout, overlay, waveform, timeline and portrait**,
+  **T60 Studio 3D art direction**, **T61 thumbnails** _(merged 2026-11-23; 247 unit and 45 of 45
+  browser tests pass; integration fixes: the font preflight notice in Node tests, Vite library-mode
+  `process.env` in two test bundlers, two chapter-timestamp assertions that correctly moved earlier
+  because speech now starts at frame 0)_
+- [ ] **T62 Studio panel for the new options** (M): orientation (16:9 or 9:16), palette, mood,
+  reduced-motion export, thumbnail variant and headline fields, preview guides; storyboard-ready.
+- [ ] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
+  orphan characters, flash limit, hash determinism, per spec section 8.
+- [ ] **T64 Visual review** (manager): real landscape and portrait frames and thumbnails, an
+  independent reviewer scoring the 100-point rubric, up to three rework rounds.
+- [ ] **T65 Bundle size** (S): the main chunk grew about 34 kB gzip (189 to 224); load the video
+  modules and font coverage tables lazily.

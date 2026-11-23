@@ -50,6 +50,8 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
     configFile: false,
     publicDir: false,
     logLevel: "silent",
+    // Library mode leaves process.env references in dependencies untouched.
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     build: {
       write: false,
       minify: false,

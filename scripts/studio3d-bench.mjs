@@ -9,6 +9,8 @@ export async function bundleStudio3d() {
     envFile: false,
     publicDir: false,
     logLevel: "silent",
+    // Library mode leaves dependency process.env references (React) untouched.
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     build: {
       write: false,
       lib: {

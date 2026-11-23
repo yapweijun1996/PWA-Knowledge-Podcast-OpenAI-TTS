@@ -464,7 +464,8 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
       sceneId: "waveform",
       orientation: "landscape",
       paletteId: "aurora",
-      fontNotices: [],
+      // Node has no FontFace API, so the real loader reports it honestly.
+      fontNotices: ["font.apiUnavailable"],
       captionReviewCount: 0,
       chapterScenes: [
         { chapterId: "one", sceneId: "waveform" },
@@ -1096,7 +1097,7 @@ test("portrait and landscape exports start with live PCM and captions and keep b
       [orientation, width, height, plan.duration],
     );
     assert.equal(result.paletteId, theme === "light" ? "light" : "ocean");
-    assert.deepEqual(result.fontNotices, []);
+    assert.deepEqual(result.fontNotices, ["font.apiUnavailable"]);
     assert.equal(trace.audio[0].data[0], 0.25);
     assert.equal(trace.audio[1].data.at(-1), 0.5);
     assert.deepEqual(texts(trace.frames[0]), [

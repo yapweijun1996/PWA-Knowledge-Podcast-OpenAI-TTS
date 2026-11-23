@@ -390,6 +390,8 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
   const modules = await build({
     configFile: false,
     logLevel: "error",
+    // Library mode leaves dependency process.env references (React) untouched.
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     build: {
       write: false,
       lib: {
