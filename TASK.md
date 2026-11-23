@@ -279,3 +279,49 @@ silence as proof of improved narration continuity.
 ## V2 browser-local production follow-up
 
 The V2 workflow runs topic discovery, independent evidence search, adaptive narration and audio comparison in a trusted worker, then hands the episode to the browser Library. See the [V2 runbook](docs/V2-FACTORY.md) for setup, verification limits and independent QA.
+
+## V3 video and publishing (goal: AI-made podcast video uploaded to YouTube)
+
+Product goal: a "Podcast Studio" similar in spirit to YouTube Studio. An AI agent
+researches a topic, writes the script, produces the audio, animates a video and,
+after a human review, publishes it to YouTube. V1 and browser BYOK were removed
+in `71a53da`; the older constraints above about browser-only BYOK and T05/T06
+(narration continuity experiment) are historical. Keys now live only in the
+trusted local worker. Nothing here may upload or spend money without an explicit
+owner approval for that run. Effort is an estimate (S/M/L).
+
+- [ ] **T17 — Decide the video render path** (effort: S). Compare (a) Three.js
+  scene rendered in headless Chromium and captured with frame stepping, (b)
+  Godot headless movie writer, (c) simple waveform plus captions through ffmpeg.
+  Pick one for the first release and record the choice with reasons. Acceptance:
+  decision note in `docs/`, a 10-second sample rendered from a fixture episode
+  with no provider calls.
+- [ ] **T18 — Scene and caption plan from a script** (effort: M). Derive a
+  deterministic timeline (speaker turns, chapters, caption cues) from the
+  episode record and its audio timings. Acceptance: unit tests on fixtures; same
+  input gives the same plan.
+- [ ] **T19 — Render worker stage producing MP4** (effort: L). Add a worker
+  stage that takes the plan plus verified audio and outputs MP4 with the audio
+  track, storing it with a SHA-256 receipt like other assets. Acceptance:
+  deterministic fixture render in CI, cancellation and restart recovery tested,
+  disk-use limits documented.
+- [ ] **T20 — Video review in Studio** (effort: M). Preview the rendered video,
+  edit title, description, chapters and thumbnail, and approve or reject.
+  Acceptance: browser test covers approve and reject; nothing is uploaded
+  without approval.
+- [ ] **T21 — YouTube upload via the official API** (effort: L). OAuth with the
+  minimum upload scope, private-by-default upload, resumable upload with
+  recovery, quota and error handling, and an audit log. Acceptance: tested
+  against a mocked API; one real private upload only with owner approval;
+  tokens never stored in the browser or exports.
+- [ ] **T22 — Agent adapter (pi coding agent first, OpenAI API key)** (effort: M).
+  Define one narrow interface for research, script and scene generation so the
+  pi coding agent running in the browser can drive stages first, with the OpenAI
+  API key (held by the worker) as the provider. Acceptance: mock-provider tests,
+  per-run cost disclosure and consent, no automatic retry of ambiguous paid
+  requests.
+- [ ] **T23 — Release gates for video** (effort: S). Extend
+  `docs/V2-PRODUCTION-CHECKLIST.md` with render, review and upload checks,
+  including YouTube content and licensing review for AI-generated media.
+
+Suggested order: T17 → T18 → T19 → T20 → T22 → T21 → T23.
