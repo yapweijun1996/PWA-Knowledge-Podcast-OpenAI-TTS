@@ -1286,7 +1286,7 @@ export async function runReaderSelfTest() {
     async (video) => {
       const samples = [];
       for (const frame of frames) {
-        await seekFrameCenter(video, frame, "indexed reader self-test");
+        await seekFrame(video, frame);
         samples.push(inspect(video, frame));
       }
       return samples;
