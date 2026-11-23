@@ -71,6 +71,8 @@ async function scanLocale(page: Page, locale: Locale, state: string) {
         ["简体中文", "English", "Bahasa Melayu"].includes(clean)
       )
         return;
+      // Text the user typed into a form field is content, not interface copy.
+      if (element.matches("textarea, input")) return;
       const boundary = element.closest("[lang], [data-user-content]");
       const userContent =
         boundary &&
@@ -149,6 +151,18 @@ async function inspectLayout(page: Page, state: string) {
               node.clientWidth === 0
             )
               continue;
+            if (zoom === "100%" && node.matches(".factory-nav a")) {
+              // A navigation label must not break inside a word.
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const lines = new Set(
+                [...range.getClientRects()].map((rect) => Math.round(rect.top)),
+              ).size;
+              if (lines > 1)
+                problems.push(
+                  `nav link wraps inside its label: ${node.innerText.trim()}`,
+                );
+            }
             if (node.scrollWidth > node.clientWidth) {
               problems.push(
                 `${node.localName}.${node.className} ${node.innerText.trim().slice(0, 120)}: ${node.scrollWidth}px > ${node.clientWidth}px`,

@@ -137,8 +137,8 @@
 
 .factory-shell .factory-nav {
   grid-area: navigation;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 4rem), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   align-content: start;
   gap: var(--space-1);
   padding-block: var(--space-2);
@@ -146,6 +146,7 @@
 
 .factory-shell .factory-nav a {
   display: grid;
+  flex: 1 1 auto;
   place-items: center;
   min-block-size: var(--target-size);
   padding: var(--space-1) var(--space-2);
@@ -153,6 +154,9 @@
   border-radius: var(--radius-control);
   color: var(--muted);
   font-weight: var(--weight-strong);
+  hyphens: none;
+  overflow-wrap: normal;
+  white-space: nowrap;
   text-align: center;
   text-decoration: none;
   transition: background-color var(--motion-fast);
@@ -207,8 +211,11 @@
   }
 
   .factory-shell .factory-nav {
-    grid-template-columns: repeat(4, minmax(0, 8rem));
     gap: var(--space-2);
+  }
+
+  .factory-shell .factory-nav a {
+    flex: 0 1 8rem;
   }
 
   .factory-shell .factory-main {
@@ -228,6 +235,7 @@
   }
 
   .factory-shell .factory-nav {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
     padding-block: var(--space-6);
     border-block-end: none;

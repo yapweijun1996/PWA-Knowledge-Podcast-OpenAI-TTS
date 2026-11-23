@@ -418,30 +418,34 @@ UI locales: `zh-CN` (source), `en`, `ms`. Do this after T29 is stable because it
 touches every UI file; split the extraction by file group so workers do not
 collide.
 
-- [ ] **T44 — i18n core** (M). A keyed catalogue with `t(key, vars)`, Intl
+- [x] **T44 — i18n core** (M). A keyed catalogue with `t(key, vars)`, Intl
   plural, date, number and list formatting, a locale provider and hook, saved
   per-viewer preference, language switcher in Settings, `document.lang`
   updates, and CI checks (missing or empty keys per locale, unused keys,
   placeholder consistency, question-mark-only strings, duplicate keys).
   Acceptance: unit tests; runtime switch without reload.
-- [ ] **T45 — Extract UI strings** (L, parallel by file group). Move every
+  _(done 2026-11-23: merged `9ae3e45`; 152 unit and 26 browser tests pass; runtime locale switch verified)_
+- [x] **T45 — Extract UI strings** (L, parallel by file group). Move every
   user-facing string, thrown error and aria label in `src/factory/*.tsx`,
   `src/agent`, `src/publish` and `src/video` user messages into catalogue keys.
   Source locale stays `zh-CN`. Acceptance: a scan finds no hard-coded
   user-facing string; behavior unchanged; existing browser tests updated only
   where text changed.
-- [ ] **T46 — English and Malay catalogues and glossary** (M). Complete `en` and
+  _(done 2026-11-23: merged; 0 hard-coded CJK fragments in src, 121 backend error codes (T45b))_
+- [x] **T46 — English and Malay catalogues and glossary** (M). Complete `en` and
   `ms` with a per-locale glossary (key, cost, consent, estimate, unknown
   outcome, backup, episode, narration). Mark consent, cost, key-risk and
   no-retry messages for native review. Acceptance: no missing key; `ms`
   recorded as unreviewed until a native speaker signs off.
-- [ ] **T47 — UI/UX standard audit and fixes** (L). Run the evidence in the
+  _(done 2026-11-23: en and ms catalogues complete for every key, glossary in `src/i18n/glossary.md`; ms and the consent, cost, key-risk and no-retry text in en and ms remain **unreviewed by a native speaker**)_
+- [x] **T47 — UI/UX standard audit and fixes** (L). Run the evidence in the
   standard per locale: scans, runtime toggle, 1440, 768 and 390 screenshots
   viewed by the manager, 200% text, keyboard pass, state coverage (empty,
   loading, running, failed, unknown paid outcome, offline), CJK typography,
   16px inputs and 44px targets, focus and live regions. Fix findings.
   Acceptance: evidence table committed; remaining gaps listed.
-- [ ] **T48 — Compatibility and evidence record** (S). Fill the
+  _(done 2026-11-23: sweep passes 12 of 12 in Chromium; evidence in docs/UIUX-EVIDENCE.md)_
+- [x] **T48 — Compatibility and evidence record** (S). Fill the
   `pwa:product-standard` evidence rows for what actually ran; everything
   not run (real iOS, Safari, VoiceOver, field Web Vitals) stays `NOT_RUN`.
 
@@ -452,3 +456,5 @@ bottom padding and reachability; (2) disabled primary buttons are pale purple on
 white and hard to read, so check contrast and add the reason next to the button;
 (3) 768 px and the Library, Episode and running or failed states were not
 reviewed yet.
+
+  _(done 2026-11-23: evidence rows filled for what ran; real iOS, Safari, VoiceOver, field Web Vitals stay NOT_RUN)_
