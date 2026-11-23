@@ -25,6 +25,7 @@
   "description": "",
   "dependencies": {
     "idb": "^8.0.4",
+    "mp4-muxer": "5.2.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
