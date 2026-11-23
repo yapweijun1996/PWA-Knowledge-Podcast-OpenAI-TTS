@@ -25,11 +25,12 @@ See the [roadmap](ROADMAP.md) for milestones, risks and unverified claims.
 4. **One interface.** The Library, Studio, Automation and Settings are the
    only UI. The V1 local editor was removed in `71a53da`; its source is in git
    history at `636fae0`.
-5. **Agents.** The pi coding agent in the browser is the first agent
+5. **Output is an MP4.** The Studio produces a production-ready MP4 and a
+   publish package; the owner uploads to YouTube manually (decided 2026-11-23).
+6. **Agents.** The pi coding agent in the browser is the first agent
    integration, with the OpenAI API key as the provider (T39).
-6. **No spend or upload without per-run approval.** Paid calls show an
-   estimate-labelled cost disclosure and need consent. YouTube upload is
-   private by default and needs explicit approval.
+7. **No spend without per-run consent.** Paid calls show an
+   estimate-labelled cost disclosure and need consent.
 
 ## Current state versus the goal
 
@@ -39,7 +40,7 @@ See the [roadmap](ROADMAP.md) for milestones, risks and unverified claims.
 | Research, script and audio through the worker | implemented |
 | Browser-direct BYOK generation in the Studio | **removed with V1; planned (M0, T24 to T31)** |
 | Video rendering | planned (M1, T32-T36) |
-| YouTube upload | planned (M2, T37-T38) |
+| Publish package for manual YouTube upload | planned (M2, T38); in-app upload dropped |
 | pi agent adapter | planned (M3, T39) |
 
 ## Run modes

@@ -355,9 +355,9 @@ Status words: `[ ]` open, `[x]` done.
 - [ ] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
-- [ ] **T34 — Scene library v1** (M). Waveform, captions and host cards with two
-  themes; the owner picks the first style (see ROADMAP). Acceptance: screenshot
-  review at 1440 and 390 widths.
+- [ ] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
+  captions** for the first release (avatars and 3D scenes come later). Two
+  themes. Acceptance: screenshot review at 1440 and 390 widths.
 - [ ] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
   stepping, progress, cancel, memory and storage limits, MP4 stored in
   IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
@@ -366,24 +366,36 @@ Status words: `[ ]` open, `[x]` done.
   thumbnail, then approve or reject. Acceptance: browser test for approve and
   reject; nothing is uploaded without approval.
 
-### M2. YouTube
+### M2. Publish package (YouTube upload is out of scope)
 
-- [ ] **T37 — Upload via the official API** (L). Google Identity Services token
-  flow with the minimum upload scope, tokens in memory only, resumable upload
-  with recovery, quota handling, private by default, an audit log. First
-  verify and record: whether an unaudited project is restricted to private
-  uploads, the quota cost, and the AI-content disclosure setting. Acceptance:
-  mocked-API tests; one real private upload only with the owner's approval.
-- [ ] **T38 — Publish metadata** (S). Chapters from the timeline, description
-  and an AI-generated-content disclosure. Acceptance: matches the verified
-  YouTube requirements recorded in T37.
+**Owner decided 2026-11-23:** Podcast Studio only needs to produce a fully
+production-ready MP4; the owner uploads to YouTube manually. Real upload is
+dropped from the critical path.
+
+- [ ] **T37 — YouTube upload client** (parked). A mock-tested client was built
+  on branch `feat/t37` as an experiment. It is **not merged** and not wired
+  into the UI. Revisit only if the owner asks for in-app upload.
+- [ ] **T38 — Publish package export** (S). Export, per episode, the MP4, a
+  title, a description with chapter lines (first at 0:00), tags, a thumbnail
+  image, and a short manual-upload checklist including YouTube's disclosure
+  for AI-generated or synthetic content. Acceptance: one download (zip or
+  separate files) from the Studio; chapters match the timeline; no network.
 
 ### M3 to M5
 
-- [ ] **T39 — Agent adapter, pi coding agent first** (M). One narrow interface
-  for research, script and scene generation. Blocked on the owner explaining
-  what pi exposes in the browser. Acceptance: mock-provider tests, cost
-  disclosure and consent, no automatic paid retries.
+- [ ] **T39 — In-browser agent and pi bridge** (L). **Decision (manager,
+  2026-11-23; the owner asked us to decide):** a browser page cannot spawn the
+  local `pi` CLI, so there are two layers. (1) A native in-page agent loop on
+  the OpenAI Responses API with tools (research, outline, script, narrate,
+  render, export) behind one `AgentBridge` interface; it needs no server and
+  works today. (2) An optional pi bridge: pi 1.5.2 is installed locally and
+  offers `--mode rpc` and extensions; a small loopback bridge on 127.0.0.1
+  would connect pi to the same `AgentBridge`. Whether pi's RPC mode can drive
+  this bridge is **UNVERIFIED**; T39 starts with a spike. The in-page agent
+  works within browser limits (the BYOK key, the browser sandbox, no
+  filesystem); "no limitation" is not achievable literally, so each tool is
+  explicit and bounded. Acceptance: mock-provider tests, cost disclosure and
+  consent, no automatic paid retries, every tool call logged for the user.
 - [ ] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
   Not on the critical path. Acceptance: a decision note.
 - [ ] **T41 — Worker as optional** (S). Keep Automation and unattended runs as
@@ -395,4 +407,4 @@ Status words: `[ ]` open, `[x]` done.
   storage quota with large video blobs, offline Library after upload.
 
 Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
-T31, then T33 to T36, then T37, T38, T39, then T40 to T43.
+T31, then T33 to T36, then T38, T39, then T40 to T43 (T37 is parked).

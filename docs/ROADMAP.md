@@ -90,27 +90,23 @@ approve or reject in the Studio.
 Risks: mobile memory limits, large IndexedDB blobs and eviction, Safari codec
 gaps.
 
-### M2. YouTube upload (T37, T38)
+### M2. Publish package (T38; upload is out of scope)
 
-Goal: approved video published privately, then made public by the owner.
-
-Approach: Google Identity Services token flow in the browser with the minimum
-upload scope, tokens in memory only, resumable upload. Facts to **verify before
-building**: whether an unaudited Google Cloud project is restricted to private
-uploads (documented for projects created after July 2020), the daily quota
-cost of an upload, and YouTube's disclosure setting for AI-generated content.
-
-Exit criteria: mocked-API tests; one real private upload only with the owner's
-approval; audit log; failure recovery for an interrupted upload.
+Owner decision (2026-11-23): the Studio must produce a fully production-ready
+MP4 and the owner uploads to YouTube manually. T38 exports the MP4 plus title,
+description with chapters, tags, thumbnail and a manual-upload checklist,
+including YouTube's AI-content disclosure. A mock-tested upload client (T37)
+exists only on a parked branch and is not merged.
 
 ### M3. Agent integration (T39)
 
-Goal: the pi coding agent in the browser can drive research, script and scene
-generation through one narrow interface, with the owner's OpenAI key.
-
-The pi agent's browser integration surface is **UNVERIFIED** here; T39 starts
-with the owner showing what pi exposes (extension API, page embedding or
-message protocol). Until then the interface stays provider-neutral.
+Decision (manager, 2026-11-23): a page cannot spawn the local `pi` CLI, so the
+agent is built in two layers. First, a native in-page agent loop on the OpenAI
+Responses API with explicit, logged tools behind an `AgentBridge` interface; it
+works with no server. Second, an optional loopback bridge so the installed pi
+(1.5.2, with `--mode rpc` and extensions) can drive the same interface. Pi's
+RPC suitability is **UNVERIFIED** and T39 begins with a spike. The agent works
+within browser limits; "no limitation" is not achievable literally.
 
 ### M4. Optional worker and Godot (T40, T41)
 
@@ -131,12 +127,11 @@ parallel with M0 because it needs no provider key.
 
 ## Owner decisions needed
 
-1. Approve a small provider contract check for T24 (which calls, dollar
-   ceiling, who runs it).
-2. What the pi coding agent exposes in the browser (for T39).
-3. A Google Cloud project for YouTube, and whether it may stay unaudited and
-   private for the first release.
-4. The first video style (waveform and captions, or avatars) for T34.
+Decided on 2026-11-23: real-provider testing is approved with no dollar cap
+from the owner (the manager self-limits and reports actual usage); the first
+video style is waveform plus captions; YouTube upload is out of scope (manual
+upload); the pi interface was left to the manager (see M3). Still open: a
+listening review of real audio, and real-device and Safari checks.
 
 ## Non-goals for now
 
