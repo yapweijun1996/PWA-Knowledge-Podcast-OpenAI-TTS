@@ -601,35 +601,48 @@ function makeProbe(
 }
 
 const minimumDecodedEdgePixels = 8;
+type CodedPadding = { right: boolean; bottom: boolean };
 
 export function safeExterior(
   pixels: Pixels,
   titleSafe: PixelBox,
   width: number,
   height: number,
+  padding?: CodedPadding,
 ) {
   const edges = new Set<number>();
+  const codecRim = new Set<number>();
   const safeRight = Math.ceil(titleSafe.x + titleSafe.width);
   for (let y = 2; y < height - 2; y++) {
     const safeRow = y >= titleSafe.y && y < titleSafe.y + titleSafe.height;
     for (let x = 2; x < width - 2; x++) {
       if (safeRow && x >= titleSafe.x && x < safeRight) x = safeRight;
       if (x >= width - 2) break;
-      const offset = (y * width + x) * 4;
+      const pixel = y * width + x;
+      const offset = pixel * 4;
       // Both a diagonal 2D gradient and a radial WebGL backdrop are allowed.
       // A visible edge in the reserved region changes faster than either.
-      if (
-        colorDistance(pixels, offset - 8, pixels, offset + 8) > 24 ||
+      const horizontal =
+        colorDistance(pixels, offset - 8, pixels, offset + 8) > 24;
+      const vertical =
         colorDistance(pixels, offset - width * 8, pixels, offset + width * 8) >
-          24
+        24;
+      if (!horizontal && !vertical) continue;
+      edges.add(pixel);
+      // The last stencil can touch a codec-darkened visible edge beside
+      // coded padding. Only a pure across-edge difference is a candidate.
+      if (
+        (padding?.right && x === width - 3 && horizontal && !vertical) ||
+        (padding?.bottom && y === height - 3 && vertical && !horizontal)
       )
-        edges.add(y * width + x);
+        codecRim.add(pixel);
     }
   }
-  const total = edges.size;
-  const first = edges.values().next().value;
+  let total = edges.size;
+  let first: number | undefined;
   let largestComponent = 0;
   let connectedPixels = 0;
+  let codecRimPixels = 0;
   // Candidates are at least two pixels from the image border, so neighbor
   // offsets cannot wrap into another row or leave the image.
   for (const pixel of edges) {
@@ -643,6 +656,14 @@ export function safeExterior(
         }
       }
     }
+    // Keep the entire component if it extends inward or shows perpendicular
+    // edges. The source scan never receives coded-padding information.
+    if (component.every((point) => codecRim.has(point))) {
+      codecRimPixels += component.length;
+      total -= component.length;
+      continue;
+    }
+    first ??= pixel;
     largestComponent = Math.max(largestComponent, component.length);
     if (component.length >= minimumDecodedEdgePixels)
       connectedPixels += component.length;
@@ -651,6 +672,7 @@ export function safeExterior(
     total,
     largestComponent,
     connectedPixels,
+    codecRimPixels,
     first:
       first === undefined
         ? null
@@ -1788,7 +1810,12 @@ export async function runVisualCase(options: VisualCase) {
       decoded: Sample;
     }[];
   }[] = [];
-  const exteriorEdges = { raw: 0, decoded: 0, decodedLargestComponent: 0 };
+  const exteriorEdges = {
+    raw: 0,
+    decoded: 0,
+    decodedLargestComponent: 0,
+    decodedCodecRimPixels: 0,
+  };
   let minimumRaw = Infinity;
   let minimumDecoded = Infinity;
   const measuredRoles = new Set<TextRole>();
@@ -1828,7 +1855,23 @@ export async function runVisualCase(options: VisualCase) {
         decoded: chapterBanding(data, width, height),
       });
     const raw = rawExterior.get(frame)!;
-    const decoded = safeExterior(data, titleSafe, width, height);
+    const visible = image.visibleRect;
+    const padding =
+      visible &&
+      visible.x === 0 &&
+      visible.y === 0 &&
+      visible.width === width &&
+      visible.height === height
+        ? {
+            right: image.codedWidth > width,
+            bottom: image.codedHeight > height,
+          }
+        : undefined;
+    const decoded = safeExterior(data, titleSafe, width, height, padding);
+    exteriorEdges.decodedCodecRimPixels = Math.max(
+      exteriorEdges.decodedCodecRimPixels,
+      decoded.codecRimPixels,
+    );
     exteriorEdges.raw = Math.max(exteriorEdges.raw, raw.total);
     exteriorEdges.decoded = Math.max(exteriorEdges.decoded, decoded.total);
     exteriorEdges.decodedLargestComponent = Math.max(
@@ -1838,20 +1881,20 @@ export async function runVisualCase(options: VisualCase) {
     if (raw.total || decoded.connectedPixels) {
       const point = decoded.first ?? raw.first;
       const coded: [number, number] = [image.codedWidth, image.codedHeight];
-      const visible = image.visibleRect?.toJSON();
+      const visibleRect = visible?.toJSON();
       if (!framingCapture && point)
         framingCapture = {
           frame,
           point,
           coded,
-          visible,
+          visible: visibleRect,
           decodedRgb: neighborhood(data, width, point),
           png: framePng(readback.canvas),
         };
       add({
         criterion: "framing",
         frame,
-        detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component); first candidate ${JSON.stringify(point)}, coded ${coded.join("×")}, visible ${JSON.stringify(visible)}`,
+        detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component); first candidate ${JSON.stringify(point)}, coded ${coded.join("×")}, visible ${JSON.stringify(visibleRect)}`,
       });
     }
     const observed = observations.get(frame) ?? [];

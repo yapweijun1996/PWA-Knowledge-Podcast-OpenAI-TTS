@@ -491,6 +491,7 @@ test("visual QA separates a single decoded exterior edge from a connected crossi
     total: 1,
     largestComponent: 1,
     connectedPixels: 0,
+    codecRimPixels: 0,
     first: { x: 2, y: 10 },
   });
   for (let y = 11; y < 18; y++) pixels[y * width * 4] = 255;
@@ -498,8 +499,43 @@ test("visual QA separates a single decoded exterior edge from a connected crossi
     total: 8,
     largestComponent: 8,
     connectedPixels: 8,
+    codecRimPixels: 0,
     first: { x: 2, y: 10 },
   });
+});
+
+test("visual QA retains true exterior crossings beside codec padding", () => {
+  const width = 60;
+  const height = 40;
+  const safe = { x: 12, y: 8, width: 36, height: 24 };
+  const pixels = new Uint8ClampedArray(width * height * 4).fill(60);
+  const draw = (x, y, value) =>
+    pixels.fill(value, 4 * (y * width + x), 4 * (y * width + x) + 3);
+  for (let y = 0; y < height; y++) draw(width - 1, y, 30);
+  const padding = { right: true, bottom: false };
+  const source = safeExterior(pixels, safe, width, height);
+  assert.equal(source.connectedPixels, height - 4);
+  const decoded = safeExterior(pixels, safe, width, height, padding);
+  assert.equal(decoded.codecRimPixels, height - 4);
+  assert.equal(decoded.connectedPixels, 0);
+  // The same shape is a hard failure when connected to inward detail.
+  draw(width - 2, 12, 30);
+  const withArtwork = safeExterior(pixels, safe, width, height, padding);
+  assert.equal(withArtwork.codecRimPixels, 0);
+  assert.ok(withArtwork.connectedPixels > 0);
+
+  pixels.fill(60);
+  for (let x = 0; x < width; x++) draw(x, height - 1, 30);
+  const bottom = safeExterior(pixels, safe, width, height, {
+    right: false,
+    bottom: true,
+  });
+  assert.equal(bottom.codecRimPixels, width - 4);
+  assert.equal(bottom.connectedPixels, 0);
+  assert.equal(
+    safeExterior(pixels, safe, width, height, padding).connectedPixels,
+    width - 4,
+  );
 });
 
 test("visual QA gates field flashes and reports cell rates as diagnostics", () => {

@@ -49,6 +49,14 @@ chapter tail and every full-resolution rubric sample. It samples every second
 decoded frame elsewhere. A one-frame decoded flash outside these windows can
 fall between samples. The raw pass keeps full-rate coverage.
 
+The framing check scans the full title-safe exterior in the raw and decoded
+frames. It records a separate codec-rim metric for decoded gradients whose
+entire connected component lies on the last sampled row or column beside coded
+padding. The gradient must run across the edge. A component that extends inward
+or has a perpendicular gradient still counts as a framing violation. This
+classification was checked against both PNGs from the GitHub runner.
+[Paired frame evidence](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45195525332)
+
 The rubric keeps a 120 s deadline per video fixture and a 30 s deadline for
 each thumbnail or fallback fixture. It records partial results and fails if
 a required check or fixture fails. It measures opaque glyph interiors in the
