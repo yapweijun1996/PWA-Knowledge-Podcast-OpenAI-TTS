@@ -47,3 +47,20 @@ failed take, and show the cap in the cost disclosure.
 - Dollar cost per episode is unknown; only token counts were recorded.
 - Rate limits and long-running sessions (a full episode) were not exercised.
 - This tested the account's current key and model access on 2026-11-23.
+
+## Addendum: merged narrator against the real provider (2026-11-23)
+
+The merged `generateNarration` (T27, `src/factory/browser-narrator.ts`) was
+bundled and run in real Chromium against the real provider with the key in
+page memory, then its WAV was sent to `gpt-transcribe`.
+
+- Result: one take, `complete: true`, provider status `completed`, `audio/wav`,
+  273,106 bytes (about 5.7 s of 24 kHz mono audio), 13.5 s wall clock for the
+  whole call.
+- Transcript: "新加坡的组屋让不同族群的家庭住在同一栋楼里。" against the
+  intended "新加坡的组屋，让不同族群的家庭住在同一栋楼里。" The words match; only a
+  comma differs.
+- This checks exact wording and completeness, as the narration rubric requires.
+  It does **not** check delivery, pronunciation or continuity across segments.
+  Nobody has listened to this audio. A single short sentence, one voice
+  (`alloy`) and one run were tested.

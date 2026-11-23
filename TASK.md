@@ -309,18 +309,18 @@ Status words: `[ ]` open, `[x]` done.
   each endpoint as works, blocked or needs a proxy; the owner approves the
   dollar ceiling beforehand. If an endpoint is blocked, that stage becomes
   worker-only and the UI must say so.
-- [ ] **T25 — Browser key session and CSP** (S). A memory-only key holder,
+- [x] **T25 — Browser key session and CSP** (S). A memory-only key holder, _(done 2026-11-23: merged `5e018b2`; CSP fix for the worker header in `70d2681`)_
   cleared on page exit and on demand, with an explicit risk acknowledgement.
   Allow `https://api.openai.com` in `connect-src` for the private build too
   (`vite.config.ts` currently blocks it). Acceptance: unit tests; the key is
   absent from storage, backups, caches and logs; CSP test for both builds.
-- [ ] **T26 — Share the pipeline between worker and browser** (M). Move the pure
+- [x] **T26 — Share the pipeline between worker and browser** (M). Move the pure _(done 2026-11-23: merged `bc32459`; package-worker and 91 tests pass)_
   modules (`openai`, `script`, `research`, `research-audit`, `claims`,
   `transcript`, `qa`, `languages`, `errors`) to `shared/` with the provider
   function injected, so the worker and the browser run the same code.
   Acceptance: existing worker tests still pass; no Node-only imports in the
   shared modules; no behavior change in worker mode.
-- [ ] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at
+- [x] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at _(done 2026-11-23: merged; real-provider check passed for wording and completeness, listening review still open (see docs/PROVIDER-CONTRACT.md))_
   `636fae0`) to the shared pipeline: WebRTC Realtime audio, `Uint8Array`
   instead of `Buffer`, WAV or PCM assembly, completeness checks, and
   save-before-next. Acceptance: mock-provider and local-WebRTC tests; cancel
@@ -352,7 +352,7 @@ Status words: `[ ]` open, `[x]` done.
   Chromium and Safari. Record codec support, speed and memory. Choose
   (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
   decision note and a sample MP4 with no provider calls.
-- [ ] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
+- [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns, _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
 - [ ] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
