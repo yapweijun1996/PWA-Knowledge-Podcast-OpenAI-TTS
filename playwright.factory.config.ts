@@ -28,6 +28,7 @@ export default defineConfig({
       testMatch: renderTests,
       dependencies: ["factory"],
       fullyParallel: false,
+      workers: 1,
     },
   ],
 });

@@ -227,22 +227,42 @@ async function decodedFrames(preview: Locator) {
   );
 }
 
+async function instrumentRenderWorker(page: Page, setup: () => void) {
+  await page.route("**/assets/render-worker-*.js", async (route) => {
+    const script = await route.fetch();
+    await route.fulfill({
+      response: script,
+      body: `(${setup.toString()})();\n${await script.text()}`,
+    });
+  });
+}
+
 test("Studio 3D saves a playable preview with repeatable decoded frame hashes", async ({
   page,
 }) => {
   test.setTimeout(150_000);
   await page.addInitScript(() => {
-    const { prototype } = OffscreenCanvasRenderingContext2D;
-    const fillText = prototype.fillText;
     const wordmarks = new Set<string>();
     Reflect.set(window, "renderedWordmarks", wordmarks);
+    window.Worker = class extends Worker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", ({ data }) => {
+          if (data.kind === "wordmark") wordmarks.add(data.text);
+        });
+      }
+    };
+  });
+  await instrumentRenderWorker(page, () => {
+    const { prototype } = OffscreenCanvasRenderingContext2D;
+    const fillText = prototype.fillText;
     prototype.fillText = function (text, x, y, maxWidth?) {
       if (
         this.canvas.width === 1920 &&
         Math.abs(x - 1920 * 0.07) < 0.01 &&
         y < 120
       )
-        wordmarks.add(text);
+        globalThis.postMessage({ kind: "wordmark", text });
       Reflect.apply(
         fillText,
         this,
@@ -327,10 +347,10 @@ test("Studio 3D falls back to Waveform when WebGL2 is unavailable", async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  await page.addInitScript(() => {
-    const getContext = HTMLCanvasElement.prototype.getContext;
-    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
-      value(this: HTMLCanvasElement, kind: string, options?: unknown) {
+  await instrumentRenderWorker(page, () => {
+    const getContext = OffscreenCanvas.prototype.getContext;
+    Object.defineProperty(OffscreenCanvas.prototype, "getContext", {
+      value(this: OffscreenCanvas, kind: string, options?: unknown) {
         if (kind === "webgl2") return null;
         return Reflect.apply(getContext, this, [kind, options]);
       },
@@ -455,12 +475,14 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
       const aSpeaking = result.visuals[30];
       const bSpeaking = result.visuals[60];
       for (const frame of [aSpeaking, bSpeaking]) {
-        expect(frame.horizontalStep, `${label} horizontal luma step`).toBeLessThanOrEqual(
-          2 / 255 + 1e-9,
-        );
-        expect(frame.verticalStep, `${label} vertical luma step`).toBeLessThanOrEqual(
-          2 / 255 + 1e-9,
-        );
+        expect(
+          frame.horizontalStep,
+          `${label} horizontal luma step`,
+        ).toBeLessThanOrEqual(2 / 255 + 1e-9);
+        expect(
+          frame.verticalStep,
+          `${label} vertical luma step`,
+        ).toBeLessThanOrEqual(2 / 255 + 1e-9);
         expect(
           Math.abs(frame.betweenOrbs - frame.frameEdge) / frame.frameEdge,
           `${label} inter-orb luminance versus frame edge`,
@@ -470,12 +492,14 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
         ["B", bSpeaking.hosts[1], aSpeaking.hosts[1]],
       ]) {
-        expect(active.body - idle.body, `${label} host ${host} body emphasis`).toBeGreaterThan(
-          0.012,
-        );
-        expect(active.rim, `${label} host ${host} rim emphasis`).toBeGreaterThanOrEqual(
-          1.2 * idle.rim,
-        );
+        expect(
+          active.body - idle.body,
+          `${label} host ${host} body emphasis`,
+        ).toBeGreaterThan(0.012);
+        expect(
+          active.rim,
+          `${label} host ${host} rim emphasis`,
+        ).toBeGreaterThanOrEqual(1.2 * idle.rim);
         for (const [state, sample] of [
           ["active", active],
           ["idle", idle],

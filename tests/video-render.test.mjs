@@ -491,6 +491,10 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
       2250000,
     ],
   );
+  assert.deepEqual(
+    first.trace.keyFrames,
+    [0, 250_000, 500_000, 1_500_000, 1_750_000],
+  );
   assert.equal(first.trace.frames.at(-1).duration, 200000);
   assert.deepEqual(first.trace.frames.map(texts), [
     ["Podcast Studio", "节目标题"],
@@ -547,7 +551,14 @@ test("storyboard chapter visuals use their own camera clock and the episode PCM 
       kind: "webgl",
       init() {},
       draw({ index, time, sceneTime, turn, paletteId, mood }) {
-        frames.push({ index, time, sceneTime, audioStart: turn.audioStart, paletteId, mood });
+        frames.push({
+          index,
+          time,
+          sceneTime,
+          audioStart: turn.audioStart,
+          paletteId,
+          mood,
+        });
       },
       dispose() {},
     }),
@@ -573,28 +584,46 @@ test("storyboard chapter visuals use their own camera clock and the episode PCM 
     theme: "dark",
     deps,
   });
-  assert.deepEqual(result.chapterScenes.at(-1), { chapterId: "two", sceneId: id });
+  assert.deepEqual(result.chapterScenes.at(-1), {
+    chapterId: "two",
+    sceneId: id,
+  });
   assert.deepEqual(
     frames.map(({ index, time, sceneTime }) => [index, time, sceneTime]),
-    [[7, 1.75, 0], [8, 2, 0.25], [9, 2.25, 0.5]],
+    [
+      [7, 1.75, 0],
+      [8, 2, 0.25],
+      [9, 2.25, 0.5],
+    ],
   );
-  assert.ok(frames.every(({ audioStart, paletteId, mood }) =>
-    audioStart === 1 && paletteId === "ocean" && mood === "curious"
-  ));
+  assert.ok(
+    frames.every(
+      ({ audioStart, paletteId, mood }) =>
+        audioStart === 1 && paletteId === "ocean" && mood === "curious",
+    ),
+  );
 });
 
 test("muxes the original frame clock despite encoder rounding of one microsecond", async () => {
   const rounded = fakeDependencies({ timestampDrift: -1 });
   const result = await renderVideo({
-    audio, plan, theme: "dark", deps: rounded.deps,
+    audio,
+    plan,
+    theme: "dark",
+    deps: rounded.deps,
   });
   assert.equal(result.durationSeconds, plan.duration);
   assert.ok(result.blob.size > 0);
 
   const outOfOrder = fakeDependencies({ timestampDrift: -250_000 });
-  await assert.rejects(renderVideo({
-    audio, plan, theme: "dark", deps: outOfOrder.deps,
-  }));
+  await assert.rejects(
+    renderVideo({
+      audio,
+      plan,
+      theme: "dark",
+      deps: outOfOrder.deps,
+    }),
+  );
   assert.deepEqual(outOfOrder.trace.closed, ["video", "audio"]);
 });
 
@@ -986,7 +1015,11 @@ test("rejects when encoded output crosses the in-memory size limit", async () =>
 test("uses the quality bitrate target and a four-second keyframe interval", async () => {
   const { deps, trace } = fakeDependencies();
   await renderVideo({
-    plan: { ...plan, duration: 8.25 },
+    plan: {
+      ...plan,
+      duration: 8.25,
+      scenes: plan.scenes.filter((scene) => scene.kind === "turn"),
+    },
     audio,
     theme: "dark",
     deps,

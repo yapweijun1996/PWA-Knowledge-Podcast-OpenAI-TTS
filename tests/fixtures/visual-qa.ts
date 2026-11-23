@@ -388,7 +388,15 @@ function measureGlyphs(
   );
   if (right <= left || bottom <= top) return;
   const box = { x: left, y: top, width: right - left, height: bottom - top };
-  const mask = context(box.width, box.height);
+  // Chromium on Linux can rasterize opaque text with different coverage for
+  // each color channel. A transparent alpha mask labels some of those colored
+  // fringes as solid. Match the export's opaque surface and keep the minimum
+  // RGB coverage for each pixel before applying the solid-interior rules.
+  const mask = new OffscreenCanvas(box.width, box.height).getContext("2d", {
+    alpha: false,
+    willReadFrequently: true,
+  })!;
+  mask.fillStyle = "#fff";
   mask.font = ctx.font;
   mask.textBaseline = ctx.textBaseline;
   mask.textAlign = ctx.textAlign;
@@ -399,6 +407,12 @@ function measureGlyphs(
   if (maxWidth === undefined) mask.fillText(text, x - left, y - top);
   else mask.fillText(text, x - left, y - top, maxWidth);
   const alpha = mask.getImageData(0, 0, box.width, box.height).data;
+  for (let index = 0; index < alpha.length; index += 4)
+    alpha[index + 3] = Math.min(
+      alpha[index],
+      alpha[index + 1],
+      alpha[index + 2],
+    );
   let minX = box.width,
     minY = box.height,
     maxX = -1,

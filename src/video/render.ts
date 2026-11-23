@@ -628,6 +628,7 @@ export async function renderVideo({
     let audioOffset = 0;
     let activeChapterStage: string | undefined;
     let keyFrameAt = 0;
+    let previousCard: ReturnType<typeof overlay.frameAt>["card"];
     const keyFrameInterval = Math.max(
       1,
       Math.round(keyFrameIntervalSeconds * fps),
@@ -728,13 +729,16 @@ export async function renderVideo({
         timestamp,
         duration: micros(endTime) - timestamp,
       });
-      const keyFrame = index === keyFrameAt;
+      // A sharp full-frame change is a useful random access point. It also
+      // keeps prediction from carrying stage detail onto a fresh title card.
+      const keyFrame = index === keyFrameAt || card !== previousCard;
+      previousCard = card;
       try {
         videoEncoder.encode(frame, { keyFrame });
       } finally {
         frame.close();
       }
-      if (keyFrame) keyFrameAt += keyFrameInterval;
+      if (keyFrame) keyFrameAt = index + keyFrameInterval;
       onProgress?.((index + 1) / (totalFrames + 1));
       stop.throwIfAborted();
 
