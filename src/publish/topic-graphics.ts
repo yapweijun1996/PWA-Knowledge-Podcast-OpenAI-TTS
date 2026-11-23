@@ -116,11 +116,30 @@ function inGraphicBox(ctx: GraphicContext, box: GraphicBox, draw: () => void) {
   }
 }
 
+function shadeFace(plate: string, accent: string, tint: number) {
+  const channel = (color: string, offset: number) =>
+    Number.parseInt(color.slice(offset, offset + 2), 16);
+  return (
+    "#" +
+    [1, 3, 5]
+      .map((offset) =>
+        Math.round(
+          (channel(plate, offset) * (255 - tint) + channel(accent, offset) * tint) /
+            255,
+        )
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
+}
+
 function housingBlocks(
   ctx: GraphicContext,
   palette: Palette,
   seed: number,
   reduced: boolean,
+  opaque: boolean,
 ) {
   let random = seed >>> 0;
   const towers = [
@@ -156,6 +175,22 @@ function housingBlocks(
   for (const { x, y, w, h, accent, rows, columns } of towers) {
     const depth = 0.074;
     const rise = 0.05;
+    if (opaque) {
+      // Each tower is complete before the next one. The solid silhouette also
+      // masks the rear artwork at the antialiased joins between faces.
+      polygon(
+        ctx,
+        [
+          [x, y],
+          [x + depth, y - rise],
+          [x + w + depth, y - rise],
+          [x + w + depth, y + h - rise],
+          [x + w, y + h],
+          [x, y + h],
+        ],
+        shadeFace(palette.plate, accent, 0x44),
+      );
+    }
     polygon(
       ctx,
       [
@@ -164,9 +199,8 @@ function housingBlocks(
         [x + w + depth, y - rise],
         [x + w, y],
       ],
-      accent + "9C",
+      opaque ? shadeFace(palette.plate, accent, 0x9c) : accent + "9C",
     );
-    // Each tower occludes the one behind it. Shade the side over a solid face.
     polygon(
       ctx,
       [
@@ -175,14 +209,16 @@ function housingBlocks(
         [x + w + depth, y + h - rise],
         [x + w, y + h],
       ],
-      palette.plate,
+      opaque ? shadeFace(palette.plate, accent, 0x50) : palette.plate,
     );
-    ctx.fillStyle = accent + "50";
-    ctx.fill();
-    ctx.fillStyle = palette.plate;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = accent + "44";
-    ctx.fillRect(x, y, w, h);
+    if (!opaque) {
+      ctx.fillStyle = accent + "50";
+      ctx.fill();
+      ctx.fillStyle = palette.plate;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = accent + "44";
+      ctx.fillRect(x, y, w, h);
+    }
     ctx.fillStyle = accent;
     ctx.fillRect(x, y, w, 0.014);
     const stepX = w / (columns + 0.35);
@@ -321,11 +357,12 @@ export function drawTopicGraphic(
   palette: Palette,
   seed: number,
   reduced = false,
+  surface: "video" | "thumbnail" = "video",
 ) {
   inGraphicBox(ctx, box, () => {
     switch (graphic) {
       case "housing-blocks":
-        housingBlocks(ctx, palette, seed, reduced);
+        housingBlocks(ctx, palette, seed, reduced, surface === "thumbnail");
         break;
       case "open-book":
         openBook(ctx, palette, reduced);

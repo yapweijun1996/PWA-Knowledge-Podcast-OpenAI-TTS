@@ -23,7 +23,7 @@ import {
 } from "../src/publish/topic-graphics.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 
-function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {}) {
+function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536, rightBearingEm = 0 } = {}) {
   const calls = [];
   const states = [];
   let transform = [1, 1, 0, 0];
@@ -146,7 +146,7 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
       return {
         width,
         actualBoundingBoxLeft: 1,
-        actualBoundingBoxRight: width,
+        actualBoundingBoxRight: Math.max(0, width - size * rightBearingEm),
         actualBoundingBoxAscent: size * (text === "x" ? xHeightEm : 0.8),
         actualBoundingBoxDescent: text === "x" ? 0 : size * 0.12,
       };
@@ -221,8 +221,17 @@ test("places actual text and all key ink inside the variant, inset and badge bou
       assert.ok(inside(box, [80, 72, 1200, 648]));
       assert.ok(box[2] <= 0.79 * 1280 || box[3] <= 0.78 * 720);
     }
+    const { layoutMetadata } = result;
+    const nominalGraphic = graphicBounds[variant];
+    if (nominalGraphic) {
+      const [x, y, right, bottom] = layoutMetadata.decorationBounds;
+      assert.equal(y, nominalGraphic[1]);
+      assert.equal(bottom, nominalGraphic[3]);
+      assert.equal(right - x, nominalGraphic[2] - nominalGraphic[0]);
+      assert.ok(right <= nominalGraphic[2]);
+    }
     for (const [, , box] of keyInk)
-      assert.ok(inside(box, graphicBounds[variant] ?? textBounds[variant]));
+      assert.ok(inside(box, nominalGraphic ? layoutMetadata.decorationBounds : textBounds[variant]));
     if (variant === "headline") {
       assert.equal(keyInk.length, 1);
       assert.equal(keyInk[0][2][1], 0.33 * 720);
@@ -230,7 +239,6 @@ test("places actual text and all key ink inside the variant, inset and badge bou
       assert.ok(headlines[0][4][1] - keyInk[0][2][3] >= 21.5);
     }
 
-    const { layoutMetadata } = result;
     assert.deepEqual(layoutMetadata.wordmarkBounds, markBounds);
     assert.deepEqual(layoutMetadata.headlineBounds, headlines.map((draw) => draw[4]));
     const checks = thumbnailChecks(layoutMetadata);
@@ -289,50 +297,67 @@ test("keeps both host silhouettes inside their art box with a 16–24 px gap", (
   }
 });
 
-test("closes the headline-to-art gap by 12 px in the thumbnail composition", () => {
-  const original = recordingContext();
-  drawHostPair(original, graphicBounds["host-pair"], palettes.aurora, true);
-  const context = recordingContext();
-  const result = drawThumbnail(context, {
-    variant: "host-pair",
-    headline: "邻里怎样共享空间",
-    language: "zh",
-  });
+test("brings each illustration within 120 px of narrow headline ink and keeps the wide layout", () => {
   const silhouette = (calls, accent) =>
-    calls.find(([kind, fill]) =>
-      kind === "paint" &&
-      (fill === accent || fill?.colors?.some(([, color]) => color === accent)),
-    )[2];
-  const a = silhouette(context.calls, palettes.aurora.hostA);
-  const b = silhouette(context.calls, palettes.aurora.hostB);
-  const originalA = silhouette(original.calls, palettes.aurora.hostA);
-  const originalB = silhouette(original.calls, palettes.aurora.hostB);
-  const headlineRight = Math.max(
-    ...result.layoutMetadata.headlineBounds.map((box) => box[2]),
-  );
-  const gap = a[0] - headlineRight;
-  assert.ok(gap > 0);
-  assert.equal(originalA[0] - headlineRight - gap, 12);
-  assert.equal(originalB[0] - b[0], 12);
-  assert.ok(b[0] - a[2] >= 16 && b[0] - a[2] <= 24);
-  assert.equal(
-    thumbnailChecks(result.layoutMetadata).inkHeight160x90.passed,
-    true,
-  );
+    calls
+      .filter(([kind, fill]) =>
+        kind === "paint" &&
+        (fill === accent || fill?.colors?.some(([, color]) => color === accent)),
+      )
+      .map(([, , box]) => box)
+      .reduce((leftmost, box) => box[0] < leftmost[0] ? box : leftmost);
+  for (const variant of ["host-pair", "topic-graphic"]) {
+    const options = { variant, language: "zh", topicGraphic: "housing-blocks" };
+    const context = recordingContext();
+    const { layoutMetadata } = drawThumbnail(context, {
+      ...options,
+      headline: "邻里怎样共享空间",
+    });
+    const headlineRight = Math.max(...layoutMetadata.headlineBounds.map((box) => box[2]));
+    const a = silhouette(context.calls, palettes.aurora.hostA);
+    const gap = a[0] - headlineRight;
+    assert.ok(gap > 0 && gap <= 120, `${variant} art gap: ${gap}px`);
+    assert.ok(layoutMetadata.decorationBounds[0] <= graphicBounds[variant][0] - 12);
+    assert.ok(thumbnailChecks(layoutMetadata).bounds);
+    assert.ok(thumbnailChecks(layoutMetadata).inkHeight160x90.passed);
+    if (variant === "host-pair") {
+      const b = silhouette(context.calls, palettes.aurora.hostB);
+      assert.ok(b[0] - a[2] >= 16 && b[0] - a[2] <= 24);
+    }
+
+    const narrowInk = drawThumbnail(recordingContext({ rightBearingEm: 0.25 }), {
+      ...options,
+      headline: "邻里怎样共享空间",
+    });
+    assert.equal(
+      layoutMetadata.decorationBounds[0] - narrowInk.layoutMetadata.decorationBounds[0],
+      108 * 0.25,
+    );
+
+    const wide = drawThumbnail(recordingContext({ hanEm: 1.11 }), {
+      ...options,
+      headline: "天地玄黄宇宙洪荒日月盈昃",
+    });
+    assert.deepEqual(wide.layoutMetadata.decorationBounds, graphicBounds[variant]);
+  }
 });
 
-test("balances the six, six and eight character line limits without an orphan", () => {
+test("prefers a balanced two-line wrap at 108 px for six to eight CJK characters", () => {
   for (const variant of ["topic-graphic", "host-pair", "headline"]) {
     const size = variant === "headline" ? 8 : 6;
     const context = recordingContext({ hanEm: 0.7 });
-    const prefix = "天地玄黄宇宙洪荒";
+    const prefix = "天地玄黄宇宙洪荒日月盈昃";
     const options = { variant, locale: "zh-CN", topicGraphic: "open-book" };
-    const fits = drawThumbnail(context, {
-      ...options,
-      headline: prefix.slice(0, size),
-    });
-    assert.deepEqual(fits.lines, [prefix.slice(0, size)]);
-    const oneOver = prefix.slice(0, size) + "日";
+    for (const length of [6, 7, 8]) {
+      const headline = prefix.slice(0, length);
+      const fits = drawThumbnail(context, { ...options, headline });
+      assert.equal(fits.fontSize, 0.15 * 720);
+      assert.equal(fits.lines.length, 2);
+      assert.equal(fits.lines.join(""), headline);
+      assert.ok(Math.abs(fits.lines[0].length - fits.lines[1].length) <= 1);
+      assert.ok(thumbnailChecks(fits.layoutMetadata).bounds);
+    }
+    const oneOver = prefix.slice(0, size + 1);
     const wrapped = drawThumbnail(context, { ...options, headline: oneOver });
     assert.equal(wrapped.lines.join(""), oneOver);
     assert.equal(wrapped.lines.length, 2);
@@ -340,6 +365,17 @@ test("balances the six, six and eight character line limits without an orphan", 
       wrapped.lines.every((line) => line.length >= 2 && line.length <= size),
     );
   }
+});
+
+test("keeps a fitting single line when a short CJK headline has no legal split", () => {
+  const headline = "12345城";
+  const result = drawThumbnail(recordingContext(), {
+    headline,
+    language: "zh",
+    variant: "headline",
+  });
+  assert.equal(result.headline, headline);
+  assert.deepEqual(result.lines, [headline]);
 });
 
 test("tries the exact minimum size and reports a shorter headline when it cannot fit", () => {
@@ -449,21 +485,23 @@ test("prefers a complete title claim and keeps the approved topic-graphic headli
   }
 });
 
-test("uses a localized housing claim from topic keywords only when the headline has no override", () => {
-  for (const [locale, topicKeywords, expected] of [
-    ["zh-CN", "住房政策", "组屋混居靠设计"],
+test("uses the default palette and localized housing claim from topic keywords when there are no overrides", () => {
+  for (const [language, topicKeywords, expected] of [
+    ["zh", "住房政策", "组屋混居靠设计"],
     ["en", "Housing policy", "Mixed housing by design"],
     ["ms", "Dasar perumahan", "Perumahan campuran dengan reka bentuk"],
   ]) {
     const result = drawThumbnail(recordingContext(), {
       variant: "headline",
-      locale,
+      language,
       title: "Designing our neighbourhoods",
       topicKeywords,
     });
     assert.equal(result.error, undefined);
     assert.equal(result.headline, expected);
-    assert.equal(result.lines.join(locale === "zh-CN" ? "" : " "), expected);
+    assert.equal(result.lines.join(language === "zh" ? "" : " "), expected);
+    assert.equal(result.layoutMetadata.backdropColors[0], "#0b1220");
+    const locale = language === "zh" ? "zh-CN" : language;
     assert.equal(validateThumbnailHeadline(expected, locale).value, expected);
     if (locale === "zh-CN") {
       assert.ok(result.fontSize >= 86);
@@ -564,6 +602,8 @@ test("draws repeatable topic graphics with seed-dependent window lighting", () =
       [800, 112, 1190, 530],
       palettes.aurora,
       seed,
+      false,
+      "thumbnail",
     );
     return context.calls;
   }
@@ -580,7 +620,7 @@ test("draws repeatable topic graphics with seed-dependent window lighting", () =
   );
 });
 
-test("paints an opaque foreground wall over rear windows before applying the side tint", () => {
+test("paints opaque foreground faces over rear windows in both rendering modes", () => {
   const palette = palettes.aurora;
   for (const reduced of [false, true]) {
     const context = recordingContext();
@@ -591,18 +631,16 @@ test("paints an opaque foreground wall over rear windows before applying the sid
       palette,
       0,
       reduced,
+      "thumbnail",
     );
-    // This point intersects a lit rear window and the foreground side, past
-    // the side's own inset windows.
-    const colors = context.calls.flatMap(([kind, color, box]) => {
-      if (kind !== "paint" || !inside([976, 308, 976, 308], box)) return [];
-      return [color];
-    });
-    assert.deepEqual(colors.slice(-3), [
-      palette.hostB,
-      palette.plate,
-      palette.hostA + "50",
-    ]);
+    const colorsAt = (x, y) => context.calls.flatMap(([kind, color, box]) =>
+      kind === "paint" && inside([x, y, x, y], box) ? [color] : [],
+    );
+    // A lit rear window crosses the roof. The other sample is past the
+    // foreground side's inset windows, over a lit rear window on that row.
+    assert.deepEqual(colorsAt(945, 258).slice(-3), [palette.hostB, "#2e4f53", "#569b92"]);
+    assert.deepEqual(colorsAt(976, 308).slice(-3), [palette.hostB, "#2e4f53", "#345a5b"]);
+    assert.equal(colorsAt(943, 285).at(-1), "#2e4f53");
   }
 });
 

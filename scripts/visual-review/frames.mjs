@@ -3,7 +3,7 @@ import { chromium } from "playwright-core";
 import http from "node:http"; import { writeFileSync, readFileSync, existsSync } from "node:fs"; import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url"; import { mkdirSync } from "node:fs";
 const R = fileURLToPath(new URL("../..", import.meta.url)), HERE = R + "scripts/visual-review";
-const D = process.argv[2]; if (!D) throw new Error("Usage: node scripts/visual-review/frames.mjs <output-dir> <jobs-json> [thumbs]");
+const D = process.argv[2]; if (!D) throw new Error("Usage: node scripts/visual-review/frames.mjs <output-dir> <jobs-json> [thumbs|thumbs-explicit]");
 mkdirSync(D + "/out", { recursive: true });
 await build({ root: R, configFile: false, logLevel: "error", publicDir: false, define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" }, build: { outDir: D + "/out", emptyOutDir: true, minify: false, rollupOptions: { output: { codeSplitting: false } }, lib: { entry: HERE + "/entry.ts", formats: ["es"], fileName: () => "e.js" } } });
 const types = { ".js": "text/javascript", ".woff2": "font/woff2", ".txt": "text/plain" };
@@ -17,5 +17,14 @@ for (const j of jobs) {
   res.frames.forEach((f, i) => writeFileSync(`${D}/${j.name}-${i}.png`, Buffer.from(f.split(",")[1], "base64")));
   console.log(j.name, JSON.stringify({ mib: res.mib, ms: res.ms, dur: res.duration, scene: res.receipt.sceneId, orient: res.receipt.orientation, palette: res.receipt.paletteId, fonts: res.receipt.fontNotices, review: res.receipt.captionReviewCount, chapters: res.chapters.map((c) => c.timestamp + " " + c.title) }));
 }
-if (process.argv[4] === "thumbs") { const t = await p.evaluate(async () => (await import("/e.js")).thumbs()); t.forEach((f, i) => writeFileSync(`${D}/thumb-${i}.png`, Buffer.from(f.split(",")[1], "base64"))); console.log("thumbs", t.length); }
+const thumbMode = process.argv[4];
+if (thumbMode === "thumbs" || thumbMode === "thumbs-explicit") {
+  const thumbs = await p.evaluate(async (mode) => {
+    const entry = await import("/e.js");
+    return mode === "thumbs-explicit" ? entry.thumbsExplicit() : entry.thumbs();
+  }, thumbMode);
+  const prefix = thumbMode === "thumbs-explicit" ? "thumb-explicit" : "thumb";
+  thumbs.forEach((png, i) => writeFileSync(`${D}/${prefix}-${i}.png`, Buffer.from(png.split(",")[1], "base64")));
+  console.log(thumbMode, thumbs.length);
+}
 await b.close(); srv.close();
