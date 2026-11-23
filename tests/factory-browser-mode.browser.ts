@@ -204,13 +204,26 @@ test("browser Studio saves stages without a worker and resumes only after fresh 
   await page.reload();
   const resume = page.getByRole("region", { name: "继续浏览器制作" });
   const continueJob = resume.getByRole("button", { name: "继续浏览器制作" });
+  const workerRetry = episode.getByRole("button", { name: "重试节目配音" });
   await expect(episode.getByRole("alert")).toHaveText(unknown);
+  await expect(workerRetry).toBeVisible();
+  await expect(workerRetry).toBeDisabled();
   await expect(continueJob).toBeDisabled();
+  await expect(resume.getByText("未连接本机制作进程。")).toBeVisible();
+  await expect(resume.getByText(/请在设置中添加浏览器密钥/)).toBeVisible();
   await resume.getByRole("link", { name: "前往设置" }).click();
   await expect(page.getByText(/尚未设置浏览器密钥/)).toBeVisible();
   await enterBrowserKey(page);
   await nav.getByRole("link", { name: "资料库", exact: true }).click();
+  await expect(workerRetry).toBeHidden();
   await expect(continueJob).toBeDisabled();
+  await context.setOffline(true);
+  await expect(workerRetry).toBeVisible();
+  await expect(workerRetry).toBeDisabled();
+  await expect(resume.getByText("当前离线，联网后才能继续制作。")).toBeVisible();
+  await expect(continueJob).toBeDisabled();
+  await context.setOffline(false);
+  await expect(workerRetry).toBeHidden();
   expect(providerCalls).toEqual(initialCalls);
   await resume.getByRole("checkbox", { name: /我同意本次继续制作/ }).check();
   const retried = page.waitForResponse(

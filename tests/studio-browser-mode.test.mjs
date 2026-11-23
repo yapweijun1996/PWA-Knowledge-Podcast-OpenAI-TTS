@@ -5,6 +5,7 @@ import { REALTIME_MODEL } from "../src/factory/browser-narrator.ts";
 import {
   browserCheckpoint,
   browserProductionBounds,
+  canResumeBrowserProduction,
   studioProductionMode,
 } from "../src/factory/useBrowserProduction.ts";
 
@@ -42,6 +43,17 @@ test("Studio defaults to browser production and supports an explicit worker choi
     studioProductionMode(true, "offline", "browser").availability,
     "offline",
   );
+});
+
+test("Studio can replace the worker action only when browser continuation is available", () => {
+  const ready = { resumable: true, browserAvailable: true, blocked: false };
+  assert.equal(canResumeBrowserProduction(ready), true);
+  assert.equal(
+    canResumeBrowserProduction({ ...ready, browserAvailable: false }),
+    false,
+  );
+  assert.equal(canResumeBrowserProduction({ ...ready, resumable: false }), false);
+  assert.equal(canResumeBrowserProduction({ ...ready, blocked: true }), false);
 });
 
 test("Studio uses saved browser bounds and an explicit two-host override", () => {
