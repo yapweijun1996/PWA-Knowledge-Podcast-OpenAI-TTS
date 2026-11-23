@@ -11,8 +11,11 @@ import {
   spectrumBins,
 } from "./audio-state.ts";
 import {
+  groundRingHalfWidth,
+  groundRingMaxAlpha,
   haloOpacityAt,
   orbScaleAt,
+  pedestalFootRadius,
   spectrumBarHeight,
   studioLayout,
   studioParticles,
@@ -29,19 +32,21 @@ import {
   type Studio3dSettings,
 } from "./presets.ts";
 
+const stagePlaneVertexShader = `
+  varying vec2 planeUv;
+  void main() {
+    planeUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
 function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
   return new THREE.ShaderMaterial({
     uniforms: {
       tint: { value: new THREE.Color(color) },
       strength: { value: opacity },
     },
-    vertexShader: `
-      varying vec2 planeUv;
-      void main() {
-        planeUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
+    vertexShader: stagePlaneVertexShader,
     fragmentShader: `
       uniform vec3 tint;
       uniform float strength;
@@ -58,6 +63,38 @@ function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
   });
 }
 
+function contactMaterial(accent: THREE.Color, radius: number, extent: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      accent: { value: accent },
+      ringOpacity: { value: 0 },
+      ringProfile: {
+        value: new THREE.Vector3(radius, groundRingHalfWidth, extent),
+      },
+    },
+    vertexShader: stagePlaneVertexShader,
+    fragmentShader: `
+      uniform vec3 accent;
+      uniform float ringOpacity;
+      uniform vec3 ringProfile;
+      varying vec2 planeUv;
+      void main() {
+        float radius = length(planeUv * 2.0 - 1.0) * ringProfile.z;
+        float shadow = 0.28 * (1.0 - smoothstep(0.0, 1.36, radius));
+        float band = 1.0 - smoothstep(0.0, ringProfile.y, abs(radius - ringProfile.x));
+        float ring = ringOpacity * band;
+        float alpha = ring + shadow * (1.0 - ring);
+        gl_FragColor = vec4(accent, alpha);
+        #include <colorspace_fragment>
+        // Composite the accent over black within the existing shadow pass.
+        gl_FragColor.rgb *= ring / max(alpha, 0.0001);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+  });
+}
+
 function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   const body = new THREE.Color("#253247");
   const rim = new THREE.Color("#53617D");
@@ -65,8 +102,10 @@ function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   // Each contour point supplies the colour of one horizontal strip.
   const profile = [
     { radius: 0, height: 0, color: body },
-    { radius: 0.9, height: 0, color: body },
-    { radius: 1, height: 0.13, color: body },
+    { radius: pedestalFootRadius, height: 0, color: rim },
+    { radius: 1, height: 0.12, color: rim },
+    { radius: 0.98, height: 0.22, color: rim },
+    { radius: 0.94, height: 0.33, color: body },
     { radius: 0.89, height: 0.70, color: body },
     { radius: 0.88, height: 0.74, color: rim },
     { radius: 0.87, height: 0.83, color: rim },
@@ -90,6 +129,44 @@ function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   return geometry;
 }
+
+function spectrumGeometry(width: number) {
+  const corner = width / Math.SQRT2;
+  // A square lathe with one inset contour gives each instance a beveled cap.
+  return new THREE.LatheGeometry(
+    [
+      new THREE.Vector2(corner, -0.5),
+      new THREE.Vector2(corner, 0.32),
+      new THREE.Vector2(corner * 0.72, 0.5),
+      new THREE.Vector2(0, 0.5),
+    ],
+    4,
+    Math.PI / 4,
+  );
+}
+
+const spectrumMaterial = () => new THREE.ShaderMaterial({
+  vertexShader: `
+    attribute float barOpacity;
+    varying vec3 tint;
+    varying float opacity;
+    void main() {
+      tint = instanceColor * mix(0.64, 1.0, smoothstep(-0.5, 0.5, position.y));
+      opacity = barOpacity;
+      gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 tint;
+    varying float opacity;
+    void main() {
+      gl_FragColor = vec4(tint, opacity);
+      #include <colorspace_fragment>
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+});
 
 function orbMaterial(color: THREE.Color, faceted: boolean) {
   const material = new THREE.MeshStandardMaterial({
@@ -151,6 +228,8 @@ function buildStudio(
   const layout = studioLayout(width, height);
   const { aspect, orientation, centerX, centerY, floorY, hostX, orbRadius } =
     layout;
+  const portrait = orientation === "portrait";
+  const washTint = hostA.clone().lerp(hostB, 0.5);
   const mood = settings.moodId ?? defaultStudio3dMood;
   const motion = motionMultipliers(mood, settings.intensity);
   const scene = new THREE.Scene();
@@ -176,10 +255,13 @@ function buildStudio(
   const backdrop = new THREE.Mesh(
     plane,
     new THREE.ShaderMaterial({
+      defines: portrait ? { STUDIO_PORTRAIT: 1 } : {},
       uniforms: {
         top: { value: new THREE.Color(palette.stops[0]) },
         middle: { value: new THREE.Color(palette.stops[1]) },
         bottom: { value: new THREE.Color(palette.stops[2]) },
+        washSrgb: { value: washTint.clone().convertLinearToSRGB() },
+        stageCenterX: { value: centerX },
       },
       vertexShader: `
         varying vec2 screenUv;
@@ -192,6 +274,8 @@ function buildStudio(
         uniform vec3 top;
         uniform vec3 middle;
         uniform vec3 bottom;
+        uniform vec3 washSrgb;
+        uniform float stageCenterX;
         varying vec2 screenUv;
         float bayer2(vec2 cell) {
           return 2.0 * abs(cell.x - cell.y) + cell.y;
@@ -203,6 +287,14 @@ function buildStudio(
             : mix(middle, bottom, (y - 0.55) / 0.45);
           gl_FragColor = vec4(tint, 1.0);
           #include <colorspace_fragment>
+          #ifdef STUDIO_PORTRAIT
+            // Carry the wash past both pedestals into the space above the caption.
+            if (y > 0.31 && y < 0.56) {
+              float side = 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - stageCenterX));
+              float falloff = smoothstep(0.31, 0.40, y) * (1.0 - smoothstep(0.45, 0.56, y));
+              gl_FragColor.rgb = mix(gl_FragColor.rgb, washSrgb, 0.06 * side * falloff);
+            }
+          #endif
           // Repeat a 4px Bayer matrix at fixed screen coordinates. Apply the
           // bias in sRGB so it spans one 8-bit quantization interval.
           vec2 pixel = floor(gl_FragCoord.xy);
@@ -218,30 +310,33 @@ function buildStudio(
   backdrop.renderOrder = -1;
   scene.add(backdrop);
 
-  const shadowMaterial = radialMaterial("#000000", 0.28);
-  const wash = new THREE.Mesh(
-    plane,
-    radialMaterial(hostA.clone().lerp(hostB, 0.5), 0.06),
-  );
-  wash.rotation.x = -Math.PI / 2;
-  wash.position.set(0, floorY, 0);
-  wash.scale.set(layout.ringWidth * 1.03, layout.ringDepth * 1.32, 1);
-  wash.renderOrder = 1;
-  scene.add(wash);
+  if (!portrait) {
+    const wash = new THREE.Mesh(plane, radialMaterial(washTint, 0.06));
+    wash.rotation.x = -Math.PI / 2;
+    wash.position.set(0, floorY, 0);
+    wash.scale.set(layout.ringWidth * 1.03, layout.ringDepth * 1.32, 1);
+    wash.renderOrder = 1;
+    scene.add(wash);
+  }
 
-  const pedestalMaterial = new THREE.MeshStandardMaterial({
+  // Keep the authored rim colour legible on the front lip in every palette.
+  const pedestalMaterial = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    roughness: 0.82,
     fog: false,
   });
-  const { pedestalRadius, pedestalHeight } = layout;
+  const { pedestalRadius, pedestalHeight, groundRingRadius } = layout;
+  const contactExtent = groundRingRadius + groundRingHalfWidth;
+  const contactScale = pedestalRadius * contactExtent;
   function addHost(x: number, color: THREE.Color, faceted: boolean) {
-    const shadow = new THREE.Mesh(plane, shadowMaterial);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.set(x, floorY + 0.001, 0);
-    shadow.scale.set(pedestalRadius * 1.40, pedestalRadius * 1.32, 1);
-    shadow.renderOrder = 2;
-    scene.add(shadow);
+    const contact = new THREE.Mesh(
+      plane,
+      contactMaterial(color, groundRingRadius, contactExtent),
+    );
+    contact.rotation.x = -Math.PI / 2;
+    contact.position.set(x, floorY + 0.001, 0);
+    contact.scale.set(contactScale, contactScale, 1);
+    contact.renderOrder = 2;
+    scene.add(contact);
 
     const pedestal = new THREE.Mesh(
       pedestalGeometry(pedestalRadius, pedestalHeight, color),
@@ -280,9 +375,9 @@ function buildStudio(
       radialMaterial(color, haloOpacityAt(0)),
     );
     halo.scale.setScalar(orbRadius * 1.36);
-    halo.renderOrder = 3;
+    halo.renderOrder = 4;
     scene.add(halo);
-    return { orb, halo, rim, bandMaterial };
+    return { orb, halo, rim, bandMaterial, contact };
   }
   const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
 
@@ -305,16 +400,25 @@ function buildStudio(
     ),
   );
 
+  const barGeometry = spectrumGeometry(layout.barWidth);
+  barGeometry.setAttribute(
+    "barOpacity",
+    new THREE.InstancedBufferAttribute(
+      Float32Array.from(layout.ring, ({ rearDepth }) => 0.85 - 0.40 * rearDepth),
+      1,
+    ),
+  );
   const bars = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(layout.barWidth, 1, layout.barWidth),
-    new THREE.MeshBasicMaterial({ color: "#ffffff" }),
+    barGeometry,
+    spectrumMaterial(),
     spectrumBins,
   );
   bars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   bars.frustumCulled = false;
+  bars.renderOrder = 3;
   const barColor = new THREE.Color();
-  for (const [index, { bias, z }] of layout.ring.entries()) {
-    const tint = 0.34 - 0.13 * Math.max(0, z / layout.ringDepth);
+  for (const [index, { bias, rearDepth }] of layout.ring.entries()) {
+    const tint = 0.23 + 0.11 * rearDepth;
     bars.setColorAt(
       index,
       barColor.copy(hostA).lerp(hostB, bias).multiplyScalar(tint),
@@ -335,12 +439,13 @@ function buildStudio(
     camera.position.set(...pose.position);
     camera.lookAt(...pose.target);
 
-    for (const [host, { orb, halo, rim, bandMaterial }] of hosts.entries()) {
+    for (const [host, { orb, halo, rim, bandMaterial, contact }] of hosts.entries()) {
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
       orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
       rim.value = emphasis;
+      contact.material.uniforms.ringOpacity.value = groundRingMaxAlpha * emphasis;
       bandMaterial.color
         .copy(orb.material.emissive)
         .multiplyScalar(0.57 + 0.33 * emphasis);

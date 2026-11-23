@@ -362,7 +362,10 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
       Math.tan((cameraFov * Math.PI) / 360);
     near(diameterH, isPortrait ? 0.118 : tokens.orbDiameterH);
     const pedestalCorners = [];
+    const pedestalSilhouettes = [];
     const orbCorners = [];
+    assert.equal(layout.ring.length, spectrumBins);
+    assert.ok(layout.ring.some(({ z }) => z >= 0));
     for (const sign of [-1, 1]) {
       const x = sign * layout.hostX;
       assert.deepEqual(
@@ -384,6 +387,16 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           dz * layout.pedestalRadius,
         ]);
       }
+      // The two full-radius contours enclose the entire 40-sided pedestal.
+      pedestalSilhouettes.push(Array.from({ length: 40 }, (_, index) => {
+        const angle = 2 * Math.PI * index / 40;
+        const px = x + Math.sin(angle) * layout.pedestalRadius;
+        const pz = Math.cos(angle) * layout.pedestalRadius;
+        return [
+          [px, layout.floorY, pz],
+          [px, layout.floorY + layout.pedestalHeight, pz],
+        ];
+      }).flat());
       const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
       // The axis-aligned bounding cube is conservative for the orb and bands.
       for (const dx of [-radius, radius])
@@ -420,19 +433,29 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
             (Math.hypot((nextX - x) * width, (nextY - y) * height) * fps) /
             Math.min(width, height);
           maxTravel = Math.max(maxTravel, travel);
-          return y;
+          return [x, y];
         }
 
         for (const point of orbCorners) fit(point);
         for (const point of pedestalCorners)
-          lowestPedestal = Math.max(lowestPedestal, fit(point));
+          lowestPedestal = Math.max(lowestPedestal, fit(point)[1]);
+        const pedestalBounds = pedestalSilhouettes.map((points) => {
+          const xs = points.map((point) => projectStagePoint(layout, pose, point)[0]);
+          return [Math.min(...xs), Math.max(...xs)];
+        });
         for (const block of layout.ring) {
           const blockHeight = spectrumBarHeight(pose, block, 1);
           let lowest = 0;
           let highest = 1;
+          let barLeft = Infinity;
+          let barRight = -Infinity;
           for (const [x, y, z] of block.baseCorners) {
-            lowest = Math.max(lowest, fit([x, y, z]));
-            highest = Math.min(highest, fit([x, y + blockHeight, z]));
+            const [baseX, baseY] = fit([x, y, z]);
+            const [topX, topY] = fit([x, y + blockHeight, z]);
+            lowest = Math.max(lowest, baseY);
+            highest = Math.min(highest, topY);
+            barLeft = Math.min(barLeft, baseX, topX);
+            barRight = Math.max(barRight, baseX, topX);
           }
           assert.ok(lowest - highest <= block.heightCap + 1e-9);
           if (block.z >= 0) {
@@ -440,7 +463,14 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
               lowest <= chipTop - 0.02,
               `${layout.orientation} ${preset}: ${chipTop - lowest}H ring clearance`,
             );
-            if (isPortrait) assert.ok(lowest - highest <= 0.022 + 1e-9);
+            assert.ok(lowest - highest <= 0.012 + 1e-9);
+            for (const [leftEdge, rightEdge] of pedestalBounds) {
+              const gap = Math.max(leftEdge - barRight, barLeft - rightEdge) * width / height;
+              assert.ok(
+                gap >= 0.015,
+                `${layout.orientation} ${preset} at ${time}: ${gap}H foreground clearance`,
+              );
+            }
           }
           maxRingHeight = Math.max(maxRingHeight, lowest - highest);
         }

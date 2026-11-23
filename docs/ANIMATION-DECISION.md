@@ -109,3 +109,13 @@ Reduced motion holds the camera and halos and omits the turn-driven scale accent
 Portrait centers are at .30H with .118H rest diameters and near bars capped at
 .022H. Both orientations reserve .02H above the speaker chips. The browser
 pixel checks and SwiftShader benchmark qualify the rendered result.
+
+### Round 3 Studio 3D finish
+
+The pedestal foot uses a `#53617D` rim against the floor, with a `#253247`
+body and a tinted upper bevel. The narrower, beveled spectrum ticks keep
+foreground openings at both bases and cap the front at .012H, with at least
+.015H projected clearance. The active host gets a feathered accent ring at
+up to .25 alpha in the existing contact-shadow pass. The portrait backdrop
+carries the .06-alpha wash through y=.35–.52. Pixel checks, repeatability
+and timing for this round await Chromium verification.

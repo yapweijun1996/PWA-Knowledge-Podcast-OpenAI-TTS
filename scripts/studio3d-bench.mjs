@@ -1,6 +1,12 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 import { build } from "vite";
+import {
+  pedestalFootRadius,
+  projectStagePoint,
+  studioLayout,
+} from "../src/video/scenes/studio3d/layout.ts";
+import { cameraPoseAt } from "../src/video/scenes/studio3d/presets.ts";
 
 export async function bundleStudio3d() {
   const result = await build({
@@ -33,6 +39,25 @@ export async function bundleStudio3d() {
   return chunks[0].code;
 }
 
+export function studio3dContactProbes(width, height) {
+  const layout = studioLayout(width, height);
+  const pose = cameraPoseAt("static", 0);
+  const { hostX, floorY, pedestalRadius, groundRingRadius } = layout;
+  const pixels = (point) => {
+    const [x, y] = projectStagePoint(layout, pose, point);
+    return [x * width, y * height];
+  };
+  return [-hostX, hostX].map((x) => {
+    const radius = pedestalRadius * groundRingRadius;
+    return {
+      foot: pixels([x, floorY, pedestalRadius * pedestalFootRadius]),
+      ring: [-0.28, -0.14, 0, 0.14, 0.28].map((angle) =>
+        pixels([x + radius * Math.sin(angle), floorY + 0.001, radius * Math.cos(angle)]),
+      ),
+    };
+  });
+}
+
 // Playwright evaluates this function in a blank document. The same function
 // body also runs inside a dedicated worker with the production scene bundle.
 export async function measureStudio3d({
@@ -42,9 +67,11 @@ export async function measureStudio3d({
   frameOrder,
   worker = false,
   visualPalette,
+  contactProbes,
+  reducedMotion = false,
 }) {
   async function measure({
-    url, width, height, frameOrder, worker, visualPalette,
+    url, width, height, frameOrder, worker, visualPalette, contactProbes, reducedMotion,
   }) {
     const { createStudio3dScene } = await import(url);
     const createCanvas = () => {
@@ -101,15 +128,16 @@ export async function measureStudio3d({
     const inputs = {
       canvas,
       plan,
-      audio: { sampleRate, channels: [pcm] },
+      audio: { sampleRate, channels: [reducedMotion ? new Float32Array(0) : pcm] },
       theme: "dark",
     };
     const signal = new AbortController().signal;
-    const scene = createStudio3dScene(
-      visualPalette
+    const scene = createStudio3dScene({
+      ...(visualPalette
         ? { paletteId: visualPalette, cameraPresetId: "static" }
-        : { paletteId: "aurora", cameraPresetId: "drift", moodId: "urgent", intensity: 1 },
-    );
+        : { paletteId: "aurora", cameraPresetId: "drift", moodId: "urgent", intensity: 1 }),
+      ...(reducedMotion && { cameraPresetId: "drift", reducedMotion: true }),
+    });
     const textLayouts = new Map();
     const hashFrames = new Set([0, 15, 30, 60, 120]);
     const hashes = {};
@@ -217,7 +245,7 @@ export async function measureStudio3d({
           backdropStrip(0.04, 0.02), backdropStrip(0.96, 0.02),
         ]);
 
-        const hosts = (portrait ? [0.25, 0.61] : [0.34, 0.66]).map((anchorX) => {
+        const hosts = (portrait ? [0.25, 0.61] : [0.34, 0.66]).map((anchorX, host) => {
           const x = anchorX * width;
           const y = centerY * height;
           const luminance = (px, py) => sample(pixels, px, py, linear);
@@ -244,9 +272,28 @@ export async function measureStudio3d({
             rim.push(peak);
             contrast.push((peak + 0.05) / (radial(orbRadius * 1.17) + 0.05));
           }
-          return { body: mean(body), rim: mean(rim), rimContrast: Math.min(...contrast) };
+          // Measure the lower lip against the floor on the same vertical line.
+          const { foot: [footX, footY], ring } = contactProbes[host];
+          const pedestalStep =
+            luminance(footX, footY - height * 0.003) -
+            luminance(footX, footY + height * 0.0025);
+          const groundRing = mean(ring.map(([px, py]) => luminance(px, py)));
+          return {
+            body: mean(body),
+            rim: mean(rim),
+            rimContrast: Math.min(...contrast),
+            pedestalStep,
+            groundRing,
+          };
         });
-        return { horizontalStep, verticalStep, betweenOrbs, frameEdge, hosts };
+        // One period of the backdrop dither along each row isolates the wash.
+        const rowLuma = (x, y) => mean([0, 1, 2, 3].map((column) =>
+          sample(pixels, x * width + column - 2, y * height, (channel) => channel / 255),
+        ));
+        const washSteps = portrait
+          ? [0.35, 0.42, 0.52].map((y) => rowLuma(centerX, y) - rowLuma(0.92, y))
+          : [];
+        return { horizontalStep, verticalStep, betweenOrbs, frameEdge, hosts, washSteps };
       }
 
       const warmupStart = performance.now();
@@ -297,7 +344,7 @@ export async function measureStudio3d({
   const url = URL.createObjectURL(
     new Blob([bundle], { type: "text/javascript" }),
   );
-  const options = { url, width, height, frameOrder, worker, visualPalette };
+  const options = { url, width, height, frameOrder, worker, visualPalette, contactProbes, reducedMotion };
   try {
     if (!worker) return await measure(options);
     if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function")

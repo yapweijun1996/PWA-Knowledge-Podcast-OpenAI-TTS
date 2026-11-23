@@ -7,6 +7,10 @@ type CameraPose = ReturnType<typeof cameraPoseAt>;
 const halfFovTangent = Math.tan((cameraFov * Math.PI) / 360);
 const viewHeight = 2 * halfFovTangent;
 
+export const pedestalFootRadius = 0.98;
+export const groundRingHalfWidth = 0.16;
+export const groundRingMaxAlpha = 0.25;
+
 export function studioLayout(width: number, height: number) {
   const aspect = width / height;
   const orientation: Orientation = width < height ? "portrait" : "landscape";
@@ -23,26 +27,43 @@ export function studioLayout(width: number, height: number) {
   const floorY = portrait ? -0.77 : -0.93;
   const pedestalHeight = portrait ? 0.32 : 0.2;
   const pedestalRadius = orbRadius * (portrait ? 0.83 : 1.04);
-  const barWidth = portrait ? 0.05 : 0.129;
-  const ringWidth = portrait ? 1.21 : 3.61;
+  const barWidth = portrait ? 0.04 : 0.106;
+  const ringWidth = portrait ? 1.24 : 3.61;
   const ringDepth = 1.24 * (portrait ? 0.55 : 1);
+  // Leave the foreground arc open in front of each pedestal throughout the
+  // camera paths. Use fewer ticks in the narrower center span in portrait.
+  const centerCount = portrait ? 4 : 8;
+  const centerSpan = portrait ? 0.12 : 0.20;
+  const side = portrait ? 0.95 : 0.89;
+  const foregroundX = [
+    0.999,
+    side,
+    ...Array.from(
+      { length: centerCount },
+      (_, index) => centerSpan * (1 - (2 * index) / (centerCount - 1)),
+    ),
+    -side,
+    -0.999,
+  ];
+  const rearCount = spectrumBins - foregroundX.length;
   const ring = Array.from({ length: spectrumBins }, (_, index) => {
-    const angle = (2 * Math.PI * index) / spectrumBins;
+    const front = index < foregroundX.length;
+    const angle = front
+      ? Math.acos(foregroundX[index])
+      : Math.PI * (1 + (index - foregroundX.length + 0.5) / rearCount);
     const x = ringWidth * Math.cos(angle);
     const z = ringDepth * Math.sin(angle);
     const bias = (1 + Math.cos(angle)) / 2;
-    const depth = z / ringDepth;
-    const foreground = Math.max(0, depth);
-    const heightCap = portrait
-      ? 0.022 + (0.055 - 0.022) * Math.max(0, -depth)
-      : 0.055 * (1 - 0.36 * foreground);
+    const rearDepth = Math.max(0, -z / ringDepth);
+    const heightCap = 0.012 + (0.055 - 0.012) * Math.min(1, rearDepth / 0.95);
     // Raise the landscape front arc to clear the chips through the camera path.
     // Portrait has room to lower the arc and separate it from the pedestals.
-    const baseY = floorY + (portrait ? -0.035 : 0.28) * foreground;
+    const baseY = floorY + (portrait ? -0.035 : 0.28) * Math.max(0, z / ringDepth);
     return {
       x,
       z,
       bias,
+      rearDepth,
       baseY,
       heightCap,
       baseCorners: ([-1, 1] as const).flatMap((side) =>
@@ -68,6 +89,7 @@ export function studioLayout(width: number, height: number) {
     floorY,
     pedestalHeight,
     pedestalRadius,
+    groundRingRadius: portrait ? 1.52 : 1.29,
     barWidth,
     ringWidth,
     ringDepth,
