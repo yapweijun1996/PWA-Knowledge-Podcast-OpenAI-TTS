@@ -7,6 +7,8 @@ const browserName = webkit ? "webkit" : ("chromium" as const);
 // Real video renders (especially software WebGL) saturate the CPU. Run them
 // alone, after the rest, so timing-sensitive tests are not starved.
 const renderTests = /(factory-video(-3d)?|visual-qa)\.browser\.ts$/;
+// Frame-time budget: alone, last, in a fresh browser process (see the test header).
+const budgetTest = /factory-video-3d-budget\.browser\.ts$/;
 
 export default defineConfig({
   testDir: "./tests",
@@ -21,12 +23,18 @@ export default defineConfig({
     {
       name: "factory",
       testMatch: "factory*.browser.ts",
-      testIgnore: renderTests,
+      testIgnore: [renderTests, budgetTest],
     },
     {
       name: "render",
       testMatch: renderTests,
       dependencies: ["factory"],
+      fullyParallel: false,
+    },
+    {
+      name: "perf",
+      testMatch: budgetTest,
+      dependencies: ["render"],
       fullyParallel: false,
     },
   ],

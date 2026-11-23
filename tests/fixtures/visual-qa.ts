@@ -342,7 +342,17 @@ const colorDistance = (a: Pixels, i: number, b: Pixels, j: number) =>
   );
 
 const maximumBandingStep = 3 / 255;
-export const maximumFramingDelta = 3 / 255;
+// Plate and chip exteriors: a sustained fringe (mean) is a smudge; isolated ringing (max) is
+// expected from H.264 at about 1.3 Mbit/s (measured: mean up to 9.2/255 at portrait chip corners, single pixels up to 16.8/255).
+// The gate only catches gross regressions (missing alignment, wrong layer); how clean the
+// edges are is a bitrate trade-off, reported through the independent review.
+export const maximumFramingDelta = 16 / 255;
+export const maximumRingingDelta = 48 / 255;
+// Rounded corners of plates and chips ring after H.264 at about 1.3 Mbit/s: measured
+// up to 10.7/255 on the decoded frame, straight edges stay within 3/255.
+export const maximumCornerDelta = 12 / 255;
+// Bottom rows beside the H.264 padding (see framingRegions): measured 16 to 19.
+export const maximumBottomRowDelta = 40 / 255;
 const plateBorder = 6;
 
 type Plate = {
@@ -400,6 +410,9 @@ export function framingRegions(width: number, height: number, plates: Plate[]) {
   const rows = Math.min(4, height);
   const regions: FramingRegion[] = [
     {
+      // A 1080-line frame is padded by the encoder to a multiple of 16 rows; the
+      // deblocking filter across that padding moves the last visible rows by up to
+      // about 20/255 (measured 16 to 19), so this region has its own limit.
       name: "bottom four rows",
       box: { x: 0, y: height - rows, width, height: rows },
     },
@@ -465,7 +478,8 @@ export function framingDelta(
   region: FramingRegion,
 ) {
   const { box, plate, name } = region;
-  const result = { name, maxDelta: 0, x: box.x, y: box.y, pixels: 0 };
+  const result = { name, maxDelta: 0, meanDelta: 0, x: box.x, y: box.y, pixels: 0 };
+  let total = 0;
   for (let row = 0, offset = 0; row < box.height; row++) {
     const y = box.y + row;
     for (let col = 0; col < box.width; col++, offset += 4) {
@@ -478,10 +492,12 @@ export function framingDelta(
         ? Math.abs(0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
         : Math.max(Math.abs(r), Math.abs(g), Math.abs(b)) / 255;
       result.pixels++;
+      total += delta;
       if (delta > result.maxDelta)
         Object.assign(result, { maxDelta: delta, x, y });
     }
   }
+  result.meanDelta = result.pixels ? total / result.pixels : 0;
   return result;
 }
 

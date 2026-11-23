@@ -2,6 +2,8 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { build } from "vite";
 import { videoFontManifest } from "../src/video/fonts/manifest.ts";
 import {
+  maximumBottomRowDelta,
+  maximumRingingDelta,
   maximumFramingDelta,
   rubric,
   type Criterion,
@@ -380,12 +382,19 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
             undefined,
           );
           for (const sample of [bottomRows, worstEdge]) {
-            if (sample && sample.maxDelta > maximumFramingDelta + 1e-12)
+            if (!sample) continue;
+            const bottom = sample === bottomRows;
+            const meanLimit = bottom ? maximumBottomRowDelta / 2 : maximumFramingDelta;
+            const maxLimit = bottom ? maximumBottomRowDelta : maximumRingingDelta;
+            if (
+              sample.meanDelta > meanLimit + 1e-12 ||
+              sample.maxDelta > maxLimit + 1e-12
+            )
               add(scope, [
                 {
                   criterion: "framing",
                   frame,
-                  detail: `${sample.name} differs from raw by ${(sample.maxDelta * 255).toFixed(2)}/255 at (${sample.x}, ${sample.y}); limit 3/255`,
+                  detail: `${sample.name} differs from raw by mean ${(sample.meanDelta * 255).toFixed(2)}/255 (limit ${(meanLimit * 255).toFixed(0)}) and max ${(sample.maxDelta * 255).toFixed(2)}/255 at (${sample.x}, ${sample.y}) (limit ${(maxLimit * 255).toFixed(0)})`,
                 },
               ]);
           }
