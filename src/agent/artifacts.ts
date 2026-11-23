@@ -1,0 +1,57 @@
+import { openDB, type DBSchema } from "idb";
+
+export type AgentArtifact = {
+  id: string;
+  kind: "video" | "publish";
+  episodeId: string;
+  revision: number;
+  sourceStamp: string;
+  blob: Blob;
+};
+
+export interface AgentArtifactStore {
+  get(id: string): Promise<AgentArtifact | undefined>;
+  put(artifact: AgentArtifact, signal: AbortSignal): Promise<void>;
+}
+
+interface ArtifactDB extends DBSchema {
+  artifacts: { key: string; value: AgentArtifact };
+}
+
+let connection: ReturnType<typeof openDB<ArtifactDB>> | undefined;
+function db() {
+  return (connection ??= openDB<ArtifactDB>("knowledge-podcast-agent", 1, {
+    upgrade(database) {
+      database.createObjectStore("artifacts", { keyPath: "id" });
+    },
+  }).catch((error) => {
+    connection = undefined;
+    throw error;
+  }));
+}
+
+export const browserAgentArtifacts: AgentArtifactStore = {
+  async get(id) {
+    return (await db()).get("artifacts", id);
+  },
+  async put(artifact, signal) {
+    const database = await db();
+    signal.throwIfAborted();
+    const tx = database.transaction("artifacts", "readwrite", {
+      durability: "strict",
+    });
+    const stop = () => {
+      try {
+        tx.abort();
+      } catch {
+        // The transaction can finish before the signal arrives.
+      }
+    };
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      await Promise.all([tx.store.put(artifact), tx.done]);
+    } finally {
+      signal.removeEventListener("abort", stop);
+    }
+  },
+};
