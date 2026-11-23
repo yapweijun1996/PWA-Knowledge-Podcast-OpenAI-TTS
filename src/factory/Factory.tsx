@@ -49,6 +49,7 @@ import { BrowserContinuation, BrowserCost, StudioIntake } from "./StudioIntake";
 import {
   browserCheckpoint,
   browserProductionBounds,
+  canResumeBrowserProduction,
   studioProductionMode,
   useBrowserProduction,
   type StudioMode,
@@ -174,9 +175,14 @@ export function Factory({
   const workerRow = remote.find((item) => item.id === selected);
   const workspaceVisible = page === "library" || page === "studio";
   const savedSelection = row?.episode.id;
-  const resumable = row && !workerRow && browserCheckpoint(row);
+  const resumable = !!row && !workerRow && browserCheckpoint(row);
   const browserSelected = !!selected && selected === browser.activeId;
   const browserAvailable = online && browser.keySet && libraryState === "ready";
+  const canResumeInBrowser = canResumeBrowserProduction({
+    resumable,
+    browserAvailable,
+    blocked: busy || dirty,
+  });
   const episode = row?.episode;
   const displayedEpisode =
     resumable && episode?.job?.status === "running"
@@ -430,7 +436,7 @@ export function Factory({
   }
 
   function resumeInBrowser(id: string) {
-    if (!resumable || !browserAvailable || busy || dirty) return;
+    if (!canResumeInBrowser) return;
     void perform(async () => {
       await browser.run({ id, consent: true, retryUnknown: true });
       setMessage("浏览器制作完成，节目已保存到资料库。");
@@ -767,9 +773,7 @@ export function Factory({
           className="factory-selection"
           id="factory-selection"
           hidden={page === "library" && !selected}
-          data-browser-resume={
-            resumable && (browser.keySet || !canProduce) ? "" : undefined
-          }
+          data-browser-resume={canResumeInBrowser ? "" : undefined}
         >
           {page === "library" && selected && (
             <button
@@ -798,7 +802,8 @@ export function Factory({
               key={row.stamp}
               estimate={estimateBrowserProduction(row.episode.production)}
               keySet={browser.keySet}
-              disabled={!browserAvailable || busy || dirty}
+              workerAvailability={workerAvailability}
+              disabled={!canResumeInBrowser}
               navigation={navigation}
               onResume={() => resumeInBrowser(row.episode.id)}
             />

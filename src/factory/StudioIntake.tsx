@@ -5,6 +5,7 @@ import type {
   BrowserEstimate,
   StudioAvailability,
   StudioMode,
+  WorkerAvailability,
 } from "./useBrowserProduction";
 import "./studio-intake.css";
 
@@ -55,12 +56,14 @@ export function BrowserCost({
 export function BrowserContinuation({
   estimate,
   keySet,
+  workerAvailability,
   disabled,
   navigation,
   onResume,
 }: {
   estimate: BrowserEstimate;
   keySet: boolean;
+  workerAvailability: WorkerAvailability;
   disabled: boolean;
   navigation: WorkspaceNavigation;
   onResume: () => void;
@@ -72,9 +75,18 @@ export function BrowserContinuation({
       <p id="browser-resume-warning" className="muted">
         将从已保存的进度继续。若上次请求的结果未知，手动继续可能再次计费。
       </p>
+      {workerAvailability === "offline" ? (
+        <p className="muted">当前离线，联网后才能继续制作。</p>
+      ) : !keySet && workerAvailability !== "ready" ? (
+        <p className="muted">
+          {workerAvailability === "no-worker"
+            ? "未连接本机制作进程。"
+            : `${availabilityCopy[workerAvailability][0]}。`}
+        </p>
+      ) : null}
       {!keySet && (
         <p>
-          请先在此标签页设置浏览器密钥。{" "}
+          请在设置中添加浏览器密钥，以使用此标签页继续制作。{" "}
           <WorkspaceLink page="settings" navigation={navigation}>
             前往设置
           </WorkspaceLink>

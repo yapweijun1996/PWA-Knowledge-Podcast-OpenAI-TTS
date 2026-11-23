@@ -35,6 +35,18 @@ export function studioProductionMode(
   return { mode, chooseMode, availability };
 }
 
+export function canResumeBrowserProduction({
+  resumable,
+  browserAvailable,
+  blocked,
+}: {
+  resumable: boolean;
+  browserAvailable: boolean;
+  blocked: boolean;
+}) {
+  return resumable && browserAvailable && !blocked;
+}
+
 export function browserProductionBounds(prefs: Preferences, exactHosts?: 2) {
   const bounds = productionBounds(prefs);
   return exactHosts ? { ...bounds, exactHosts, maxHosts: exactHosts } : bounds;
