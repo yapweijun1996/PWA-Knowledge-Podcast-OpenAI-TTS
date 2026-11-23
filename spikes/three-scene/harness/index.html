@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Three.js studio benchmark</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        max-width: 70rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      label {
+        margin-right: 0.75rem;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #101826;
+      }
+      pre {
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Three.js studio benchmark</h1>
+      <form>
+        <label for="resolution">Resolution</label>
+        <select id="resolution" name="resolution">
+          <option value="1080p">1920 × 1080</option>
+          <option value="720p">1280 × 720</option>
+        </select>
+        <button type="submit">Run benchmark</button>
+      </form>
+      <p role="status" id="status"></p>
+      <canvas
+        width="1920"
+        height="1080"
+        aria-label="Studio scene rendered on the main thread"
+      ></canvas>
+      <pre id="result"></pre>
+    </main>
+    <script type="module" src="./run.js"></script>
+  </body>
+</html>
