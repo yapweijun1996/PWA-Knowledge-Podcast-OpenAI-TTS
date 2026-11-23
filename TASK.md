@@ -360,7 +360,8 @@ Status words: `[ ]` open, `[x]` done.
   (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
   decision note and a sample MP4 with no provider calls. WebCodecs is
   selected. Native Safari 27.2 rendered, played and sought the 10-second H.264
-  and AAC fixture. The browser suite verifies Chromium MP4 playback. Peak
+  and AAC fixture. FFmpeg decoded both tracks and verified the sample audio
+  signal. The browser suite verifies Chromium MP4 playback. Peak
   memory on the target devices is still open.
   [Codec and playback evidence](docs/VIDEO-RENDER-DECISION.md#desktop-safari-rendering)
 - [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,

@@ -85,6 +85,55 @@ const opusSampleRate = 48_000;
 const opusFrameDuration = 20_000;
 const micros = (seconds: number) => Math.round(seconds * 1_000_000);
 
+function readMpeg4Descriptor(bytes: Uint8Array, start: number, tag: number) {
+  if (bytes[start] !== tag) return;
+  let length = 0;
+  for (let offset = start + 1; offset < start + 5; offset++) {
+    if (offset >= bytes.length) return;
+    const byte = bytes[offset];
+    length = length * 128 + (byte & 0x7f);
+    if (byte & 0x80) continue;
+    const payload = offset + 1;
+    if (payload + length <= bytes.length) {
+      return bytes.subarray(payload, payload + length);
+    }
+    return;
+  }
+}
+
+function aacDecoderMetadata(metadata: EncodedAudioChunkMetadata | undefined) {
+  const config = metadata?.decoderConfig;
+  if (!config?.description) return metadata;
+  const { description } = config;
+  const bytes = ArrayBuffer.isView(description)
+    ? new Uint8Array(
+        description.buffer,
+        description.byteOffset,
+        description.byteLength,
+      )
+    : new Uint8Array(description);
+  if (bytes[0] !== 0x03 && bytes[0] !== 0x04) return metadata;
+
+  // Safari can return an ES_Descriptor. The muxer supplies that wrapper.
+  let decoderConfig = readMpeg4Descriptor(bytes, 0, 0x04);
+  if (bytes[0] === 0x03) {
+    const es = readMpeg4Descriptor(bytes, 0, 0x03);
+    if (es && es.length >= 3) {
+      const flags = es[2];
+      let offset = 3;
+      if (flags & 0x80) offset += 2; // Depends on another elementary stream.
+      if (flags & 0x40) offset += 1 + (es[offset] ?? es.length);
+      if (flags & 0x20) offset += 2; // References an OCR elementary stream.
+      decoderConfig = readMpeg4Descriptor(es, offset, 0x04);
+    }
+  }
+  const asc = decoderConfig && readMpeg4Descriptor(decoderConfig, 13, 0x05);
+  if (!asc || asc.length < 2) {
+    throw new Error(t("video.render.audioEncodingFailed"));
+  }
+  return { ...metadata, decoderConfig: { ...config, description: asc } };
+}
+
 function getPcm(audio: VideoAudio): PcmAudio {
   if (!Number.isInteger(audio.sampleRate) || audio.sampleRate <= 0) {
     throw new RangeError(t("video.render.invalidSampleRate"));
@@ -636,7 +685,7 @@ export async function renderVideo({
             chunk.type,
             timestamp,
             length,
-            metadata,
+            audioCodec === "aac" ? aacDecoderMetadata(metadata) : metadata,
           );
           encodedAudioChunks++;
         }),

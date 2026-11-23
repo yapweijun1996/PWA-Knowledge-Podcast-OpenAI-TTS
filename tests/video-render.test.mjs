@@ -140,6 +140,7 @@ function fakeDependencies({
   bufferVideo = false,
   oversizedChunk = false,
   timestampDrift = 0,
+  aacDescription,
 } = {}) {
   const trace = {
     videoChecks: [],
@@ -296,7 +297,18 @@ function fakeDependencies({
             this.audioEnd - this.config.opus.frameDuration + 1,
           );
         } else {
-          this.init.output(chunk(timestamp, duration, 0x61, "key"));
+          const { codec, numberOfChannels } = this.config;
+          const metadata = aacDescription
+            ? {
+                decoderConfig: {
+                  codec,
+                  sampleRate,
+                  numberOfChannels,
+                  description: aacDescription,
+                },
+              }
+            : undefined;
+          this.init.output(chunk(timestamp, duration, 0x61, "key"), metadata);
         }
       });
     }
@@ -1140,6 +1152,30 @@ test("prefers H.264 and AAC when the encoder supports both codec choices", async
     trace.audioChecks.map(({ codec }) => codec),
     ["mp4a.40.2"],
   );
+});
+
+test("muxes the AudioSpecificConfig from both raw and Safari-wrapped AAC metadata", async () => {
+  const pcm = { sampleRate: 24_000, channels: [new Float32Array(48_000)] };
+  const asc = Buffer.from("1308", "hex");
+  const safariDescription = Buffer.from(
+    "038080802200000004808080144014001800000000000000000005808080021308068080800102",
+    "hex",
+  );
+  const specificInfo = Buffer.concat([Buffer.from("0580808002", "hex"), asc]);
+  for (const aacDescription of [asc, safariDescription]) {
+    const { deps } = fakeDependencies({ aacDescription });
+    const result = await renderVideo({ plan, audio: pcm, theme: "dark", deps });
+    const [movie] = mp4Children(Buffer.from(await result.blob.arrayBuffer()), "moov");
+    const [, track] = mp4Children(movie, "trak");
+    const [media] = mp4Children(track, "mdia");
+    const [mediaInfo] = mp4Children(media, "minf");
+    const [samples] = mp4Children(mediaInfo, "stbl");
+    const [descriptions] = mp4Children(samples, "stsd");
+    const [aac] = mp4Children(descriptions.subarray(8), "mp4a");
+    const [esds] = mp4Children(aac.subarray(28), "esds");
+    assert.ok(esds.includes(specificInfo));
+    assert.ok(!esds.includes(safariDescription));
+  }
 });
 
 test("falls back to Opus at the source rate when AAC is unavailable", async () => {

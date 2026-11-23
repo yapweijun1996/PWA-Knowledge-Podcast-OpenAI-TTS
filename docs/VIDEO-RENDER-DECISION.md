@@ -125,11 +125,15 @@ spectrum.
 
 Safari 27.2 on macOS 27.2 rendered the local 10-second 1920×1080 fixture at
 30 fps to H.264 and AAC. The bundled fonts loaded, the native media element
-played and sought to 3 seconds, and the render took about 2.1 seconds on
+played and sought to 3 seconds, and the render took about 1.8 seconds on
 that Mac. The fixture used no production service or provider key. The
 original Safari encoder could return a timestamp one microsecond earlier
 than requested. The muxer preserves the source frame clock and rejects
-larger discrepancies. [Timestamp test](../tests/video-render.test.mjs)
+larger discrepancies. Safari can also return a wrapped AAC configuration.
+The muxer extracts the AudioSpecificConfig expected by MP4 and WebCodecs.
+FFmpeg decoded the full export without errors and measured a non-silent
+24 kHz mono AAC-LC track. [Muxing tests](../tests/video-render.test.mjs)
+[W3C AAC WebCodecs registration](https://www.w3.org/TR/webcodecs-aac-codec-registration/#audio-decoder-config-description)
 
 The Studio prefers a dedicated OffscreenCanvas worker when the browser
 supports its drawing, encoding and font APIs. The existing renderer on the
