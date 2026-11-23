@@ -62,7 +62,7 @@ Exit criteria:
   saves script and audio to the Library.
 - The provider contract is verified once with a small owner-approved call:
   browser CORS and WebRTC behavior for `/v1/responses` (with web search),
-  `/v1/audio/transcriptions` and `/v1/realtime/calls` are **UNVERIFIED** today.
+  `/v1/audio/transcriptions` and `/v1/realtime/calls` were checked in Chromium on 2026-11-23 and work (see [Provider contract](PROVIDER-CONTRACT.md)); Safari, Firefox and the Pages origin are still **UNVERIFIED**.
 - A leak test proves the key is absent from IndexedDB, backups, caches and logs.
 - Worker mode still passes its existing tests using the same shared code.
 

@@ -301,7 +301,7 @@ Status words: `[ ]` open, `[x]` done.
 
 ### M0. Restore browser-first BYOK (do first)
 
-- [ ] **T24 — Provider contract spike** (S; needs owner approval for a paid
+- [x] **T24 — Provider contract spike** (done 2026-11-23, see [docs/PROVIDER-CONTRACT.md](docs/PROVIDER-CONTRACT.md); all four endpoints work from a browser origin in Chromium, Safari and the Pages origin are still untested) (S; needs owner approval for a paid
   call). In a scratch page, verify from a browser with a user-entered key:
   CORS for `/v1/responses` (with the web search tool and strict JSON schema),
   `/v1/audio/transcriptions`, and WebRTC `/v1/realtime/calls`. Record the real
