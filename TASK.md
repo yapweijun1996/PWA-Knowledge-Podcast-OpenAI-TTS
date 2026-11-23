@@ -309,23 +309,26 @@ Status words: `[ ]` open, `[x]` done.
   each endpoint as works, blocked or needs a proxy; the owner approves the
   dollar ceiling beforehand. If an endpoint is blocked, that stage becomes
   worker-only and the UI must say so.
-- [x] **T25 — Browser key session and CSP** (S). A memory-only key holder, _(done 2026-11-23: merged `5e018b2`; CSP fix for the worker header in `70d2681`)_
+- [x] **T25 — Browser key session and CSP** (S). A memory-only key holder,
   cleared on page exit and on demand, with an explicit risk acknowledgement.
   Allow `https://api.openai.com` in `connect-src` for the private build too
   (`vite.config.ts` currently blocks it). Acceptance: unit tests; the key is
   absent from storage, backups, caches and logs; CSP test for both builds.
-- [x] **T26 — Share the pipeline between worker and browser** (M). Move the pure _(done 2026-11-23: merged `bc32459`; package-worker and 91 tests pass)_
+  _(done 2026-11-23: merged `5e018b2`; CSP fix for the worker header in `70d2681`)_
+- [x] **T26 — Share the pipeline between worker and browser** (M). Move the pure
   modules (`openai`, `script`, `research`, `research-audit`, `claims`,
   `transcript`, `qa`, `languages`, `errors`) to `shared/` with the provider
   function injected, so the worker and the browser run the same code.
   Acceptance: existing worker tests still pass; no Node-only imports in the
   shared modules; no behavior change in worker mode.
-- [x] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at _(done 2026-11-23: merged; real-provider check passed for wording and completeness, listening review still open (see docs/PROVIDER-CONTRACT.md))_
+  _(done 2026-11-23: merged `bc32459`; package-worker and 91 tests pass)_
+- [x] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at
   `636fae0`) to the shared pipeline: WebRTC Realtime audio, `Uint8Array`
   instead of `Buffer`, WAV or PCM assembly, completeness checks, and
   save-before-next. Acceptance: mock-provider and local-WebRTC tests; cancel
   and save-failure recovery tests (restore the V1 protections that were
   removed with the specs); listen to one real take with the owner's approval.
+  _(done 2026-11-23: merged; real-provider check passed for wording and completeness, listening review still open (see docs/PROVIDER-CONTRACT.md))_
 - [ ] **T28 — Browser job runner** (L). The stage machine from
   `server/jobs.mjs` (research, outline, script, audio, QA) running in the page
   with each stage checkpointed in IndexedDB, resume after reload, cancel, and
@@ -337,24 +340,27 @@ Status words: `[ ]` open, `[x]` done.
   browser mode; the worker is labelled optional; Automation is labelled worker
   only. Acceptance: browser test creates an episode with no worker running;
   the dead-end `no-worker` state is gone.
-- [ ] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
+- [x] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
   default-deny provider interception fixture; a key-leak scan across
   IndexedDB, backups, service-worker caches, console and URLs; CI runs it.
   Acceptance: CI fails if a test reaches a real provider or leaks the key.
-- [ ] **T31 — Documentation** (S). Update README, V2-FACTORY, SECURITY,
+  _(done 2026-11-23: guards, rule tests and CI gate merged; full browser suite 32 of 32 in Chromium)_
+- [x] **T31 — Documentation** (S). Update README, V2-FACTORY, SECURITY,
   TEST-MATRIX and the production checklist for browser mode; remove the stale
   V1 text. Acceptance: docs state only what is implemented.
 
 ### M1. Video in the browser
 
+  _(done 2026-11-23: README, SECURITY, V2-FACTORY, TEST-MATRIX, checklists and roadmap updated to the current product)_
 - [ ] **T32 — Render path spike** (S; parallel with M0). Prove Three.js canvas
   frames, WebCodecs encoding and audio muxing for a 10-second fixture in
   Chromium and Safari. Record codec support, speed and memory. Choose
   (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
   decision note and a sample MP4 with no provider calls.
-- [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns, _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
+- [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
+  _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
 - [ ] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
   captions** for the first release (avatars and 3D scenes come later). Two
   themes. Acceptance: screenshot review at 1440 and 390 widths.
@@ -362,7 +368,7 @@ Status words: `[ ]` open, `[x]` done.
   stepping, progress, cancel, memory and storage limits, MP4 stored in
   IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
   cancel and reload recovery, quota-exceeded handling.
-- [ ] **T36 — Video review** (M). Preview, edit title, description, chapters and
+- [x] **T36 — Video review** (M). Preview, edit title, description, chapters and
   thumbnail, then approve or reject. Acceptance: browser test for approve and
   reject; nothing is uploaded without approval.
 
@@ -372,10 +378,11 @@ Status words: `[ ]` open, `[x]` done.
 production-ready MP4; the owner uploads to YouTube manually. Real upload is
 dropped from the critical path.
 
+  _(done 2026-11-23: Episode video panel merged; real Chromium render, preview, review, ZIP download and cancel tests pass)_
 - [ ] **T37 — YouTube upload client** (parked). A mock-tested client was built
   on branch `feat/t37` as an experiment. It is **not merged** and not wired
   into the UI. Revisit only if the owner asks for in-app upload.
-- [ ] **T38 — Publish package export** (S). Export, per episode, the MP4, a
+- [x] **T38 — Publish package export** (S). Export, per episode, the MP4, a
   title, a description with chapter lines (first at 0:00), tags, a thumbnail
   image, and a short manual-upload checklist including YouTube's disclosure
   for AI-generated or synthetic content. Acceptance: one download (zip or
@@ -383,6 +390,7 @@ dropped from the critical path.
 
 ### M3 to M5
 
+  _(done 2026-11-23: publish package exported from the Studio after approval; manual YouTube upload)_
 - [ ] **T39 — In-browser agent and pi bridge** (L). **Decision (manager,
   2026-11-23; the owner asked us to decide):** a browser page cannot spawn the
   local `pi` CLI, so there are two layers. (1) A native in-page agent loop on

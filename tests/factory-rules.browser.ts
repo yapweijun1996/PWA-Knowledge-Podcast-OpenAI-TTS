@@ -249,7 +249,8 @@ rules(
       "/v1/audio/transcriptions",
     ]);
     const backup = page.waitForEvent("download");
-    await episode
+    // The export buttons live in their own region, outside the episode summary.
+    await page
       .getByRole("button", { name: t("episode.exports.backup") })
       .click();
     expect((await backup).suggestedFilename()).toMatch(/\.kps$/);

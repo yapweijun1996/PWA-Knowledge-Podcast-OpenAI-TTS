@@ -48,9 +48,11 @@ unattended production. The worker must stay running. [Worker setup and access](d
 The repository includes a browser-local waveform and caption renderer using
 Canvas, WebCodecs and MP4 muxing. A publish ZIP builder packages the MP4, a
 thumbnail, title, description, tags, chapters and a manual-upload checklist.
-Both are exposed as agent tools. Studio video review and ZIP download through
-the main UI are **UNVERIFIED** in this candidate. The owner handles any YouTube
-upload manually. [Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts) · [Tool integration](src/agent/tools.ts)
+Both are exposed as agent tools and in the Episode view: render, preview,
+review and approve the video, then download the publish ZIP. This was verified
+in Chromium only (render, preview, ZIP and cancel tests); real Safari, mobile
+and upload acceptance are **UNVERIFIED**. The owner uploads to YouTube
+manually. [Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts) · [Tool integration](src/agent/tools.ts)
 
 ## Repository layout
 
