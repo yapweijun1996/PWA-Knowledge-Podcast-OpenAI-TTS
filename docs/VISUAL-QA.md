@@ -85,7 +85,9 @@ seek cost for each reference episode that completes decoding.
 | 2026-11-23 | Manager's merged Chromium run after the presentation-callback rewrite | 47 browser tests passed. The visual rubric reported 0 of 62 after its fixture evaluations hit the 360 s test timeout. |
 | 2026-11-23 | Frame-centre seek reader and isolated fixture watchdogs | Chromium `NOT_RUN` in the G3 worktree. The new scores and 40 s runtime target await a browser run. |
 
-**Status: the visual design has not passed its acceptance bar.** Update this table with each run; do
+| 2026-11-23 | After the reader rewrite (G3): browser rubric and round 2 independent review | Browser rubric **62 of 62**, 49 of 49 browser tests. Independent review **64.5 percent** ([round 2](VISUAL-REVIEW-ROUND2.md)): the reviewer saw chapter-card banding that no automated gate measures. |
+
+**Status: the visual design has not passed its acceptance bar (the independent review is below 85 percent).** Update this table with each run; do
 not mark the design accepted until the rubric and an independent review both pass.
 
 ## Not verified
