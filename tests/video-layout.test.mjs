@@ -14,6 +14,9 @@ import {
   fixture as visualFixture,
   flashAnalysis,
   flashAssessment,
+  framingDelta,
+  framingRegions,
+  maximumFramingDelta,
   safeExterior,
   seekFrame,
 } from "./fixtures/visual-qa.ts";
@@ -89,6 +92,7 @@ for (const [
       progress,
       wordmark,
       layout.cardChip,
+      layout.chapterChip,
       layout.title,
       layout.titleGraphic,
       layout.chapter,
@@ -112,11 +116,21 @@ for (const [
     close(right(progress), right(safe));
     close(wordmark.x, safe.x);
     assert.ok(bottom(callout) < caption.y);
+    assert.ok(bottom(layout.chapterChip) < caption.y);
     assert.ok(right(hostChips[0]) < hostChips[1].x);
     assert.ok(bottom(wave[0]) < hostChips[0].y);
     assert.equal(layout.waveBarsPerHost, bars);
     if (orientation === "portrait") {
-      close(layout.chapter.y / height, 0.27);
+      close(layout.chapter.y / height, 0.28);
+      close(layout.type.chapter / height, 0.041);
+      close(center(layout.chapterChip) / height, 0.495);
+      close(center(layout.cardChip) / height, 0.505);
+      const twoLineChapterBottom =
+        layout.chapter.y +
+        layout.type.progress * designTokens.common.leading.caption +
+        layout.progressGap +
+        2 * layout.type.chapter * designTokens.common.leading.chapter;
+      close((layout.chapterChip.y - twoLineChapterBottom) / height, 0.0725);
       close(layout.stage.y / height, 0.17);
       for (const rail of wave) close(center(rail) / height, 0.3);
       for (const [, y] of designTokens.portrait.orbCenters) close(y, 0.3);
@@ -188,12 +202,25 @@ for (const [
       0,
     );
     if (orientation === "portrait") {
-      context.text.length = 0;
+      context.text.length = context.shapes.length = 0;
       overlay.draw(overlay.frameAt(127 / 30), "ocean");
       const label = context.text.find(
         ({ value }) => value === overlayCopy(plan).chapterLabels[1],
       );
-      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.27);
+      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.28);
+      const title = context.text.find(
+        ({ value }) => value === "Second chapter",
+      );
+      assert.equal(title.font, videoFont(800, height * 0.041));
+      const chip = context.shapes.find(
+        ({ box }) => box[4] === geometry.radius.host,
+      );
+      assert.ok(chip.box[1] >= geometry.chapterChip.y);
+      assert.ok(chip.box[1] + chip.box[3] <= bottom(geometry.chapterChip));
+      const caption = context.shapes.find(
+        ({ box }) => box[4] === geometry.radius.caption,
+      );
+      assert.ok(chip.box[1] + chip.box[3] < caption.box[1]);
     }
   });
 
@@ -242,14 +269,14 @@ for (const [
       assert.equal(plate.alpha, 1);
       const [x, y, plateWidth, plateHeight] = plate.box;
       assert.ok(
-        [x, y, plateWidth, plateHeight].every((value) => value % 2 === 0),
+        [x, y, plateWidth, plateHeight].every((value) => value % 16 === 0),
       );
-      assert.ok(x >= caption.x && x - caption.x < 2);
-      assert.ok(y >= caption.y && y - caption.y < 2);
+      assert.ok(x >= caption.x && x - caption.x < layout.captionPad.x);
+      assert.ok(y >= caption.y && y - caption.y < layout.captionPad.y);
       assert.ok(right(caption) - x - plateWidth >= 0);
-      assert.ok(right(caption) - x - plateWidth < 2);
+      assert.ok(right(caption) - x - plateWidth < layout.captionPad.x);
       assert.ok(bottom(caption) - y - plateHeight >= 0);
-      assert.ok(bottom(caption) - y - plateHeight < 2);
+      assert.ok(bottom(caption) - y - plateHeight < layout.captionPad.y);
       if (previousPlate) assert.deepEqual(plate, previousPlate);
       const text = context.text.filter(
         (line) => line.font === videoFont(600, fontSize),
@@ -373,6 +400,43 @@ test("decoded banding scans both axes and ignores an isolated noisy pixel", () =
   }
 });
 
+test("decoded framing compares the bottom rows and all six pixels beyond a rounded plate", () => {
+  const [bottomRows, ...edges] = framingRegions(64, 64, [
+    {
+      kind: "caption",
+      radius: 12,
+      box: { x: 12, y: 12, width: 40, height: 32 },
+    },
+  ]);
+  assert.deepEqual(bottomRows.box, { x: 0, y: 60, width: 64, height: 4 });
+  const compare = (region, x, y, rgb) => {
+    const { box } = region;
+    const raw = new Uint8ClampedArray(box.width * box.height * 4);
+    const decoded = raw.slice();
+    decoded.set(rgb, ((y - box.y) * box.width + x - box.x) * 4);
+    return framingDelta(raw, decoded, region);
+  };
+  assert.equal(
+    compare(bottomRows, 63, 63, [0, 0, 3]).maxDelta,
+    maximumFramingDelta,
+  );
+  assert.ok(
+    compare(bottomRows, 63, 60, [0, 0, 4]).maxDelta > maximumFramingDelta,
+  );
+  const leftEdge = edges.find(({ name }) => name.endsWith(" left"));
+  assert.equal(leftEdge.box.x, 6);
+  const luma = compare(leftEdge, 6, 30, [0, 5, 0]);
+  assert.ok(luma.maxDelta > maximumFramingDelta);
+  assert.deepEqual([luma.x, luma.y], [6, 30]);
+  assert.ok(
+    compare(leftEdge, 11, 29, [0, 0, 10]).maxDelta < maximumFramingDelta,
+  );
+
+  const corner = edges.find(({ name }) => name.endsWith("top left corner"));
+  assert.ok(compare(corner, 12, 12, [6, 6, 6]).maxDelta > maximumFramingDelta);
+  assert.equal(compare(corner, 23, 23, [255, 255, 255]).maxDelta, 0);
+});
+
 test("the 2D background caches an opaque, deterministic dithered raster per size and palette", (t) => {
   class RasterCanvas {
     getContext() {
@@ -414,7 +478,9 @@ test("the 2D background caches an opaque, deterministic dithered raster per size
   prepareOverlay(testContext(), plan).drawBackground("aurora");
   prepareOverlay(context, { ...plan, resolution: { width: 128, height } })
     .drawBackground("aurora");
-  const [first, reused, light, fresh, resized] = backgrounds;
+  prepareOverlay(context, { ...plan, resolution: { width, height: height + 8 } })
+    .drawBackground("aurora");
+  const [first, reused, light, fresh, resized, partialRow] = backgrounds;
   assert.strictEqual(reused, first);
   assert.deepEqual(fresh.pixels, first.pixels);
   assert.notDeepEqual(light.pixels, first.pixels);
@@ -425,6 +491,16 @@ test("the 2D background caches an opaque, deterministic dithered raster per size
   assert.ok(
     first.pixels.every((value, index) => index % 4 !== 3 || value === 255),
   );
+  const red = (y) =>
+    Array.from(
+      { length: width },
+      (_, x) => partialRow.pixels[(y * width + x) * 4],
+    );
+  const decreases = (row) =>
+    row.some((value, x) => x > 0 && value < row[x - 1]);
+  assert.ok(decreases(red(height - 1)));
+  for (let y = height; y < height + 8; y++)
+    assert.equal(decreases(red(y)), false);
 });
 
 test("the wordmark uses the episode catalogue and a fitting show name takes precedence", () => {

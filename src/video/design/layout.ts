@@ -84,6 +84,11 @@ export function videoLayout(
     stage: box(tokens.stageBox),
     hostChips: tokens.hostTagCenters.map(hostBox),
     cardChip: hostBox(tokens.cardHostTagCenter),
+    chapterChip: hostBox(
+      "chapterHostTagCenter" in tokens
+        ? tokens.chapterHostTagCenter
+        : tokens.cardHostTagCenter,
+    ),
     callout: box(tokens.calloutBox),
     caption: {
       x: tokens.captionCenterX * width - captionWidth / 2,

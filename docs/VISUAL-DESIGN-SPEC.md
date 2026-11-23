@@ -60,10 +60,11 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .27, .78, .445],
+    chapterBox: [.08, .28, .78, .445],
     stageBox: [.09, .195, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
+    chapterHostTagCenter: [.43, .495],
     hostTagMaxWidthW: .30,
     calloutBox: [.08, .507, .78, .575],
     captionCenterX: .43, captionBottom: .68, captionMaxWidthW: .70,
@@ -71,7 +72,7 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     waveWashBox: [.09, .35, .77, .52], waveWashOpacity: .06,
     waveWidthW: .27, waveBarsPerHost: 20, waveMaxHalfHeightH: .039,
     orbCenters: [[.25, .325], [.61, .325]], orbDiameterH: .107,
-    typeH: { title: .046, chapter: .036, caption: .032,
+    typeH: { title: .046, chapter: .041, caption: .032,
              host: .020, callout: .023, progress: .019, wordmark: .021 },
     text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
@@ -151,6 +152,15 @@ For the CVD columns I applied the Machado severity-1.0 matrices to linear RGB an
 - **Caption layers.** Burn in dialogue for the default render. Keep the solid plate through the cue and use a hard phrase cut at the next cue. For the manual YouTube package, generate a reviewed timed caption track from the same timings, with speaker identity and meaningful sound cues, and check the overlap with native captions enabled. [WCAG prerecorded captions](https://www.w3.org/WAI/WCAG22/Understanding/captions-prerecorded.html) and [YouTube caption upload](https://support.google.com/youtube/answer/2734796?hl=en), accessed 2026-11-23.
 
 ## 4. Element specifications
+
+For a Mandarin caption that needs two lines, favor a legal break before a
+degree, time or manner adverb and keep its 的 or 地 form with the following
+phrase. Keep clause and punctuation rules and the measured and grapheme limits.
+
+Snap speaker chip and callout plate edges inward to the two-pixel chroma grid.
+Snap the caption plate edges to the 16-pixel H.264 block grid when each inset
+fits within the existing padding. The 1080-line 2D background uses the
+underlying gradient across its final eight rows, below the dithered region.
 
 | Element | Render behavior |
 |---|---|
@@ -233,7 +243,7 @@ Give each criterion full points when all its checks pass, half when it has a doc
 |---|---:|---|
 | Caption legibility and sync | **18** | **Gate.** Inspect cue metadata and isolated text masks for safe bounds, two lines max, legal breaks, reading rate, and complete text. Spot-check alignment against speech at the start, middle, speaker changes, and dense cues. |
 | Contrast and host identity | **12** | **Gate.** Compute ratios from the captured ink and its corresponding background. Use a glyph mask to sample interior pixels and a same-frame background-only pass for the adjacent plate or art. Test raw and decoded samples. Minimum text ratio `4.5:1`. Verify A/B in grayscale and all three CVD modes with names and shape cues present. |
-| Framing and collision | **12** | **Gate.** Assert element boxes and actual ink masks fit the product safe rectangle at boundary and extrema frames. Apply the landscape and portrait UI masks. On decoded title holds and chapter cards, require the maximum adjacent 8×8 background luma step to stay at or below 3/255 on both scan lines. Review device screenshots. |
+| Framing and collision | **12** | **Gate.** Assert element boxes and actual ink masks fit the product safe rectangle at boundary and extrema frames. Apply the landscape and portrait UI masks. On decoded title holds and chapter cards, require the maximum adjacent 8×8 background luma step to stay at or below 3/255 on both scan lines. On every decoded sample, require each RGB channel in the bottom four native rows and the luma in the six native pixels outside plates and chips to stay within 3/255 of the raw frame. Review device screenshots. |
 | Typography and localization | **10** | **Gate.** Compare glyph coverage, selected face hashes, and layout boxes. Check `zh-CN`, English, Malay and mixed strings with long names, combining marks, Han punctuation, numbers, and wide Latin words. Reject missing glyphs, unintended fonts, and orphan lines. |
 | Opening, chapters and callouts | **8** | First spoken hook at frame 0, no first-chapter interruption, later cards at the correct chapter boundary, no annotation collisions, and callout count, hold time and spacing within tokens. |
 | Motion and flash safety | **10** | **Gate.** In raw and decoded frames, allow at most three field-level general flashes and three field-level saturated-red flashes per rolling second. Pair opposing qualifying changes using local extrema in a sliding window of 30 source frames and apply the WCAG area threshold of one quarter of a 10-degree visual field. Exercise alternating loud/quiet PCM and rapid chapter changes. Waveform attack/release smoothing limits the flicker of individual syllable-driven bars, whose area is below the field threshold. Report observed cell-level maxima as warnings and flag values above the soft limit of 10 flashes per second. Cell counts have no effect on the score. Log luminance deltas between sampled frames and review the saved reduced-motion profile. |

@@ -27,10 +27,20 @@ const finalAbbreviation =
 const functionWord =
   /[\u7684\u5730\u5f97\u4e86\u7740\u8fc7\u548c\u4e0e\u5728\u5bf9\u628a\u88ab\u4ece\u5411\u4e3a\u4ee5\u53ca\u6216\u800c]\p{M}*$/u;
 const finalParticle = /^[\u5462\u5417\u5427\u554a\u561b\u5566]/u;
-const adverb = /[\u53ea\u4e5f\u90fd\u5c31\u624d\u8fd8\u518d\u53c8]/u.source;
-const leadingAdverb = new RegExp(`^${adverb}`, "u");
-const trailingAdverb = new RegExp(`${adverb}$`, "u");
-const hanEnding = /\p{Script=Han}\p{M}*$/u;
+const shortAdverb =
+  /[\u771f\u5f88\u66f4\u6700\u592a\u521a\u53c8\u53ea\u4e5f\u90fd\u5c31\u624d\u8fd8\u518d]/u.source;
+const longAdverb =
+  /\u7279\u522b|\u975e\u5e38|\u5df2\u7ecf|\u6b63\u5728|\u4e00\u76f4|\u603b\u662f|\u8fd8\u662f|\u9a6c\u4e0a/u.source;
+// Keep an adverb with its preceding connective or negation and any suffix.
+const adverbPrefix =
+  /[\u4ee5\u4e4b][\u524d\u540e]|\u7136\u540e|\u4e0d\u662f|\u4e0d/u.source;
+const adverbSuffix = /[\u7684\u5730]/u.source;
+const captionAdverb = new RegExp(
+  `^(?:${adverbPrefix})?(?:${longAdverb}|${shortAdverb})${adverbSuffix}?`,
+  "u",
+);
+const trailingAdverb = new RegExp(`${shortAdverb}$`, "u");
+const trailingAdverbPrefix = new RegExp(`(?:${adverbPrefix})$`, "u");
 const hanStart = /^\p{Script=Han}/u;
 const numberWithUnit =
   /(?:[$£€¥]|(?:S|US)\$)?\p{Nd}+(?:[.,．，]\p{Nd}+)*(?: ?(?:公里|公斤|千克|厘米|毫米|分钟|小时|平方米|平方公里|毫升|°[CF]|[%％°℃℉元年月日米秒克吨]|(?:km\/h|m\/s|mm|cm|km|kg|mg|ml|kWh|Hz|MHz|GB|MB|USD|SGD|MYR|m|g|s|h)\b))?/gu;
@@ -400,26 +410,39 @@ function layout(
     const badBreak = (line: Line) =>
       Number(line.end < last && functionWord.test(line.text));
     const wordBreak = (line: Line) => Number(extra.has(points[line.end]));
+    const startsAdverb = (start: number, end: number) => {
+      if (!preferredPoints.has(start)) return false;
+      const match = captionAdverb.exec(text.slice(start, end));
+      return !!match && hanStart.test(text.slice(start + match[0].length, end));
+    };
     for (let start = last - 1; start >= 0; start--) {
+      const longest = choices[start].at(-1);
+      const lastFit = longest && !longest.overflow ? longest.end : start;
       function consider(lines: Line[], line: Line) {
         const tail = best[line.end];
         if (line.end < last && !tail) return;
-        // Without part-of-speech tags, treat Han before an adverb as a possible
-        // verb phrase. This soft cost favors a nearby legal break of similar width.
         const first = lines[0];
-        const adverbBreak =
+        const needsWrap =
           lines.length === 2 &&
-          ((hanEnding.test(first.text) && leadingAdverb.test(line.text)) ||
-            (trailingAdverb.test(first.text) &&
-              preferredPoints.has(points[start] + first.text.length - 1) &&
-              hanStart.test(line.text)));
+          line.end > lastFit &&
+          !first.overflow &&
+          !line.overflow;
+        const phraseBreak =
+          needsWrap &&
+          (endsClause(first.text) ||
+            (startsAdverb(points[first.end], points[line.end]) &&
+              !trailingAdverbPrefix.test(first.text) &&
+              !(
+                trailingAdverb.test(first.text) &&
+                preferredPoints.has(points[start] + first.text.length - 1)
+              )));
         const score = [
           lines.reduce((sum, item) => sum + badBreak(item), 0),
           Number(line.end < last && !endsClause(line.text)),
           lines.reduce((sum, item) => sum + wordBreak(item), 0),
           1,
+          Number(needsWrap && !phraseBreak),
           lines.reduce((sum, item) => sum + item.slack, 0) +
-            (adverbBreak ? penalty / 8 : 0) +
             (line.finalOrphan ? 2 * penalty : 0),
         ].map((value, index) => value + (tail?.score[index] ?? 0));
         // Compare in priority order before balancing measured line widths.

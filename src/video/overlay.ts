@@ -63,16 +63,30 @@ function rect(
   }
 }
 
-function pixelAlignedPlate(box: PixelBox): PixelBox {
-  // Snap inward to the codec's 2×2 chroma grid and keep inside layout bounds.
-  const x = Math.ceil(box.x / 2) * 2;
-  const y = Math.ceil(box.y / 2) * 2;
+function pixelAlignedPlate(box: PixelBox, step = 2): PixelBox {
+  // Snap inward to keep the drawn plate inside the layout bounds.
+  const x = Math.ceil(box.x / step) * step;
+  const y = Math.ceil(box.y / step) * step;
   return {
     x,
     y,
-    width: Math.max(0, Math.floor(right(box) / 2) * 2 - x),
-    height: Math.max(0, Math.floor(bottom(box) / 2) * 2 - y),
+    width: Math.max(0, Math.floor(right(box) / step) * step - x),
+    height: Math.max(0, Math.floor(bottom(box) / step) * step - y),
   };
+}
+
+const macroblockSize = 16;
+
+function captionPlate(box: PixelBox, pad: { x: number; y: number }) {
+  // Keep the ink position fixed. Align wide caption edges to H.264 blocks
+  // where the plate has enough padding to absorb the inward snap.
+  const aligned = pixelAlignedPlate(box, macroblockSize);
+  return aligned.x - box.x < pad.x &&
+    right(box) - right(aligned) < pad.x &&
+    aligned.y - box.y < pad.y &&
+    bottom(box) - bottom(aligned) < pad.y
+    ? aligned
+    : pixelAlignedPlate(box);
 }
 
 function linesAt(
@@ -195,12 +209,15 @@ function rasterBackground(
     );
   });
   const scale = steps / (width ** 2 + height ** 2);
+  const lastFullRow = height - (height % macroblockSize);
   for (let y = 0, pixel = 0; y < height; y++) {
     const vertical = (y + 0.5) * height;
     const tileRow = (y % ditherSide) * ditherSide;
+    // Keep the partial bottom macroblock row as the underlying gradient.
+    const dither = y < lastFullRow;
     for (let x = 0; x < width; x++, pixel += 4) {
       const color = ramp[Math.round(((x + 0.5) * width + vertical) * scale)];
-      const bias = backgroundDither[tileRow + (x % ditherSide)];
+      const bias = dither ? backgroundDither[tileRow + (x % ditherSide)] : 0;
       data[pixel] = color[0] + bias;
       data[pixel + 1] = color[1] + bias;
       data[pixel + 2] = color[2] + bias;
@@ -343,6 +360,7 @@ export function prepareOverlay(
     }));
   const callouts = plan.callouts ?? [];
   const captionWidth = caption.width - 2 * captionPad.x;
+  const captionBackground = captionPlate(caption, captionPad);
   const calloutWidth =
     geometry.callout.width - 3 * calloutPad.x - stroke.calloutRule;
   const hostWidth =
@@ -619,7 +637,13 @@ export function prepareOverlay(
           (card.kind === "intro" && active) ||
           (card.kind === "chapter" && card.chapterId === turn?.chapterId))
       )
-        chip(geometry.cardChip, speaker, palette, active, emphasis);
+        chip(
+          card.kind === "chapter" ? geometry.chapterChip : geometry.cardChip,
+          speaker,
+          palette,
+          active,
+          emphasis,
+        );
       return;
     }
     geometry.hostChips.forEach((box, index) => {
@@ -828,7 +852,7 @@ export function prepareOverlay(
 
       const cue = turn && latestStarted(cues.get(turn) ?? [], time);
       if (cue && beforeEnd(time, cue.end)) {
-        rect(context, pixelAlignedPlate(caption), palette.plate, radius.caption);
+        rect(context, captionBackground, palette.plate, radius.caption);
         context.fillStyle = palette.ink;
         context.font = canvasFont("caption");
         linesAt(
