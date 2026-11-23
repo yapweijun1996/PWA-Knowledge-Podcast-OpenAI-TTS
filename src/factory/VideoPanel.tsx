@@ -4,6 +4,7 @@ import { browserAgentArtifacts } from "../agent/artifacts.ts";
 import { download } from "../audio";
 import { useI18n, type MessageKey } from "../i18n";
 import { drawThumbnail, thumbnailSize } from "../publish/thumbnail.ts";
+import { listScenes } from "../video/scenes/registry.ts";
 import { redact } from "./browser-key.ts";
 import { episodeLanguageTags } from "./Evidence";
 import type { AudioCheck } from "./library-model.ts";
@@ -438,6 +439,20 @@ export function VideoPanel({
             <option value="dark">{t("video.panel.dark")}</option>
           </select>
         </label>
+        <label className="field">
+          {t("video.panel.scene")}
+          <select
+            value={video.sceneId}
+            disabled={rendering || video.loading || !!video.reviewEdit}
+            onChange={(event) => video.setSceneId(event.target.value)}
+          >
+            {listScenes().map(({ id, label }) => (
+              <option key={id} value={id}>
+                {t(label)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className="primary"
           type="button"
@@ -462,6 +477,7 @@ export function VideoPanel({
       </div>
       <div role="status" className="video-panel-status">
         {video.stale && <p>{t("episode.video.stale")}</p>}
+        {video.sceneStale && <p>{t("video.panel.sceneStale")}</p>}
         <p
           className={
             state.phase === "failed" || video.loadFailed ? "error" : "muted"

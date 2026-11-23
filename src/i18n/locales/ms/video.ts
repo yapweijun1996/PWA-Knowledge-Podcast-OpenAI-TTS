@@ -85,6 +85,9 @@ export default [
   // native-review
   ["video.panel.local", "Video dihasilkan pada peranti ini tanpa menghubungi penyedia. Menutup tab ini akan membatalkan proses tersebut."],
   ["video.panel.theme", "Tema video"],
+  ["video.panel.scene", "Adegan video"],
+  ["video.scene.waveform", "Bentuk gelombang"],
+  ["video.panel.sceneStale", "Video ini sudah lapuk. Adegan yang dipilih telah berubah."],
   ["video.panel.dark", "Gelap"],
   ["video.panel.light", "Cerah"],
   ["video.panel.render", "Hasilkan video"],

@@ -46,6 +46,9 @@ export default [
   // native-review
   ["video.panel.local", "视频在此设备上生成，无需调用服务商。关闭此标签页会取消生成。"],
   ["video.panel.theme", "视频主题"],
+  ["video.panel.scene", "视频场景"],
+  ["video.scene.waveform", "波形"],
+  ["video.panel.sceneStale", "视频已过时。所选场景已更改。"],
   ["video.panel.dark", "深色"],
   ["video.panel.light", "浅色"],
   ["video.panel.render", "生成视频"],

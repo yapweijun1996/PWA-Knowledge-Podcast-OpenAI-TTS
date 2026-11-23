@@ -79,6 +79,9 @@ export default [
   // native-review
   ["video.panel.local", "Rendering runs on this device without provider calls. Closing this tab cancels it."],
   ["video.panel.theme", "Video theme"],
+  ["video.panel.scene", "Video scene"],
+  ["video.scene.waveform", "Waveform"],
+  ["video.panel.sceneStale", "This video is out of date. The selected scene has changed."],
   ["video.panel.dark", "Dark"],
   ["video.panel.light", "Light"],
   ["video.panel.render", "Render video"],

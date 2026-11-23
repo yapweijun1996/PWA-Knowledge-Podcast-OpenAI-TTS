@@ -9,6 +9,7 @@ import { createTranslator, t, type MessageKey } from "../i18n/index.ts";
 import { buildPublishPackage, publishLocales } from "../publish/package.ts";
 import { probeVideoSupport } from "../video/capabilities.ts";
 import { renderVideo } from "../video/render.ts";
+import { defaultSceneId, getScene } from "../video/scenes/registry.ts";
 import type { VideoTheme } from "../video/themes.ts";
 import { buildTimeline, type TimelinePlan } from "../video/timeline.ts";
 import { redact } from "./browser-key.ts";
@@ -31,14 +32,23 @@ export function videoArtifactKey(source: Source) {
   return `${artifactPrefix(source.episodeId)}${source.revision}:${source.sourceStamp}`;
 }
 
-export function isCurrentVideo(artifact: AgentArtifact, source?: Source) {
+function savedVideoSceneId(artifact: AgentArtifact) {
+  return artifact.metadata?.studioVideo?.sceneId ?? defaultSceneId;
+}
+
+export function isCurrentVideo(
+  artifact: AgentArtifact,
+  source?: Source,
+  sceneId?: string,
+) {
   return (
     !!source &&
     artifact.kind === "video" &&
     artifact.episodeId === source.episodeId &&
     artifact.revision === source.revision &&
     artifact.sourceStamp === source.sourceStamp &&
-    artifact.id === videoArtifactKey(source)
+    artifact.id === videoArtifactKey(source) &&
+    (sceneId === undefined || savedVideoSceneId(artifact) === sceneId)
   );
 }
 
@@ -352,6 +362,7 @@ type RenderState =
 export function useVideoRender(episode: Episode, audio: AudioCheck) {
   const [support, setSupport] = useState<boolean>();
   const [theme, setTheme] = useState<VideoTheme>("dark");
+  const [sceneId, setSceneId] = useState<string>(defaultSceneId);
   const [stored, setStored] = useState<{
     revision: number;
     asset?: string;
@@ -379,7 +390,10 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     stored.blob === blob
       ? stored
       : undefined;
-  const artifact = snapshot?.artifact;
+  const savedArtifact = snapshot?.artifact;
+  const sceneStale =
+    !!savedArtifact && !isCurrentVideo(savedArtifact, snapshot?.source, sceneId);
+  const artifact = sceneStale ? undefined : savedArtifact;
 
   useEffect(() => {
     const leave = () => activeRender.current?.abort();
@@ -429,6 +443,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
           if (saved?.metadata?.studioVideo && isCurrentVideo(saved, source)) {
             setStored({ ...input, source, artifact: saved as VideoArtifact });
             setTheme(saved.metadata.studioVideo.theme);
+            setSceneId(getScene(savedVideoSceneId(saved)).id);
           } else {
             const stale = await hasPreviousVideo(id);
             if (!load.signal.aborted) setStored({ ...input, source, stale });
@@ -501,6 +516,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         plan,
         audio: pcm,
         theme,
+        sceneId,
         signal,
         onProgress(fraction) {
           // The renderer reserves the last fraction for muxing and hashing.
@@ -526,7 +542,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
             review: reviewAfterRender(
               episode,
               plan,
-              artifact?.metadata.studioVideo,
+              savedArtifact?.metadata.studioVideo,
             ),
           },
         },
@@ -588,6 +604,9 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     support,
     theme,
     setTheme,
+    sceneId,
+    setSceneId,
+    sceneStale,
     artifact,
     state,
     start,

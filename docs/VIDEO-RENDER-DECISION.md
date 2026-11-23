@@ -50,6 +50,22 @@ Chromium and Safari fixture runs below.
   next paid step. An ambiguous paid request requires a user decision before a
   retry. [Product direction](PRODUCT-DIRECTION.md), [roadmap](ROADMAP.md)
 
+## Scene interface
+
+The renderer steps registered scenes at `time = index / fps`. A scene draws
+from the timeline plan, source PCM and frame time. It must ignore wall-clock
+time, unseeded randomness and previous frame state. The registry creates an
+independent scene instance per render and disposes it on completion, error or
+cancellation.
+
+Waveform is the default and draws directly into the export canvas in 2D.
+WebGL scenes draw into a private canvas that the renderer composites before
+painting shared labels and captions. Intro and chapter cards use the same
+shared drawing code for every selection. A chapter can specify a `sceneId`
+on its card in `plan.scenes`, or via `chapterSceneIds` when building the plan.
+Unknown IDs resolve to waveform with a receipt notice. The receipt records
+the resolved default and the scene used for each rendered chapter.
+
 ## UNVERIFIED — real-browser spike
 
 - Probe actual Chromium and Safari on the owner's target devices. Record OS,

@@ -2,6 +2,7 @@ import { buffer } from "node:stream/consumers";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
+import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
 import {
   dialogue,
@@ -171,6 +172,13 @@ test("Studio renders a finished episode, persists approval and exports the revie
     baseURL!,
   );
   await panel.getByLabel(english("video.panel.theme")).selectOption("light");
+  const scene = panel.getByRole("combobox", {
+    name: english("video.panel.scene"),
+  });
+  await expect(scene.locator("option")).toHaveText([
+    english("video.scene.waveform"),
+  ]);
+  await scene.selectOption("waveform");
   await render.click();
   const preview = panel.locator("video");
   await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
@@ -255,6 +263,29 @@ test("Studio renders a finished episode, persists approval and exports the revie
 
   await page.reload();
   await expect(preview).toHaveAttribute("src", /^blob:/);
+  await expect(scene).toHaveValue("waveform");
+  const sceneReceipt = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("knowledge-podcast-agent", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const records = await new Promise<AgentArtifact[]>((resolve, reject) => {
+        const request = db.transaction("artifacts").objectStore("artifacts").getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const receipt = records.find(({ kind }) => kind === "video")?.metadata?.studioVideo;
+      return { sceneId: receipt?.sceneId, chapters: receipt?.chapterScenes };
+    } finally {
+      db.close();
+    }
+  });
+  expect(sceneReceipt).toEqual({
+    sceneId: "waveform",
+    chapters: dialogue.map(({ chapterId }) => ({ chapterId, sceneId: "waveform" })),
+  });
   await expect(panel.getByLabel(english("video.panel.theme"))).toHaveValue(
     "light",
   );

@@ -2,13 +2,21 @@ import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { hosts } from "../../shared/factory.ts";
 import { t } from "../i18n/index.ts";
 import {
-  drawFrame,
-  sampleAmplitude,
-  turnSampleRange,
-  type PcmAudio,
-} from "./draw.ts";
+  drawBackground,
+  drawCaption,
+  drawSpeakerLabel,
+  drawTitleCard,
+} from "./overlay.ts";
+import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
+import { defaultSceneId, getScene } from "./scenes/registry.ts";
+import type {
+  SceneCanvas,
+  SceneContext,
+  VideoScene,
+  VideoSceneFrame,
+} from "./scenes/types.ts";
 import type { VideoTheme } from "./themes.ts";
-import type { TimelinePlan } from "./timeline.ts";
+import { latestStarted, type TimelinePlan } from "./timeline.ts";
 
 /** VP9 in MP4 is opt-in because playback compatibility differs from H.264. */
 export type VideoRenderPlan = TimelinePlan & { allowVp9?: boolean };
@@ -34,6 +42,7 @@ type RenderOptions = {
   plan: VideoRenderPlan;
   audio: VideoAudio;
   theme: VideoTheme;
+  sceneId?: string;
   /** Fraction from 0 to 1. The final 1 follows muxing and hashing. */
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
@@ -44,6 +53,41 @@ type EncoderQueue = Pick<
   VideoEncoder,
   "encodeQueueSize" | "addEventListener" | "removeEventListener"
 >;
+
+type SceneNotice = {
+  reason: "unknown-scene";
+  fallbackSceneId: string;
+  chapterId?: string;
+};
+
+function drawTurnFrame(
+  context: SceneContext,
+  scene: VideoScene,
+  frame: Omit<VideoSceneFrame, "kind">,
+  speakerLabel: string,
+) {
+  const { canvas, plan, theme, textLayouts, turn, time } = frame;
+  let labelDrawn = false;
+  function drawLabel() {
+    if (labelDrawn) return;
+    drawSpeakerLabel(context, plan, theme, speakerLabel);
+    labelDrawn = true;
+  }
+  drawBackground(context, plan, theme);
+  if (scene.kind === "2d") {
+    context.save();
+    try {
+      scene.draw({ ...frame, kind: "2d", context, drawSpeakerLabel: drawLabel });
+    } finally {
+      context.restore();
+    }
+  } else {
+    scene.draw({ ...frame, kind: "webgl" });
+    context.drawImage(canvas, 0, 0);
+  }
+  drawLabel();
+  drawCaption(context, plan, theme, textLayouts, turn, time);
+}
 
 const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
@@ -186,6 +230,7 @@ export async function renderVideo({
   plan,
   audio,
   theme,
+  sceneId = defaultSceneId,
   onProgress,
   signal,
   deps = {},
@@ -226,6 +271,32 @@ export async function renderVideo({
   const speakerLabels = new Map(
     hosts.map((name) => [name, t("video.caption.speaker", { name })]),
   );
+  const sceneNotices: SceneNotice[] = [];
+  function resolveScene(id: string, chapterId?: string) {
+    const scene = getScene(id);
+    if (scene.id !== id) {
+      sceneNotices.push({
+        reason: "unknown-scene",
+        fallbackSceneId: scene.id,
+        ...(chapterId === undefined ? {} : { chapterId }),
+      });
+    }
+    return scene;
+  }
+  const defaultScene = resolveScene(sceneId);
+  const chapterOverrides = new Map<string, ReturnType<typeof getScene>>();
+  for (const scene of plan.scenes) {
+    if (scene.kind === "chapter" && scene.sceneId !== undefined)
+      chapterOverrides.set(
+        scene.chapterId,
+        resolveScene(scene.sceneId, scene.chapterId),
+      );
+  }
+  const chapterScenes = new Map<string, string>();
+  const activeScenes = new Map<
+    string,
+    { scene: VideoScene; canvas: SceneCanvas }
+  >();
 
   const VideoEncoderClass = deps.VideoEncoder ?? globalThis.VideoEncoder;
   const AudioEncoderClass = deps.AudioEncoder ?? globalThis.AudioEncoder;
@@ -308,14 +379,18 @@ export async function renderVideo({
   const defaultAudioDuration =
     audioCodec === "opus" ? opusFrameDuration : micros(1024 / sampleRate);
 
-  const canvas = deps.createCanvas
-    ? deps.createCanvas(width, height)
-    : Canvas
-      ? new Canvas(width, height)
-      : globalThis.document?.createElement("canvas");
-  if (!canvas) throw new Error(t("video.render.noCanvas"));
-  canvas.width = width;
-  canvas.height = height;
+  function makeCanvas() {
+    const canvas = deps.createCanvas
+      ? deps.createCanvas(width, height)
+      : Canvas
+        ? new Canvas(width, height)
+        : globalThis.document?.createElement("canvas");
+    if (!canvas) throw new Error(t("video.render.noCanvas"));
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  const canvas = makeCanvas();
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) throw new Error(t("video.render.noDrawingContext"));
 
@@ -437,7 +512,44 @@ export async function renderVideo({
       stop.throwIfAborted();
 
       const time = index / fps;
-      drawFrame(context, plan, pcm, theme, time, speakerLabels, textLayouts);
+      const turn = latestStarted(plan.scenes, time);
+      if (turn?.kind === "turn") {
+        const selected = chapterOverrides.get(turn.chapterId) ?? defaultScene;
+        let active = activeScenes.get(selected.id);
+        if (!active) {
+          const scene = selected.create();
+          const layer = scene.kind === "webgl" ? makeCanvas() : canvas;
+          active = { scene, canvas: layer };
+          activeScenes.set(selected.id, active);
+          await scene.init({
+            canvas: layer,
+            plan,
+            audio: pcm,
+            theme,
+            signal: stop,
+          });
+          stop.throwIfAborted();
+        }
+        chapterScenes.set(turn.chapterId, active.scene.id);
+        drawTurnFrame(
+          context,
+          active.scene,
+          {
+            canvas: active.canvas,
+            plan,
+            audio: pcm,
+            theme,
+            time,
+            index,
+            turn,
+            textLayouts,
+          },
+          speakerLabels.get(turn.speakerId) ??
+            t("video.caption.speaker", { name: turn.speakerId }),
+        );
+      } else {
+        drawTitleCard(context, plan, theme, textLayouts, turn?.title);
+      }
       const timestamp = micros(time);
       const endTime = Math.min(duration, (index + 1) / fps);
       const frame = new VideoFrameClass(canvas, {
@@ -516,9 +628,18 @@ export async function renderVideo({
       fps,
       videoCodec: videoConfig.codec,
       audioCodec,
+      sceneId: defaultScene.id,
+      chapterScenes: [...chapterScenes].map(([chapterId, sceneId]) => ({
+        chapterId,
+        sceneId,
+      })),
+      sceneNotices,
     };
   } finally {
     if (videoEncoder && videoEncoder.state !== "closed") videoEncoder.close();
     if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
+    await Promise.all(
+      [...activeScenes.values()].map(async ({ scene }) => scene.dispose()),
+    );
   }
 }

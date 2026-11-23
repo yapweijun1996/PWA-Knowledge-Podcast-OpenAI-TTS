@@ -3,14 +3,18 @@ import { t } from "../i18n/index.ts";
 
 type Resolution = { width: 1920; height: 1080 } | { width: 1080; height: 1920 };
 
-export type TimelineOptions = { fps?: number; resolution?: Resolution };
+export type TimelineOptions = {
+  fps?: number;
+  resolution?: Resolution;
+  chapterSceneIds?: Readonly<Record<string, string>>;
+};
 
 type Interval = { start: number; end: number };
 type CaptionCue = Interval & { lines: string[] };
 type Scene = Interval &
   (
     | { kind: "intro"; title: string }
-    | { kind: "chapter"; chapterId: string; title: string }
+    | { kind: "chapter"; chapterId: string; title: string; sceneId?: string }
     | {
         kind: "turn";
         chapterId: string;
@@ -20,6 +24,8 @@ type Scene = Interval &
         captions: CaptionCue[];
       }
   );
+
+export type VideoTurn = Extract<Scene, { kind: "turn" }>;
 
 export type TimelinePlan = {
   duration: number;
@@ -157,12 +163,18 @@ export function buildTimeline(
         start,
         timestamp: chapterTimestamp(start),
       });
+      const overrides = options.chapterSceneIds;
+      const sceneId =
+        overrides && Object.hasOwn(overrides, chapter.id)
+          ? overrides[chapter.id]
+          : undefined;
       scenes.push({
         kind: "chapter",
         chapterId: chapter.id,
         title: chapter.title,
         start: seconds(position),
         end: seconds(position + chapterCardDuration),
+        ...(sceneId === undefined ? {} : { sceneId }),
       });
       position += chapterCardDuration;
       currentChapter = chapter.id;
@@ -199,4 +211,18 @@ export function buildTimeline(
     scenes,
     chapters,
   };
+}
+
+export function latestStarted<T extends { start: number }>(
+  items: readonly T[],
+  time: number,
+) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (items[mid].start <= time) low = mid + 1;
+    else high = mid;
+  }
+  return items[low - 1] as T | undefined;
 }

@@ -3,6 +3,7 @@ import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
 import { drawFrame } from "../src/video/draw.ts";
 import { renderVideo } from "../src/video/render.ts";
+import { registerScene } from "../src/video/scenes/registry.ts";
 import { videoThemes } from "../src/video/themes.ts";
 
 const plan = {
@@ -68,6 +69,11 @@ function recordingContext() {
     fillText(...args) {
       this.calls.push(["text", this.fillStyle, this.font, ...args]);
     },
+    drawImage(...args) {
+      this.calls.push(["image", ...args]);
+    },
+    save() {},
+    restore() {},
     measureText(text) {
       return {
         width: Array.from(text).reduce(
@@ -284,6 +290,51 @@ function texts(frame) {
     .map((call) => call[3]);
 }
 
+test("waveform draw calls match the pre-refactor snapshot outside turn-edge padding", async () => {
+  // At 2 fps both voiced frames fall at least 240 ms inside their turns.
+  // The fixture also covers the intro, chapter cards and a pause.
+  const [intro, firstCard, firstTurn, secondCard, secondTurn] = plan.scenes;
+  const snapshotPlan = {
+    ...plan,
+    duration: 3.75,
+    fps: 2,
+    scenes: [
+      intro,
+      firstCard,
+      {
+        ...firstTurn,
+        start: 0.75,
+        end: 1.25,
+        captions: [{ start: 0.75, end: 1.25, lines: ["你好，世界。"] }],
+      },
+      { ...secondCard, start: 2, end: 2.5 },
+      {
+        ...secondTurn,
+        start: 2.75,
+        end: 3.25,
+        captions: [{ start: 2.75, end: 3.25, lines: ["Thanks!"] }],
+      },
+    ],
+  };
+  const { deps, trace } = fakeDependencies();
+  await renderVideo({ plan: snapshotPlan, audio, theme: "dark", deps });
+  assert.deepEqual(
+    trace.frames.map(({ calls }) =>
+      createHash("sha256").update(JSON.stringify(calls)).digest("hex"),
+    ),
+    [
+      "babbd965eacb2291282186f8043383800d1ad752454c29bb6b02e5d58b9373a9",
+      "fc559d02e89e8ef7eaa2c2f31ed958f68e16b00c2c79cd2da37e436cb45328be",
+      "13f8913d266b17d5f5e2aa49367ef264deef55c63a509743b5aaf0c5890dc61f",
+      "d05d98d34c18b466bf5b1a218d04e4fda561313560cf98ad21ba59a797aaa1e1",
+      "8fc891d6dbe821aeab513005327bbb4ec16c8ff8748f68f5edecb7696064ec13",
+      "8fc891d6dbe821aeab513005327bbb4ec16c8ff8748f68f5edecb7696064ec13",
+      "d2904de83061c7d9ab530a847ebd91fe9abaaab507397c7a85d5a267c897029f",
+      "3403b0383bb874f3bbb69f3586e791c13cc8368d736faec3bc28df87d1aaadf8",
+    ],
+  );
+});
+
 function mp4Children(bytes, type) {
   const matches = [];
   for (let offset = 0; offset < bytes.length;) {
@@ -337,10 +388,20 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
   const first = fakeDependencies();
   const second = fakeDependencies();
   const progress = [];
-  const render = (deps, onProgress) =>
-    renderVideo({ audio, plan, theme: "dark", deps, onProgress });
-  const result = await render(first.deps, (value) => progress.push(value));
-  await render(second.deps);
+  const result = await renderVideo({
+    audio,
+    plan,
+    theme: "dark",
+    deps: first.deps,
+    onProgress: (value) => progress.push(value),
+  });
+  await renderVideo({
+    audio,
+    plan,
+    theme: "dark",
+    sceneId: "waveform",
+    deps: second.deps,
+  });
 
   assert.deepEqual(
     first.trace.frames.map(({ calls }) => calls),
@@ -382,8 +443,121 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
       fps: 4,
       videoCodec: "avc1.420028",
       audioCodec: "aac",
+      sceneId: "waveform",
+      chapterScenes: [
+        { chapterId: "one", sceneId: "waveform" },
+        { chapterId: "two", sceneId: "waveform" },
+      ],
+      sceneNotices: [],
     },
   );
+});
+
+test("composites a chapter's WebGL scene before its text and reports actual scene IDs", async () => {
+  const id = "test-webgl";
+  const observed = [];
+  let disposed = 0;
+  let layer;
+  registerScene({
+    id,
+    kind: "webgl",
+    label: "video.scene.waveform",
+    create() {
+      return {
+        id,
+        kind: "webgl",
+        async init(env) {
+          await Promise.resolve();
+          layer = env.canvas;
+        },
+        draw(frame) {
+          assert.equal(frame.kind, "webgl");
+          assert.equal(frame.canvas, layer);
+          assert.deepEqual(frame.audio, audio);
+          observed.push(frame);
+        },
+        dispose() {
+          disposed++;
+        },
+      };
+    },
+  });
+
+  const { deps, trace } = fakeDependencies();
+  const result = await renderVideo({
+    plan: {
+      ...plan,
+      scenes: plan.scenes.map((scene) =>
+        scene.kind === "chapter"
+          ? { ...scene, sceneId: scene.chapterId === "two" ? id : "missing" }
+          : scene,
+      ),
+    },
+    audio,
+    theme: "dark",
+    sceneId: "missing-default",
+    deps,
+  });
+  assert.equal(disposed, 1);
+  assert.equal(result.sceneId, "waveform");
+  assert.deepEqual(result.chapterScenes, [
+    { chapterId: "one", sceneId: "waveform" },
+    { chapterId: "two", sceneId: id },
+  ]);
+  assert.deepEqual(result.sceneNotices, [
+    { reason: "unknown-scene", fallbackSceneId: "waveform" },
+    { reason: "unknown-scene", fallbackSceneId: "waveform", chapterId: "one" },
+  ]);
+  assert.deepEqual(
+    observed.map(({ index, time }) => [index, time]),
+    [[7, 1.75], [8, 2], [9, 2.25]],
+  );
+  assert.equal(observed[0].textLayouts, observed[2].textLayouts);
+  assert.deepEqual([layer.width, layer.height], [1920, 1080]);
+  assert.deepEqual(texts(trace.frames[6]), ["第二章"]);
+  assert.equal(trace.frames[6].calls.some(([method]) => method === "image"), false);
+  for (const frame of trace.frames.slice(7)) {
+    assert.deepEqual(frame.calls.map(([method]) => method), ["rect", "image", "text", "text"]);
+    assert.deepEqual(frame.calls[1], ["image", layer, 0, 0]);
+    assert.deepEqual(texts(frame), ["主持人 B", "谢谢！"]);
+  }
+});
+
+test("disposes a scene when its asynchronous initialization is cancelled", async () => {
+  const { deps, trace } = fakeDependencies();
+  const controller = new AbortController();
+  const id = "test-cancelled-scene";
+  let disposed = 0;
+  registerScene({
+    id,
+    kind: "2d",
+    label: "video.scene.waveform",
+    create() {
+      return {
+        id,
+        kind: "2d",
+        async init({ signal }) {
+          await Promise.resolve();
+          controller.abort();
+          signal.throwIfAborted();
+        },
+        draw() {
+          assert.fail("Cancelled scene should never draw");
+        },
+        dispose() {
+          disposed++;
+        },
+      };
+    },
+  });
+  await assert.rejects(
+    renderVideo({ plan, audio, theme: "dark", sceneId: id, signal: controller.signal, deps }),
+    { name: "AbortError" },
+  );
+  assert.equal(disposed, 1);
+  assert.deepEqual(trace.closed, ["video", "audio"]);
+  assert.equal(trace.frames.length, 2);
+  assert.deepEqual(trace.digests, []);
 });
 
 test("aligns planar PCM with cards, pauses, source offsets, and a short recording", async () => {
@@ -740,6 +914,7 @@ test("silence is flat and nearby PCM amplitudes determine the waveform bars", ()
   const pulse = waveform(samples, 0.75);
   assert.equal(pulse.length, 2);
   assert.equal(pulse[1].at(-1), 81);
+  assert.equal(pulse[1][3] + pulse[1].at(-1) / 2, flat[0][3] + 1);
   assert.deepEqual(waveform(samples, 1.15), flat);
 });
 

@@ -14,6 +14,8 @@ export type AgentArtifact = {
       videoCodec: string;
       audioCodec: "aac" | "opus";
       theme: "light" | "dark";
+      sceneId?: string;
+      chapterScenes?: { chapterId: string; sceneId: string }[];
       timeline: {
         estimated: boolean;
         chapters: { title: string; start: number; timestamp: string }[];
