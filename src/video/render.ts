@@ -596,6 +596,7 @@ export async function renderVideo({
       const liveTurn =
         turn &&
         (!card ||
+          card.kind === "intro" ||
           (card.kind === "chapter" && card.chapterId === turn.chapterId));
       let paletteId = paletteFor(effectiveSceneId);
       let labelDrawn = false;
@@ -638,6 +639,7 @@ export async function renderVideo({
               textLayouts,
             },
             () => {
+              if (overlayFrame.stageFade) return;
               if (!labelDrawn) overlay.drawHosts(overlayFrame, paletteId);
               labelDrawn = true;
             },

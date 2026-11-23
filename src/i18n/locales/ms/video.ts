@@ -1,4 +1,5 @@
 export default [
+  ["video.wordmark", "Studio Podkes"],
   ["video.caption.speaker", "Hos {name}"],
   [
     "video.timeline.invalidFrameRate",

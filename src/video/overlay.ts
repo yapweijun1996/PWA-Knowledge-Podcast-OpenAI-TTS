@@ -1,5 +1,11 @@
 import type { Host } from "../../shared/factory.ts";
-import { t } from "../i18n/index.ts";
+import { createTranslator, isLocale, t } from "../i18n/index.ts";
+import {
+  chooseTopicGraphic,
+  drawHostPair,
+  drawTopicGraphic,
+  type GraphicContext,
+} from "../publish/topic-graphics.ts";
 import { joinCaptionLines, wrapDisplayText } from "../text/wrap.ts";
 import { videoLayout, type PixelBox } from "./design/layout.ts";
 import { palettes, type Palette } from "./design/palettes.ts";
@@ -74,6 +80,27 @@ function linesAt(
   );
 }
 
+function supportsCardArt(
+  context: DrawingContext,
+): context is DrawingContext & GraphicContext {
+  return !!(
+    context.save &&
+    context.restore &&
+    context.translate &&
+    context.scale &&
+    context.beginPath &&
+    context.moveTo &&
+    context.lineTo &&
+    context.closePath &&
+    context.bezierCurveTo &&
+    context.ellipse &&
+    context.fill &&
+    context.stroke &&
+    context.clip &&
+    context.createRadialGradient
+  );
+}
+
 function linearChannel(value: number) {
   const srgb = value / 255;
   return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
@@ -123,7 +150,8 @@ export function overlayCopy(
   plan: TimelinePlan,
   labels?: ReadonlyMap<Host, string>,
 ) {
-  const productName = t("common.productName");
+  const episodeLocale = isLocale(plan.locale) ? plan.locale : "en";
+  const wordmark = createTranslator(episodeLocale)("video.wordmark");
   const hostLabels = Object.fromEntries(
     hostIds.map((name) => [name, t("video.caption.speaker", { name })]),
   ) as Record<Host, string>;
@@ -144,8 +172,8 @@ export function overlayCopy(
   );
   const texts = new Set([
     "…",
-    productName,
-    plan.showName ?? productName,
+    wordmark,
+    plan.showName ?? wordmark,
     ...Object.values(hostLabels),
     ...Object.values(hostNames),
     ...chapterLabels,
@@ -160,7 +188,8 @@ export function overlayCopy(
   }
   for (const callout of plan.callouts ?? []) texts.add(callout.text);
   return {
-    productName,
+    wordmark,
+    episodeLocale,
     hostLabels,
     hostNames,
     chapterLabels,
@@ -249,10 +278,10 @@ export function prepareOverlay(
   const wordmark =
     wrap(
       "wordmark",
-      plan.showName ?? copy.productName,
+      plan.showName ?? copy.wordmark,
       geometry.wordmark.width,
       false,
-    )[0] ?? wrap("wordmark", copy.productName, geometry.wordmark.width)[0];
+    )[0] ?? wrap("wordmark", copy.wordmark, geometry.wordmark.width)[0];
   const names = Object.fromEntries(
     hostIds.map((host) => [
       host,
@@ -279,9 +308,31 @@ export function prepareOverlay(
         : wrap("title", card.title, titleWidth),
     ]),
   );
+  const opening = cards.find(
+    (card) => card.kind === "intro" && card.start === 0,
+  );
+  const topicGraphic =
+    opening?.kind === "intro"
+      ? chooseTopicGraphic(
+          [opening.topic ?? "", opening.title],
+          copy.episodeLocale,
+        )
+      : null;
+  const graphicContext = supportsCardArt(context) ? context : undefined;
   const stageTransitions = cards.flatMap((card) =>
     card.kind === "chapter" ? [card.start, card.end] : [],
   );
+  const halfFade = motion.fadeMs / 2000;
+  const openingReveal =
+    opening && turns[0]?.start === opening.start && plan.transition !== "cut"
+      ? cards.reduce(
+          (end, card) =>
+            card.kind === "chapter" && card.start < opening.end
+              ? Math.max(end, card.end)
+              : end,
+          opening.end,
+        )
+      : -Infinity;
   const calloutLayouts = new Map(
     callouts.map((callout) => [
       callout,
@@ -307,11 +358,39 @@ export function prepareOverlay(
   function frameAt(time: number) {
     const turn = latestStarted(turns, time);
     const startedCard = latestStarted(cards, time);
-    const card =
+    const currentCard =
       startedCard && beforeEnd(time, startedCard.end) ? startedCard : undefined;
+    const card =
+      currentCard?.kind !== "end" &&
+      opening &&
+      !beforeEnd(time, opening.start) &&
+      beforeEnd(time, opening.end)
+        ? opening
+        : currentCard;
     const chapter = latestStarted(windows, time);
     const chapterIndex = chapter ? windows.indexOf(chapter) : -1;
-    return { turn, card, chapter, chapterIndex, time };
+    const elapsed = time - openingReveal;
+    const revealingOpening =
+      !card && !beforeEnd(time, openingReveal) && elapsed < halfFade;
+    let distance = revealingOpening ? Math.max(0, elapsed) : Infinity;
+    if (!card && plan.transition === "fade")
+      distance = stageTransitions.reduce(
+        (nearest, transition) => Math.min(nearest, Math.abs(time - transition)),
+        distance,
+      );
+    const stageFade =
+      distance < halfFade
+        ? (1 + Math.cos((Math.PI * distance) / halfFade)) / 2
+        : 0;
+    return {
+      turn,
+      card,
+      chapter,
+      chapterIndex,
+      time,
+      stageFade,
+      revealingOpening,
+    };
   }
 
   function markerShape(
@@ -332,7 +411,7 @@ export function prepareOverlay(
       context.stroke
     ) {
       context.beginPath();
-      context.arc(x, y, (size - border) / 2, 0, 2 * Math.PI);
+      context.arc(x, y, (active ? size : size - border) / 2, 0, 2 * Math.PI);
       context.fillStyle = color;
       context.strokeStyle = color;
       context.lineWidth = border;
@@ -341,7 +420,7 @@ export function prepareOverlay(
       return;
     }
     const offsets = host === "B" ? [-size * 0.3, size * 0.3] : [0];
-    const height = host === "B" ? size * 0.37 : size;
+    const height = host === "B" ? size * 0.4 : size;
     for (const offset of offsets) {
       const shape = {
         x: x - size / 2,
@@ -413,6 +492,7 @@ export function prepareOverlay(
       if (
         speaker &&
         (card.kind === "end" ||
+          (card.kind === "intro" && active) ||
           (card.kind === "chapter" && card.chapterId === turn?.chapterId))
       )
         chip(geometry.cardChip, speaker, palette, active, emphasis);
@@ -505,7 +585,10 @@ export function prepareOverlay(
         const total =
           step * inkLines.length +
           (label ? type.progress * leading.caption + geometry.progressGap : 0);
-        const top = centerY(box) - total / 2;
+        const top =
+          chapterCard && orientation === "portrait"
+            ? box.y
+            : centerY(box) - total / 2;
         const motionAmount = decoration(
           time,
           card.start,
@@ -551,23 +634,19 @@ export function prepareOverlay(
           step,
           width,
         );
-        if (!chapterCard && motionAmount > 0) {
+        if (!chapterCard && graphicContext) {
           const graphic = geometry.titleGraphic;
-          const size =
-            Math.min(graphic.width / 3, graphic.height / 2) * motionAmount;
-          [palette.hostA, palette.hostB].forEach((color, index) =>
-            rect(
-              context,
-              {
-                x: centerX(graphic) + (index ? 0.6 : -1.6) * size,
-                y: centerY(graphic) - size / 2,
-                width: size,
-                height: size,
-              },
-              color,
-              index ? size * 0.18 : size / 2,
-            ),
-          );
+          const inset =
+            Math.min(graphic.width, graphic.height) * 0.05 * (1 - motionAmount);
+          const box = [
+            graphic.x + inset,
+            graphic.y + inset,
+            right(graphic) - inset,
+            bottom(graphic) - inset,
+          ] as const;
+          if (card.kind === "intro" && topicGraphic)
+            drawTopicGraphic(graphicContext, topicGraphic, box, palette, 0);
+          else drawHostPair(graphicContext, box, palette);
         }
       }
       if (!hostsDrawn) drawHosts(frame, palette);
@@ -643,20 +722,15 @@ export function prepareOverlay(
       frame: ReturnType<typeof frameAt>,
       paletteId: VideoPaletteId,
     ) {
-      if (plan.transition !== "fade" || frame.card) return;
-      const half = motion.fadeMs / 2000;
-      const distance = stageTransitions.reduce(
-        (nearest, transition) =>
-          Math.min(nearest, Math.abs(frame.time - transition)),
-        Infinity,
-      );
-      if (distance >= half) return;
-      context.globalAlpha = (1 + Math.cos((Math.PI * distance) / half)) / 2;
-      rect(
-        context,
-        { x: 0, y: 0, width: geometry.width, height: geometry.height },
-        palettes[paletteId].plate,
-      );
+      if (!frame.stageFade) return;
+      context.globalAlpha = frame.stageFade;
+      if (frame.revealingOpening) drawBackground(paletteId);
+      else
+        rect(
+          context,
+          { x: 0, y: 0, width: geometry.width, height: geometry.height },
+          palettes[paletteId].plate,
+        );
       context.globalAlpha = 1;
     },
   };

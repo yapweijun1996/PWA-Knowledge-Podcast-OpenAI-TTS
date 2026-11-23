@@ -1,4 +1,5 @@
 export default [
+  ["video.wordmark", "播客工作室"],
   ["video.caption.speaker", "主持人 {name}"],
   ["video.timeline.invalidFrameRate", "视频帧率必须为正数。"],
   [

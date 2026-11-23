@@ -96,8 +96,15 @@ test("a measured solo episode has a deterministic landscape timeline and bounded
   ]);
   assert.deepEqual(
     plan.scenes.map(({ kind }) => kind),
-    ["turn"],
+    ["intro", "turn"],
   );
+  assert.deepEqual(plan.scenes[0], {
+    kind: "intro",
+    title: "Fixture episode",
+    topic: "Fixture topic",
+    start: 0,
+    end: 2,
+  });
   const [turn] = turnScenes(plan);
   assert.equal(turn.speakerId, "A");
   assert.equal(turn.audioStart, 0);
@@ -129,8 +136,11 @@ test("a two-speaker Mandarin episode preserves audio offsets and wraps captions 
   assert.deepEqual(plan.resolution, { width: 1080, height: 1920 });
   assert.deepEqual(
     plan.scenes.map(({ kind }) => kind),
-    ["turn", "turn", "chapter", "turn"],
+    ["intro", "turn", "turn", "chapter", "turn"],
   );
+  assert.equal(plan.scenes[0].start, 0);
+  assert.equal(plan.scenes[0].end, 1.5);
+  assert.equal(turnScenes(plan)[0].captions[0].start, 0);
   assert.deepEqual(plan.chapters, [
     { title: "开场", start: 0, timestamp: "0:00" },
     { title: "结论", start: 13.46, timestamp: "0:13" },
@@ -205,14 +215,44 @@ test("a three-speaker episode estimates missing and zero-length clips while pres
   assert.equal(turnScenes(buildTimeline(episode))[0].end, 0.75);
 });
 
-test("caption wrapping preserves code points and splits an unbroken Latin token", () => {
-  const text = "𠮷".repeat(22) + "a".repeat(85);
+test("caption wrapping preserves code points and flags an oversized indivisible word", () => {
+  const word = "a".repeat(85);
+  const text = "𠮷".repeat(22) + word;
   const episode = fixture("sg", ["Opening"], [[1, "A", text]], [10]);
   const [turn] = turnScenes(buildTimeline(episode));
-  assertCaptionBounds(turn, 42);
   const lines = turn.captions.flatMap((cue) => cue.lines);
-  assert.ok(Array.from(lines[0]).length <= 16);
+  assert.ok(
+    lines
+      .filter((line) => line !== word)
+      .every((line) => Array.from(line).length <= 16),
+  );
+  const oversized = turn.captions.find(({ lines }) => lines.includes(word));
+  assert.equal(oversized.needsReview, true);
   assert.equal(lines.join(""), text);
+});
+
+test("recut portrait cues preserve the source clock and recompute review flags", () => {
+  const question = "那它怎么真的影响买卖呢？";
+  const followUp = "二手组屋交易里，";
+  const episode = fixture(
+    "zh",
+    ["Opening"],
+    [[1, "A", question + followUp]],
+    [2.3],
+  );
+  const [turn] = turnScenes(
+    buildTimeline(episode, { resolution: { width: 1080, height: 1920 } }),
+  );
+  assert.equal(turn.audioStart, 0);
+  assert.equal(turn.end, 2.3);
+  assert.deepEqual(
+    turn.captions.map(({ text, needsReview }) => [text, needsReview]),
+    [
+      [question, true],
+      [followUp, undefined],
+    ],
+  );
+  assertCaptionBounds(turn, 11);
 });
 
 test("a draft without a script yields an intro without invented turn or chapter timings", () => {
@@ -251,7 +291,8 @@ test("schedules bounded callouts from clause starts and adds an end card only by
     callouts.map(({ text }) => text),
     ["The opening fact", "Two facts", "One fact", "Chapter detail"],
   );
-  assert.equal(callouts[0].start, 0);
+  assert.equal(callouts[0].start, 7.333333);
+  assert.ok(callouts[0].start >= plan.scenes[0].end + 0.6);
   for (const [index, { start, end }] of callouts.entries()) {
     assert.ok(Math.abs(end - start - 3) < 1e-6);
     if (index) assert.ok(start - callouts[index - 1].start >= 8);

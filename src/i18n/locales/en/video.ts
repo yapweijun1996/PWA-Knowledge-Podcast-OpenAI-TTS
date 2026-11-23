@@ -1,4 +1,5 @@
 export default [
+  ["video.wordmark", "Podcast Studio"],
   ["video.caption.speaker", "Host {name}"],
   ["video.timeline.invalidFrameRate", "The video frame rate must be positive."],
   [

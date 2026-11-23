@@ -17,7 +17,20 @@ const eastAsian =
 const opening = /^[\p{Ps}\p{Pi}]/u;
 const closing = /^[\p{Pe}\p{Pf},.!?:;%、。，．・：；？！…]/u;
 const housingPhrase = /\u7ec4\u5c4b\u91cc/gu;
-const clauseEnd = /[.!?。！？；;，,、：:][\p{Pe}\p{Pf}"']*$/u;
+const captionPhrases =
+  /\u65b0\u52a0\u5761\u7684\u7ec4\u5c4b\u91cc|\u8bb2\u7406\u5ff5|\u697c\u680b/gu;
+const clauseEnd = /[.!?。！？；;，,、：][\p{Pe}\p{Pf}"']*$/u;
+const sentenceEnd = /[.!?。！？][\p{Pe}\p{Pf}"']*$/u;
+const abbreviation = /\b(?:(?:[A-Z]\.){2,}|e\.g\.|i\.e\.|etc\.)/gu;
+const finalAbbreviation =
+  /\b(?:(?:[A-Z]\.){2,}|e\.g\.|i\.e\.|(?:etc|Mr|Ms|Mrs|Dr|Prof|St)\.)[\p{Pe}\p{Pf}"']*$/u;
+const functionWord =
+  /[\u7684\u5730\u5f97\u4e86\u7740\u8fc7\u548c\u4e0e\u5728\u5bf9\u628a\u88ab\u4ece\u5411\u4e3a\u4ee5\u53ca\u6216\u800c]\p{M}*$/u;
+const finalParticle = /^[\u5462\u5417\u5427\u554a\u561b\u5566]/u;
+const numberWithUnit =
+  /(?:[$£€¥]|(?:S|US)\$)?\p{Nd}+(?:[.,．，]\p{Nd}+)*(?: ?(?:公里|公斤|千克|厘米|毫米|分钟|小时|平方米|平方公里|毫升|°[CF]|[%％°℃℉元年月日米秒克吨]|(?:km\/h|m\/s|mm|cm|km|kg|mg|ml|kWh|Hz|MHz|GB|MB|USD|SGD|MYR|m|g|s|h)\b))?/gu;
+const latinWord =
+  /[\p{Script=Latin}\p{M}\p{N}]+(?:['’‐‑-][\p{Script=Latin}\p{M}\p{N}]+)*/gu;
 const singleHan = /^\p{Script=Han}\p{M}*$/u;
 const segmenters = new Map<string, Intl.Segmenter>();
 
@@ -97,16 +110,24 @@ type WrapOptions = {
   total?: { cjk: number; latinWords: number };
 };
 
-type Line = { end: number; text: string; slack: number; finalOrphan: boolean };
-export type TextPage = { text: string; lines: string[] };
+type Line = {
+  end: number;
+  text: string;
+  slack: number;
+  finalOrphan: boolean;
+  overflow?: boolean;
+};
+export type TextPage = { text: string; lines: string[]; needsReview?: boolean };
 
 function protectedRanges(text: string, phrases: readonly string[]) {
   const ranges: [number, number][] = [];
-  // Titles and abbreviations, proper names, and common number/unit forms.
+  // Titles, proper names and other groups that may contain legal word breaks.
   const groups =
-    /(?:\b(?:[A-Z]\.){2,}|\b(?:e\.g\.|i\.e\.|etc\.))|\b(?:Mr|Ms|Mrs|Dr|Prof|St)\. +\p{Lu}[\p{L}\p{M}'’-]*|(?<![\p{L}])\p{Lu}[\p{Ll}\p{M}'’-]+(?: +\p{Lu}[\p{Ll}\p{M}'’-]+){1,2}|(?:[$£€¥]|(?:S|US)\$)?\d+(?:[.,]\d+)*(?: ?(?:[%°℃元年月日公斤米秒]|(?:km\/h|m\/s|mm|cm|km|kg|mg|ml|kWh|Hz|MHz|GB|MB|USD|SGD|MYR|m|g|s|h)\b))?/gu;
+    /\b(?:Mr|Ms|Mrs|Dr|Prof|St)\. +\p{Lu}[\p{L}\p{M}'’-]*|(?<![\p{L}])\p{Lu}[\p{Ll}\p{M}'’-]+(?: +\p{Lu}[\p{Ll}\p{M}'’-]+){1,2}/gu;
   for (const match of [
     ...text.matchAll(groups),
+    ...text.matchAll(abbreviation),
+    ...text.matchAll(numberWithUnit),
     ...text.matchAll(housingPhrase),
   ]) {
     ranges.push([match.index, match.index + match[0].length]);
@@ -130,6 +151,7 @@ function breakOffsets(
   locale: string,
   phrases: readonly string[],
   useCjkWords: boolean,
+  captionFit?: (text: string) => boolean,
 ) {
   const words = new Set(
     segments(text, locale, "word").map(({ index }) => index),
@@ -137,23 +159,43 @@ function breakOffsets(
   const characters = segments(text, locale, "grapheme").filter(
     ({ segment }) => segment !== " ",
   );
-  const protectedWords = protectedRanges(text, phrases);
+  let protectedWords = protectedRanges(text, phrases);
+  if (captionFit) {
+    protectedWords = protectedWords.filter(([start, end]) =>
+      captionFit(text.slice(start, end)),
+    );
+    for (const pattern of [
+      abbreviation,
+      numberWithUnit,
+      latinWord,
+      captionPhrases,
+    ]) {
+      for (const match of text.matchAll(pattern))
+        protectedWords.push([match.index, match.index + match[0].length]);
+    }
+  }
   const preferred = [0];
   const fallback = [0];
   for (let index = 1; index < characters.length; index++) {
     const before = characters[index - 1];
     const after = characters[index];
-    if (opening.test(before.segment) || closing.test(after.segment)) continue;
-    fallback.push(after.index);
+    if (
+      opening.test(before.segment) ||
+      closing.test(after.segment) ||
+      (captionFit && finalParticle.test(after.segment))
+    )
+      continue;
+    const protectedBreak = protectedWords.some(
+      ([start, end]) => start < after.index && after.index < end,
+    );
+    if (!captionFit || !protectedBreak) fallback.push(after.index);
     const space = before.index + before.segment.length < after.index;
     const cjk = eastAsian.test(before.segment) || eastAsian.test(after.segment);
     if (
       (space ||
         (cjk && (!useCjkWords || !Intl.Segmenter || words.has(after.index))) ||
         (words.has(after.index) && /[\p{Pe}\p{Pf}]/u.test(before.segment))) &&
-      !protectedWords.some(
-        ([start, end]) => start < after.index && after.index < end,
-      )
+      !protectedBreak
     ) {
       preferred.push(after.index);
     }
@@ -263,7 +305,7 @@ function layout(
     (counts.cjk
       ? counts.cjk + counts.latin / 2 <= total.cjk
       : displayWordCount(text, locale) <= total.latinWords);
-  if (fitsTotal && fit(text, textWidth(context, text)))
+  if (!paginate && fitsTotal && fit(text, textWidth(context, text)))
     return [{ text, lines: [text] }];
 
   const { preferred, fallback } = breakOffsets(
@@ -271,12 +313,16 @@ function layout(
     locale,
     options.keepTogether ?? [],
     !!limits,
+    paginate ? (line) => fit(line, textWidth(context, line)) : undefined,
   );
   const at = (start: number, end: number) => text.slice(start, end).trimEnd();
-  // An overlong atom needs grapheme breaks for captions. Prefer all word and
-  // phrase boundaries that do fit and keep them intact in shorter display roles.
-  const extra = new Set<number>();
-  if (paginate || limits) {
+  // Captions may use any legal CJK break to avoid stranding a function word.
+  // Other display roles only need grapheme breaks for overlong atoms.
+  const preferredPoints = new Set(preferred);
+  const extra = new Set(
+    paginate ? fallback.filter((point) => !preferredPoints.has(point)) : [],
+  );
+  if (!paginate && limits) {
     for (let index = 1; index < preferred.length; index++) {
       const start = preferred[index - 1];
       const end = preferred[index];
@@ -290,6 +336,15 @@ function layout(
   }
   const points = [...preferred, ...extra].sort((a, b) => a - b);
   const last = points.length - 1;
+  const sentenceStops = new Set<number>();
+  if (paginate) {
+    // Keep the next sentence on a new cue, including when it is short.
+    for (let index = 1; index < last; index++) {
+      const prefix = at(0, points[index]);
+      if (sentenceEnd.test(prefix) && !finalAbbreviation.test(prefix))
+        sentenceStops.add(index);
+    }
+  }
   const choices: Line[][] = [];
   for (let start = 0; start < last; start++) {
     const lines: Line[] = [];
@@ -298,12 +353,13 @@ function layout(
       const width = textWidth(context, line);
       if (!fit(line, width)) {
         if (end > start + 1 || (limits && !paginate)) break;
-        // Preserve an indivisible grapheme or legacy oversized token.
+        // Preserve an indivisible grapheme, number with a unit or oversized word.
         lines.push({
           end,
           text: line,
           slack: (maxWidth - width) ** 2,
           finalOrphan: isOrphan(line),
+          overflow: true,
         });
         break;
       }
@@ -315,6 +371,7 @@ function layout(
           finalOrphan: isOrphan(line),
         });
       }
+      if (sentenceStops.has(end)) break;
     }
     choices.push(lines);
   }
@@ -327,39 +384,45 @@ function layout(
     type PageSolution = {
       lines: Line[];
       end: number;
-      count: number;
-      cost: number;
+      score: number[];
     };
     const best: (PageSolution | undefined)[] = [];
+    const badBreak = (line: Line) =>
+      Number(line.end < last && functionWord.test(line.text));
+    const wordBreak = (line: Line) => Number(extra.has(points[line.end]));
     for (let start = last - 1; start >= 0; start--) {
-      function consider(lines: Line[], line: Line, cost: number) {
+      function consider(lines: Line[], line: Line) {
         const tail = best[line.end];
         if (line.end < last && !tail) return;
-        const count = 1 + (tail?.count ?? 0);
-        const score =
-          cost +
-          (tail?.cost ?? 0) +
-          (line.finalOrphan ? 2 * penalty : 0) +
-          (line.end < last && !clauseEnd.test(line.text) ? 0.12 * penalty : 0);
-        const before = best[start];
+        const endsClause =
+          clauseEnd.test(line.text) && !finalAbbreviation.test(line.text);
+        const score = [
+          lines.reduce((sum, item) => sum + badBreak(item), 0),
+          Number(line.end < last && !endsClause),
+          lines.reduce((sum, item) => sum + wordBreak(item), 0),
+          1,
+          lines.reduce((sum, item) => sum + item.slack, 0) +
+            (line.finalOrphan ? 2 * penalty : 0),
+        ].map((value, index) => value + (tail?.score[index] ?? 0));
+        // Compare in priority order before balancing measured line widths.
+        const previous = best[start]?.score;
+        const difference = previous?.findIndex(
+          (value, index) => value !== score[index],
+        );
         if (
-          !before ||
-          count < before.count ||
-          (count === before.count && score < before.cost)
-        ) {
-          best[start] = { lines, end: line.end, count, cost: score };
-        }
+          !previous ||
+          (difference !== undefined &&
+            difference >= 0 &&
+            score[difference] < previous[difference])
+        )
+          best[start] = { lines, end: line.end, score };
       }
       for (const first of choices[start]) {
-        consider([first], first, lineCost(first));
-        if (maxLines < 2 || first.end >= last) continue;
+        consider([first], first);
+        if (maxLines < 2 || first.end >= last || sentenceStops.has(first.end))
+          continue;
         for (const second of choices[first.end]) {
-          if (!second.finalOrphan)
-            consider(
-              [first, second],
-              second,
-              lineCost(first) + lineCost(second),
-            );
+          if (!second.finalOrphan) consider([first, second], second);
         }
       }
     }
@@ -370,6 +433,9 @@ function layout(
       pages.push({
         text: at(points[start], points[page.end]),
         lines: page.lines.map((line) => line.text),
+        ...(page.lines.some((line) => line.overflow)
+          ? { needsReview: true }
+          : {}),
       });
       start = page.end;
     }

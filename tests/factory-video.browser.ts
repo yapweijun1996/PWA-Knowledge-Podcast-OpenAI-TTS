@@ -6,6 +6,7 @@ import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
+import { videoLayout } from "../src/video/design/layout.ts";
 import {
   dialogue,
   heard,
@@ -425,8 +426,9 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
         : { contentType: "text/javascript", body: code },
     );
   });
+  const { title, caption } = videoLayout(1080, 1920, "portrait");
   const result = await page.evaluate(
-    async ({ episode, wav, timelineModule, renderModule }) => {
+    async ({ episode, wav, timelineModule, renderModule, title, caption }) => {
       const { buildTimeline } = await import(timelineModule);
       const { renderVideo } = await import(renderModule);
       const audioContext = new OfflineAudioContext(1, 1, 24_000);
@@ -449,14 +451,47 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
           video.onloadedmetadata = () => resolve();
           video.onerror = () =>
             reject(new Error("Could not read rendered video metadata"));
-          video.preload = "metadata";
+          video.preload = "auto";
           video.src = url;
         });
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          await new Promise<void>((resolve, reject) => {
+            video.onloadeddata = () => resolve();
+            video.onerror = () => reject(new Error("Could not decode frame 0"));
+          });
+        }
+        const frame = document.createElement("canvas");
+        frame.width = video.videoWidth;
+        frame.height = video.videoHeight;
+        const pixels = frame.getContext("2d")!;
+        pixels.drawImage(video, 0, 0);
+        function sample(box: typeof title) {
+          const { data } = pixels.getImageData(
+            Math.ceil(box.x),
+            Math.ceil(box.y),
+            Math.floor(box.width) - 1,
+            Math.floor(box.height) - 1,
+          );
+          let ink = 0;
+          let plate = 0;
+          for (let offset = 0; offset < data.length; offset += 4) {
+            const red = data[offset];
+            const green = data[offset + 1];
+            const blue = data[offset + 2];
+            // Allow codec rounding around the light palette's ink and plate.
+            if (red < 70 && green < 80 && blue < 100) ink++;
+            if (red > 244 && green > 245 && blue > 251) plate++;
+          }
+          return { ink, plate };
+        }
         return {
           width: video.videoWidth,
           height: video.videoHeight,
           duration: video.duration,
           orientation: receipt.orientation,
+          frameTime: video.currentTime,
+          titleInk: sample(title).ink,
+          captionPixels: sample(caption),
         };
       } finally {
         video.removeAttribute("src");
@@ -468,6 +503,8 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
       wav,
       timelineModule: "/__video-test/timeline.js",
       renderModule: "/__video-test/render.js",
+      title,
+      caption,
     },
   );
   expect([result.width, result.height, result.orientation]).toEqual([
@@ -476,6 +513,10 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
     "portrait",
   ]);
   expect(result.duration).toBeCloseTo(duration, 1);
+  expect(result.frameTime).toBe(0);
+  expect(result.titleInk).toBeGreaterThan(200);
+  expect(result.captionPixels.ink).toBeGreaterThan(200);
+  expect(result.captionPixels.plate).toBeGreaterThan(10_000);
   expect(unexpected).toEqual([]);
 });
 
