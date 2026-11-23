@@ -159,7 +159,8 @@ export function audioStateAt(audio: PcmAudio, time: number, turn?: VideoTurn) {
   return createAudioAnalyzer(audio)(time, turn);
 }
 
-export const envelopeStride = spectrumBins + 2;
+export const speakerEmphasisOffset = spectrumBins + 2;
+export const envelopeStride = speakerEmphasisOffset + 2;
 
 /** Process in episode order, yielding between batches so init can honor cancellation. */
 export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
@@ -170,9 +171,11 @@ export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
   );
   const analyze = createAudioAnalyzer(audio);
   const envelopes = new Float32Array(frames * envelopeStride);
-  const levels = new Float64Array(envelopeStride);
-  const { orbAttackReleaseMs, spectrumAttackReleaseMs } =
+  const levels = new Float64Array(speakerEmphasisOffset);
+  const emphasis = [0, 0];
+  const { hostEmphasisMs, orbAttackReleaseMs, spectrumAttackReleaseMs } =
     designTokens.common.motion;
+  const emphasisStep = 1000 / (fps * hostEmphasisMs);
   const alpha = (tauMs: number) => 1 - Math.exp(-1000 / (fps * tauMs));
   const [orbAttack, orbRelease] = orbAttackReleaseMs.map(alpha);
   const [spectrumAttack, spectrumRelease] = spectrumAttackReleaseMs.map(alpha);
@@ -181,8 +184,11 @@ export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
   for (let frame = 0; frame < frames; frame++) {
     const time = frame / fps;
     while (turns[turnIndex]?.end <= time) turnIndex++;
-    const { speaker, amplitude, spectrum } = analyze(time, turns[turnIndex]);
-    for (let index = 0; index < envelopeStride; index++) {
+    const turn = turns[turnIndex];
+    const { speaker, amplitude, spectrum } = analyze(time, turn);
+    const active = turn && time >= turn.start ? turn.speakerId : null;
+    const offset = frame * envelopeStride;
+    for (let index = 0; index < levels.length; index++) {
       const target =
         index < 2
           ? speaker === (index === 0 ? "A" : "B")
@@ -193,7 +199,18 @@ export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
       const release = index < 2 ? orbRelease : spectrumRelease;
       levels[index] +=
         (target - levels[index]) * (target > levels[index] ? attack : release);
-      envelopes[frame * envelopeStride + index] = levels[index];
+      envelopes[offset + index] = levels[index];
+    }
+    for (let index = 0; index < emphasis.length; index++) {
+      // The visual cue follows the turn even when PCM is quiet. Reversing a
+      // short transition keeps the current emphasis instead of jumping.
+      const progress =
+        active === (index === 0 ? "A" : "B")
+          ? Math.min(1, emphasis[index] + emphasisStep)
+          : Math.max(0, emphasis[index] - emphasisStep);
+      emphasis[index] = progress;
+      envelopes[offset + speakerEmphasisOffset + index] =
+        progress * progress * (3 - 2 * progress);
     }
     if ((frame + 1) % 120 === 0 && frame + 1 < frames) yield;
   }

@@ -41,8 +41,11 @@ export async function measureStudio3d({
   height,
   frameOrder,
   worker = false,
+  visualPalette,
 }) {
-  async function measure({ url, width, height, frameOrder, worker }) {
+  async function measure({
+    url, width, height, frameOrder, worker, visualPalette,
+  }) {
     const { createStudio3dScene } = await import(url);
     const createCanvas = () => {
       if (worker) return new OffscreenCanvas(width, height);
@@ -102,15 +105,15 @@ export async function measureStudio3d({
       theme: "dark",
     };
     const signal = new AbortController().signal;
-    const scene = createStudio3dScene({
-      paletteId: "aurora",
-      cameraPresetId: "drift",
-      moodId: "urgent",
-      intensity: 1,
-    });
+    const scene = createStudio3dScene(
+      visualPalette
+        ? { paletteId: visualPalette, cameraPresetId: "static" }
+        : { paletteId: "aurora", cameraPresetId: "drift", moodId: "urgent", intensity: 1 },
+    );
     const textLayouts = new Map();
     const hashFrames = new Set([0, 15, 30, 60, 120]);
     const hashes = {};
+    const visuals = {};
     const metrics = { drawCalls: 0, triangles: 0 };
     let failure;
 
@@ -151,6 +154,101 @@ export async function measureStudio3d({
         if (failure) throw failure;
       }
 
+      function sampleVisuals(pixels) {
+        const portrait = width < height;
+        const centerX = portrait ? 0.43 : 0.5;
+        const centerY = portrait ? 0.30 : 0.345;
+        const orbRadius = (height * (portrait ? 0.118 : 0.195)) / 2;
+        const mean = (values) =>
+          values.reduce((sum, value) => sum + value, 0) / values.length;
+        const linear = (channel) => {
+          const value = channel / 255;
+          return value <= 0.04045
+            ? value / 12.92
+            : ((value + 0.055) / 1.055) ** 2.4;
+        };
+        const sample = (image, x, y, convert) => {
+          const offset = 4 * (Math.floor(y) * image.width + Math.floor(x));
+          return (
+            0.2126 * convert(image.data[offset]) +
+            0.7152 * convert(image.data[offset + 1]) +
+            0.0722 * convert(image.data[offset + 2])
+          );
+        };
+        const downscaled = createCanvas();
+        downscaled.width = Math.floor(width / 4);
+        downscaled.height = Math.floor(height / 4);
+        const smallContext = downscaled.getContext("2d");
+        smallContext.drawImage(
+          composite.canvas, 0, 0, downscaled.width, downscaled.height,
+        );
+        const small = smallContext.getImageData(
+          0, 0, downscaled.width, downscaled.height,
+        );
+        const luma = (x, y) => sample(small, x, y, (channel) => channel / 255);
+        const maxStep = (length, read) => {
+          let largest = 0;
+          for (let index = 1; index < length; index++)
+            largest = Math.max(largest, Math.abs(read(index) - read(index - 1)));
+          return largest;
+        };
+        const horizontalStep = maxStep(
+          small.width, (x) => luma(x, small.height * 0.13),
+        );
+        const verticalStep = maxStep(
+          small.height, (y) => luma(small.width * 0.92, y),
+        );
+
+        // Compare the inter-orb gap with strips at the same height at both frame edges.
+        const backdropStrip = (x, halfWidth) => {
+          const samples = [];
+          for (let row = 0; row < 12; row++)
+            for (let column = -2; column <= 2; column++)
+              samples.push(sample(
+                small,
+                (x + (column * halfWidth) / 2) * small.width,
+                (centerY + (row - 5.5) * 0.009) * small.height,
+                linear,
+              ));
+          return mean(samples);
+        };
+        const betweenOrbs = backdropStrip(centerX, 0.014);
+        const frameEdge = mean([
+          backdropStrip(0.04, 0.02), backdropStrip(0.96, 0.02),
+        ]);
+
+        const hosts = (portrait ? [0.25, 0.61] : [0.34, 0.66]).map((anchorX) => {
+          const x = anchorX * width;
+          const y = centerY * height;
+          const luminance = (px, py) => sample(pixels, px, py, linear);
+          // Sample above the equatorial bands to isolate body light from band light.
+          const body = [];
+          for (let row = -2; row <= 2; row++)
+            for (let column = -2; column <= 2; column++)
+              body.push(luminance(
+                x + column * 0.05 * orbRadius,
+                y + (row * 0.05 - 0.37) * orbRadius,
+              ));
+
+          const rim = [];
+          const contrast = [];
+          // Trace the upper arc to cover smooth and faceted silhouettes. Take the
+          // brightest rim on each ray and pair it with the adjacent backdrop.
+          for (let ray = -6; ray <= 6; ray++) {
+            const angle = -Math.PI / 2 + ray * Math.PI / 36;
+            const radial = (radius) =>
+              luminance(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+            let peak = 0;
+            for (let radius = orbRadius * 0.88; radius <= orbRadius * 1.10; radius++)
+              peak = Math.max(peak, radial(radius));
+            rim.push(peak);
+            contrast.push((peak + 0.05) / (radial(orbRadius * 1.17) + 0.05));
+          }
+          return { body: mean(body), rim: mean(rim), rimContrast: Math.min(...contrast) };
+        });
+        return { horizontalStep, verticalStep, betweenOrbs, frameEdge, hosts };
+      }
+
       const warmupStart = performance.now();
       for (let index = 0; index < 10; index++) draw(index);
       const warmupMs = performance.now() - warmupStart;
@@ -162,9 +260,12 @@ export async function measureStudio3d({
         const { calls, triangles } = scene.getRenderStats();
         metrics.drawCalls = Math.max(metrics.drawCalls, calls);
         metrics.triangles = Math.max(metrics.triangles, triangles);
-        if (hashFrames.has(index)) {
-          const { data } = composite.getImageData(0, 0, width, height);
-          const digest = await crypto.subtle.digest("SHA-256", data);
+        const hashFrame = hashFrames.has(index);
+        if (hashFrame || visualPalette) {
+          const pixels = composite.getImageData(0, 0, width, height);
+          if (visualPalette) visuals[index] = sampleVisuals(pixels);
+          if (!hashFrame) continue;
+          const digest = await crypto.subtle.digest("SHA-256", pixels.data);
           hashes[index] = Array.from(new Uint8Array(digest), (byte) =>
             byte.toString(16).padStart(2, "0"),
           ).join("");
@@ -186,6 +287,7 @@ export async function measureStudio3d({
         p95Ms: samples[Math.ceil(samples.length * 0.95) - 1],
         ...metrics,
         hashes,
+        ...(visualPalette && { visuals }),
       };
     } finally {
       scene.dispose();
@@ -195,7 +297,7 @@ export async function measureStudio3d({
   const url = URL.createObjectURL(
     new Blob([bundle], { type: "text/javascript" }),
   );
-  const options = { url, width, height, frameOrder, worker };
+  const options = { url, width, height, frameOrder, worker, visualPalette };
   try {
     if (!worker) return await measure(options);
     if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function")

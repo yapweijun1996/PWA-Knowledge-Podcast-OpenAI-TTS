@@ -405,3 +405,59 @@ test("Studio 3D stays within the render budget and reproduces pixels after shuff
     expect(shuffled.hashes).toEqual(frames.hashes);
   }
 });
+
+test("Studio 3D keeps the backdrop continuous and makes the speaker visible at preview sizes", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.route("**/studio3d-visuals", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
+  );
+  await page.goto("/studio3d-visuals");
+  const bundle = await bundleStudio3d();
+  for (const [width, height] of [
+    [960, 540],
+    [390, 694],
+  ]) {
+    for (const palette of ["aurora", "sunset", "mono", "ocean"]) {
+      const label = `${palette} at ${width}×${height}`;
+      // The synthetic turn plan has stable A and B samples at 1s and 2s.
+      const result = await page.evaluate(measureStudio3d, {
+        bundle,
+        width,
+        height,
+        frameOrder: [30, 60],
+        visualPalette: palette,
+      });
+      expect(result.status, label).toBe("PASS");
+      const aSpeaking = result.visuals[30];
+      const bSpeaking = result.visuals[60];
+      for (const frame of [aSpeaking, bSpeaking]) {
+        expect(frame.horizontalStep, `${label} horizontal luma step`).toBeLessThanOrEqual(
+          2 / 255 + 1e-9,
+        );
+        expect(frame.verticalStep, `${label} vertical luma step`).toBeLessThanOrEqual(
+          2 / 255 + 1e-9,
+        );
+        expect(
+          Math.abs(frame.betweenOrbs - frame.frameEdge) / frame.frameEdge,
+          `${label} inter-orb luminance versus frame edge`,
+        ).toBeLessThanOrEqual(0.15);
+      }
+      for (const [host, active, idle] of [
+        ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
+        ["B", bSpeaking.hosts[1], aSpeaking.hosts[1]],
+      ]) {
+        expect(active.body - idle.body, `${label} host ${host} body emphasis`).toBeGreaterThan(
+          0.012,
+        );
+        expect(active.rim, `${label} host ${host} rim emphasis`).toBeGreaterThan(
+          1.2 * idle.rim,
+        );
+        expect(active.rimContrast, `${label} host ${host} rim contrast`).toBeGreaterThanOrEqual(
+          3,
+        );
+      }
+    }
+  }
+});

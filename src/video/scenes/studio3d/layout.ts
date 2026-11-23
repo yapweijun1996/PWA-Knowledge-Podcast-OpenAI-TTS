@@ -14,15 +14,16 @@ export function studioLayout(width: number, height: number) {
   const { orbCenters, orbDiameterH } = designTokens[orientation];
   const [first, second] = orbCenters;
   const centerX = (first[0] + second[0]) / 2;
-  const centerY = first[1];
+  const centerY = portrait ? 0.30 : first[1];
   const hostX =
     ((second[0] - first[0]) / 2) * aspect * viewHeight * cameraDistance;
   const orbRadius =
-    cameraDistance * Math.sin(Math.atan(orbDiameterH * halfFovTangent));
+    cameraDistance *
+    Math.sin(Math.atan((portrait ? 0.118 : orbDiameterH) * halfFovTangent));
   const floorY = portrait ? -0.77 : -0.93;
   const pedestalHeight = portrait ? 0.32 : 0.2;
   const pedestalRadius = orbRadius * (portrait ? 0.83 : 1.04);
-  const barWidth = portrait ? 0.059 : 0.129;
+  const barWidth = portrait ? 0.05 : 0.129;
   const ringWidth = portrait ? 1.21 : 3.61;
   const ringDepth = 1.24 * (portrait ? 0.55 : 1);
   const ring = Array.from({ length: spectrumBins }, (_, index) => {
@@ -30,18 +31,26 @@ export function studioLayout(width: number, height: number) {
     const x = ringWidth * Math.cos(angle);
     const z = ringDepth * Math.sin(angle);
     const bias = (1 + Math.cos(angle)) / 2;
-    const heightCap = 0.055 * (1 - 0.36 * Math.max(0, z / ringDepth));
+    const depth = z / ringDepth;
+    const foreground = Math.max(0, depth);
+    const heightCap = portrait
+      ? 0.022 + (0.055 - 0.022) * Math.max(0, -depth)
+      : 0.055 * (1 - 0.36 * foreground);
+    // Raise the landscape front arc to clear the chips through the camera path.
+    // Portrait has room to lower the arc and separate it from the pedestals.
+    const baseY = floorY + (portrait ? -0.035 : 0.28) * foreground;
     return {
       x,
       z,
       bias,
+      baseY,
       heightCap,
       baseCorners: ([-1, 1] as const).flatMap((side) =>
         ([-1, 1] as const).map(
           (end) =>
             [
               x + (side * barWidth) / 2,
-              floorY,
+              baseY,
               z + (end * barWidth) / 2,
             ] as const,
         ),
@@ -109,11 +118,17 @@ export function spectrumBarHeight(
   return maxHeight * (0.1 + 0.9 * Math.max(0, Math.min(1, energy)));
 }
 
-export const orbScaleAt = (energy: number) =>
-  1 + 0.06 * Math.max(0, Math.min(1, energy));
+const unit = (value: number) => Math.max(0, Math.min(1, value));
+
+export const orbScaleAt = (
+  energy: number,
+  emphasis: number,
+  reducedMotion = false,
+) =>
+  1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.035 * unit(emphasis));
 
 export const haloOpacityAt = (energy: number, reducedMotion = false) =>
-  0.15 + (reducedMotion ? 0 : 0.02 * Math.max(0, Math.min(1, energy)));
+  0.09 + (reducedMotion ? 0 : 0.03 * unit(energy));
 
 export const studioParticleCount = 12;
 

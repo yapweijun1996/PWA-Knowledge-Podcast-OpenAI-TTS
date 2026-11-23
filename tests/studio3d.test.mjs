@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { videoLayout } from "../src/video/design/layout.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 import { designTokens } from "../src/video/design/tokens.ts";
 import {
@@ -7,6 +8,7 @@ import {
   audioStateAt,
   envelopeStride,
   prepareAudioEnvelopes,
+  speakerEmphasisOffset,
   spectrumBandEdges,
   spectrumBins,
 } from "../src/video/scenes/studio3d/audio-state.ts";
@@ -20,6 +22,7 @@ import {
 } from "../src/video/scenes/studio3d/layout.ts";
 import {
   cameraLabels,
+  cameraFov,
   cameraPoseAt,
   defaultStudio3dMood,
   defaultStudio3dSettings,
@@ -112,10 +115,13 @@ test("studio clamps intensity and applies the specified mood multipliers", () =>
   assert.deepEqual(motionMultipliers(), { audio: 1, camera: 1 });
   assert.deepEqual(motionMultipliers("urgent", 4), { audio: 1, camera: 1 });
   assert.deepEqual(motionMultipliers("urgent", -1), { audio: 0, camera: 1 });
-  assert.equal(orbScaleAt(-1), 1);
-  assert.equal(orbScaleAt(2), 1.06);
-  assert.ok(haloOpacityAt(2) <= 0.18);
-  assert.ok(haloOpacityAt(2) - haloOpacityAt(0) <= 0.05);
+  assert.equal(orbScaleAt(-1, -1), 1);
+  near(orbScaleAt(0, 1), 1.035);
+  near(orbScaleAt(2, 2), 1.048);
+  assert.ok(orbScaleAt(2, 2) <= 1.06);
+  assert.equal(orbScaleAt(1, 1, true), orbScaleAt(1, 0, true));
+  assert.equal(haloOpacityAt(2), 0.12);
+  assert.ok(haloOpacityAt(2) - haloOpacityAt(0) <= 0.03);
   assert.equal(haloOpacityAt(2, true), haloOpacityAt(0, true));
 });
 
@@ -228,7 +234,9 @@ test("episode envelopes reset, use separate attack and release and support shuff
   const orbRelease = Math.exp(-1000 / (30 * 320));
   const spectrumAttack = 1 - Math.exp(-1000 / (30 * 80));
   const spectrumRelease = Math.exp(-1000 / (30 * 260));
-  const bin = frame(0).indexOf(Math.max(...frame(0).slice(2)));
+  const bin = frame(0).indexOf(
+    Math.max(...frame(0).slice(2, speakerEmphasisOffset)),
+  );
   assert.ok(bin >= 2);
   near(frame(0)[0], orbAttack);
   near(frame(0)[bin], spectrumAttack);
@@ -242,6 +250,39 @@ test("episode envelopes reset, use separate attack and release and support shuff
   const fresh = finishEnvelopePass(audio, plan);
   for (const index of [45, 0, 149, 30, 1, 45])
     assert.deepEqual(frameAt(fresh, index), frame(index));
+});
+
+test("speaker emphasis eases across turns and pauses even with silent PCM", () => {
+  const audio = { sampleRate, channels: [new Float32Array(sampleRate * 2)] };
+  const fps = 30;
+  const plan = {
+    fps,
+    duration: 2,
+    scenes: [
+      { ...turn, start: 0, end: 1, audioStart: 0, speakerId: "A" },
+      { ...turn, start: 1, end: 1.5, audioStart: 1 },
+    ],
+  };
+  const envelopes = finishEnvelopePass(audio, plan);
+  const emphasisAt = (index) => {
+    const offset = index * envelopeStride;
+    assert.deepEqual(
+      envelopes.slice(offset, offset + speakerEmphasisOffset),
+      new Float32Array(speakerEmphasisOffset),
+    );
+    return [
+      ...envelopes.slice(offset + speakerEmphasisOffset, offset + envelopeStride),
+    ];
+  };
+  const rampFrames = Math.ceil(
+    (fps * designTokens.common.motion.hostEmphasisMs) / 1000,
+  );
+  assert.ok(emphasisAt(0)[0] > 0 && emphasisAt(0)[0] < 1);
+  assert.deepEqual(emphasisAt(rampFrames), [1, 0]);
+  const [fadingA, risingB] = emphasisAt(30);
+  assert.ok(fadingA < 1 && fadingA > risingB && risingB > 0);
+  assert.deepEqual(emphasisAt(30 + rampFrames), [0, 1]);
+  assert.deepEqual(emphasisAt(45 + rampFrames), [0, 0]);
 });
 
 const degrees = (radians) => (radians * 180) / Math.PI;
@@ -309,15 +350,29 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
     const tokens = designTokens[layout.orientation];
     const [width, height] = tokens.frame;
     const [left, top, right, bottom] = tokens.stageBox;
+    const isPortrait = layout.orientation === "portrait";
+    const chipTop = Math.min(
+      ...videoLayout(width, height, layout.orientation).hostChips.map(
+        ({ y }) => y / height,
+      ),
+    );
+    const reference = cameraPoseAt("static", 0);
+    const diameterH =
+      Math.tan(Math.asin(layout.orbRadius / reference.distance)) /
+      Math.tan((cameraFov * Math.PI) / 360);
+    near(diameterH, isPortrait ? 0.118 : tokens.orbDiameterH);
     const pedestalCorners = [];
     const orbCorners = [];
     for (const sign of [-1, 1]) {
       const x = sign * layout.hostX;
       assert.deepEqual(
-        projectStagePoint(layout, cameraPoseAt("static", 0), [x, 0, 0]).map(
+        projectStagePoint(layout, reference, [x, 0, 0]).map(
           (point) => Number(point.toFixed(8)),
         ),
-        [...tokens.orbCenters[sign === -1 ? 0 : 1]],
+        [
+          tokens.orbCenters[sign === -1 ? 0 : 1][0],
+          isPortrait ? 0.30 : tokens.orbCenters[0][1],
+        ],
       );
       for (let index = 0; index < 16; index++) {
         const theta = (Math.PI * index) / 8;
@@ -329,7 +384,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           dz * layout.pedestalRadius,
         ]);
       }
-      const radius = layout.orbRadius * orbScaleAt(1) * 1.03;
+      const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
       // The axis-aligned bounding cube is conservative for the orb and bands.
       for (const dx of [-radius, radius])
         for (const dy of [-radius, radius])
@@ -380,6 +435,13 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
             highest = Math.min(highest, fit([x, y + blockHeight, z]));
           }
           assert.ok(lowest - highest <= block.heightCap + 1e-9);
+          if (block.z >= 0) {
+            assert.ok(
+              lowest <= chipTop - 0.02,
+              `${layout.orientation} ${preset}: ${chipTop - lowest}H ring clearance`,
+            );
+            if (isPortrait) assert.ok(lowest - highest <= 0.022 + 1e-9);
+          }
           maxRingHeight = Math.max(maxRingHeight, lowest - highest);
         }
       }

@@ -7,6 +7,7 @@ import {
 import {
   envelopeStride,
   prepareAudioEnvelopes,
+  speakerEmphasisOffset,
   spectrumBins,
 } from "./audio-state.ts";
 import {
@@ -28,36 +29,51 @@ import {
   type Studio3dSettings,
 } from "./presets.ts";
 
-function radialGeometry() {
-  const geometry = new THREE.RingGeometry(0, 1, 40, 12);
-  const positions = geometry.getAttribute("position");
-  const colors = new Float32Array(positions.count * 4).fill(1);
-  for (let index = 0; index < positions.count; index++) {
-    const radius = Math.min(
-      1,
-      Math.hypot(positions.getX(index), positions.getY(index)),
-    );
-    colors[index * 4 + 3] = 1 - radius ** 2 * (3 - 2 * radius);
-  }
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 4));
-  return geometry;
+function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      tint: { value: new THREE.Color(color) },
+      strength: { value: opacity },
+    },
+    vertexShader: `
+      varying vec2 planeUv;
+      void main() {
+        planeUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 tint;
+      uniform float strength;
+      varying vec2 planeUv;
+      void main() {
+        float radius = length(planeUv * 2.0 - 1.0);
+        float alpha = 1.0 - smoothstep(0.0, 1.0, radius);
+        gl_FragColor = vec4(tint, alpha * strength);
+        #include <colorspace_fragment>
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+  });
 }
 
 function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   const body = new THREE.Color("#253247");
   const rim = new THREE.Color("#53617D");
-  const pinstripe = rim.clone().lerp(accent, 0.62);
+  const pinstripe = rim.clone().lerp(accent, 0.38);
   // Each contour point supplies the colour of one horizontal strip.
   const profile = [
     { radius: 0, height: 0, color: body },
     { radius: 0.9, height: 0, color: body },
     { radius: 1, height: 0.13, color: body },
-    { radius: 0.89, height: 0.75, color: body },
-    { radius: 0.88, height: 0.78, color: rim },
-    { radius: 0.87, height: 0.87, color: rim },
-    { radius: 0.86, height: 0.89, color: pinstripe },
-    { radius: 0.85, height: 0.92, color: pinstripe },
-    { radius: 0.79, height: 1, color: rim },
+    { radius: 0.89, height: 0.70, color: body },
+    { radius: 0.88, height: 0.74, color: rim },
+    { radius: 0.87, height: 0.83, color: rim },
+    { radius: 0.86, height: 0.86, color: pinstripe },
+    { radius: 0.81, height: 1, color: rim },
+    { radius: 0.69, height: 1, color: rim },
+    { radius: 0.67, height: 1, color: body },
     { radius: 0, height: 1, color: body },
   ];
   const geometry = new THREE.LatheGeometry(
@@ -73,6 +89,45 @@ function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
     profile[index % profile.length].color.toArray(colors, index * 3);
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   return geometry;
+}
+
+function orbMaterial(color: THREE.Color, faceted: boolean) {
+  const material = new THREE.MeshStandardMaterial({
+    color: color.clone().multiplyScalar(0.47),
+    emissive: color,
+    emissiveIntensity: 0.047,
+    roughness: faceted ? 0.72 : 0.50,
+    flatShading: faceted,
+    fog: false,
+  });
+  const rim = { value: 0.18 };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.studioRimStrength = rim;
+    // Use the radial normal for rim placement so B keeps its shaded facets
+    // and still has a continuous silhouette accent.
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `
+        #include <common>
+        varying vec3 studioRadial;
+      `)
+      .replace("#include <begin_vertex>", `
+        #include <begin_vertex>
+        studioRadial = normalMatrix * normalize(position);
+      `);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `
+        #include <common>
+        varying vec3 studioRadial;
+        uniform float studioRimStrength;
+      `)
+      .replace("#include <opaque_fragment>", `
+        float facing = max(0.0, dot(normalize(studioRadial), normalize(vViewPosition)));
+        float rimMask = smoothstep(0.48, 0.82, 1.0 - facing);
+        outgoingLight = mix(outgoingLight, emissive, rimMask * studioRimStrength);
+        #include <opaque_fragment>
+      `);
+  };
+  return { material, rim };
 }
 
 function buildStudio(
@@ -105,18 +160,21 @@ function buildStudio(
     height,
   );
   scene.add(new THREE.HemisphereLight("#C4CDDE", "#253247", 1.15));
-  const key = new THREE.DirectionalLight("#F5F7FC", 1.75);
+  const key = new THREE.DirectionalLight("#F5F7FC", 1.55);
   key.position.set(-3, 5, 6);
   scene.add(key);
+  const backlight = new THREE.DirectionalLight("#C4CDDE", 0.65);
+  backlight.position.set(2, 3, -5);
+  scene.add(backlight);
 
+  const plane = new THREE.PlaneGeometry(2, 2);
   const backdrop = new THREE.Mesh(
-    new THREE.PlaneGeometry(2, 2),
+    plane,
     new THREE.ShaderMaterial({
       uniforms: {
-        inner: { value: new THREE.Color(palette.stops[0]) },
+        top: { value: new THREE.Color(palette.stops[0]) },
         middle: { value: new THREE.Color(palette.stops[1]) },
-        outer: { value: new THREE.Color(palette.stops[2]) },
-        center: { value: new THREE.Vector2(centerX, 1 - centerY) },
+        bottom: { value: new THREE.Color(palette.stops[2]) },
       },
       vertexShader: `
         varying vec2 screenUv;
@@ -126,18 +184,25 @@ function buildStudio(
         }
       `,
       fragmentShader: `
-        uniform vec3 inner;
+        uniform vec3 top;
         uniform vec3 middle;
-        uniform vec3 outer;
-        uniform vec2 center;
+        uniform vec3 bottom;
         varying vec2 screenUv;
+        float bayer2(vec2 cell) {
+          return 2.0 * abs(cell.x - cell.y) + cell.y;
+        }
         void main() {
-          float radius = length((screenUv - center) * vec2(1.4, 1.02));
-          vec3 tint = radius < 0.55
-            ? mix(inner, middle, radius / 0.55)
-            : mix(middle, outer, clamp((radius - 0.55) / 0.45, 0.0, 1.0));
+          float y = 1.0 - screenUv.y;
+          vec3 tint = y < 0.55
+            ? mix(top, middle, y / 0.55)
+            : mix(middle, bottom, (y - 0.55) / 0.45);
           gl_FragColor = vec4(tint, 1.0);
           #include <colorspace_fragment>
+          // Repeat a 4px Bayer matrix at fixed screen coordinates. Apply the
+          // bias in sRGB so it spans one 8-bit quantization interval.
+          vec2 pixel = floor(gl_FragCoord.xy);
+          float rank = 4.0 * bayer2(mod(pixel, 2.0)) + bayer2(mod(floor(pixel * 0.5), 2.0));
+          gl_FragColor.rgb += ((rank + 0.5) / 16.0 - 0.5) / 255.0;
         }
       `,
       depthTest: false,
@@ -148,19 +213,9 @@ function buildStudio(
   backdrop.renderOrder = -1;
   scene.add(backdrop);
 
-  const radial = radialGeometry();
-  const radialMaterial = (color: THREE.ColorRepresentation, opacity: number) =>
-    new THREE.MeshBasicMaterial({
-      color,
-      opacity,
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-      fog: false,
-    });
   const shadowMaterial = radialMaterial("#000000", 0.28);
   const wash = new THREE.Mesh(
-    radial,
+    plane,
     radialMaterial(hostA.clone().lerp(hostB, 0.5), 0.06),
   );
   wash.rotation.x = -Math.PI / 2;
@@ -171,14 +226,15 @@ function buildStudio(
 
   const pedestalMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.96,
+    roughness: 0.82,
+    fog: false,
   });
   const { pedestalRadius, pedestalHeight } = layout;
   function addHost(x: number, color: THREE.Color, faceted: boolean) {
-    const shadow = new THREE.Mesh(radial, shadowMaterial);
+    const shadow = new THREE.Mesh(plane, shadowMaterial);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.set(x, floorY + 0.001, 0);
-    shadow.scale.set(pedestalRadius * 1.7, pedestalRadius * 1.56, 1);
+    shadow.scale.set(pedestalRadius * 1.40, pedestalRadius * 1.32, 1);
     shadow.renderOrder = 2;
     scene.add(shadow);
 
@@ -189,20 +245,15 @@ function buildStudio(
     pedestal.position.set(x, floorY, 0);
     scene.add(pedestal);
 
+    const { material, rim } = orbMaterial(color, faceted);
     const orb = new THREE.Mesh(
       faceted
         ? new THREE.IcosahedronGeometry(orbRadius, 2)
         : new THREE.SphereGeometry(orbRadius, 36, 24),
-      new THREE.MeshStandardMaterial({
-        color: color.clone().multiplyScalar(0.38),
-        emissive: color,
-        emissiveIntensity: 0.055,
-        roughness: 0.86,
-        flatShading: faceted,
-      }),
+      material,
     );
     orb.position.set(x, 0, 0);
-    const bandMaterial = new THREE.MeshBasicMaterial({ color, fog: true });
+    const bandMaterial = new THREE.MeshBasicMaterial({ color, fog: false });
     for (const offset of faceted ? [-0.25, 0.25] : [0]) {
       const band = new THREE.Mesh(
         new THREE.TorusGeometry(
@@ -220,13 +271,13 @@ function buildStudio(
     scene.add(orb);
 
     const halo = new THREE.Mesh(
-      radial,
+      plane,
       radialMaterial(color, haloOpacityAt(0)),
     );
-    halo.scale.setScalar(orbRadius * 1.48);
+    halo.scale.setScalar(orbRadius * 1.36);
     halo.renderOrder = 3;
     scene.add(halo);
-    return { orb, halo };
+    return { orb, halo, rim, bandMaterial };
   }
   const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
 
@@ -279,23 +330,32 @@ function buildStudio(
     camera.position.set(...pose.position);
     camera.lookAt(...pose.target);
 
-    for (const [host, { orb, halo }] of hosts.entries()) {
+    for (const [host, { orb, halo, rim, bandMaterial }] of hosts.entries()) {
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
-      orb.scale.setScalar(orbScaleAt(energy));
+      const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
+      orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
+      orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
+      rim.value = 0.18 + 0.72 * emphasis;
+      bandMaterial.color
+        .copy(orb.material.emissive)
+        .multiplyScalar(0.57 + 0.33 * emphasis);
       halo.quaternion.copy(camera.quaternion);
       halo.position.set(
         orb.position.x - pose.back[0] * orbRadius * 0.3,
         -pose.back[1] * orbRadius * 0.3,
         -pose.back[2] * orbRadius * 0.3,
       );
-      halo.material.opacity = haloOpacityAt(energy, settings.reducedMotion);
+      halo.material.uniforms.strength.value = haloOpacityAt(
+        energy,
+        settings.reducedMotion,
+      );
     }
 
     for (const [bin, block] of layout.ring.entries()) {
       const energy = (envelopes[offset + 2 + bin] ?? 0) * motion.audio;
       const height = spectrumBarHeight(pose, block, energy);
       bar.scale.y = height;
-      bar.position.set(block.x, floorY + height / 2, block.z);
+      bar.position.set(block.x, block.baseY + height / 2, block.z);
       bar.updateMatrix();
       bars.setMatrixAt(bin, bar.matrix);
     }
