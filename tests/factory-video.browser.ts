@@ -1,5 +1,7 @@
+import { resolve } from "node:path";
 import { buffer } from "node:stream/consumers";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { build } from "vite";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
@@ -139,7 +141,9 @@ async function openFinishedEpisode(
   return {
     panel,
     render,
-    duration: duration + 2 + chapters.length * 1.5,
+    duration,
+    episode,
+    wav: [...wav],
     unexpected,
   };
 }
@@ -180,13 +184,23 @@ test("Studio renders a finished episode, persists approval and exports the revie
     english("video.scene.studio3d"),
   ]);
   await scene.selectOption("waveform");
-  await expect(panel.getByLabel(english("video.studio3d.palette"))).toHaveCount(0);
+  await expect(panel.getByLabel(english("video.studio3d.palette"))).toHaveCount(
+    0,
+  );
   await render.click();
   const preview = panel.locator("video");
   await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
   await expect
     .poll(() => preview.evaluate((video: HTMLVideoElement) => video.duration))
     .toBeCloseTo(duration, 1);
+  await expect
+    .poll(() =>
+      preview.evaluate((video: HTMLVideoElement) => [
+        video.videoWidth,
+        video.videoHeight,
+      ]),
+    )
+    .toEqual([1920, 1080]);
   const mp4Bytes = await preview.evaluate(
     async (video: HTMLVideoElement) =>
       (await (await fetch(video.currentSrc)).blob()).size,
@@ -274,11 +288,15 @@ test("Studio renders a finished episode, persists approval and exports the revie
     });
     try {
       const records = await new Promise<AgentArtifact[]>((resolve, reject) => {
-        const request = db.transaction("artifacts").objectStore("artifacts").getAll();
+        const request = db
+          .transaction("artifacts")
+          .objectStore("artifacts")
+          .getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const receipt = records.find(({ kind }) => kind === "video")?.metadata?.studioVideo;
+      const receipt = records.find(({ kind }) => kind === "video")?.metadata
+        ?.studioVideo;
       return { sceneId: receipt?.sceneId, chapters: receipt?.chapterScenes };
     } finally {
       db.close();
@@ -286,7 +304,10 @@ test("Studio renders a finished episode, persists approval and exports the revie
   });
   expect(sceneReceipt).toEqual({
     sceneId: "waveform",
-    chapters: dialogue.map(({ chapterId }) => ({ chapterId, sceneId: "waveform" })),
+    chapters: dialogue.map(({ chapterId }) => ({
+      chapterId,
+      sceneId: "waveform",
+    })),
   });
   await expect(panel.getByLabel(english("video.panel.theme"))).toHaveValue(
     "light",
@@ -324,7 +345,7 @@ test("Studio renders a finished episode, persists approval and exports the revie
   );
   expect(files.get("tags.txt")!.toString()).toBe("fixture, tests");
   expect(files.get("chapters.txt")!.toString()).toMatch(
-    /^0:00 Reviewed opening\n0:04 /u,
+    /^0:00 Reviewed opening\n0:01 /u,
   );
 
   for (const width of [320, 768, 1440]) {
@@ -350,6 +371,109 @@ test("Studio renders a finished episode, persists approval and exports the revie
   await expect(panel.getByText(english("episode.video.stale"))).toBeVisible();
   await expect(preview).toHaveCount(0);
   await expect(packageButton).toHaveCount(0);
+  expect(unexpected).toEqual([]);
+});
+
+test("renders portrait locally on the same duration clock as the assembled WAV", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  test.setTimeout(90_000);
+  const { duration, episode, wav, unexpected } = await openFinishedEpisode(
+    page,
+    context,
+    baseURL!,
+  );
+  // The fixture server serves the built app. Bundle the same entry points
+  // in memory so the portrait case can call them without a test-only app API.
+  const modules = await build({
+    configFile: false,
+    logLevel: "error",
+    build: {
+      write: false,
+      lib: {
+        entry: {
+          timeline: resolve("src/video/timeline.ts"),
+          render: resolve("src/video/render.ts"),
+        },
+        formats: ["es"],
+        fileName: (_, name) => `${name}.js`,
+      },
+    },
+  });
+  const chunks = new Map(
+    (Array.isArray(modules) ? modules : [modules]).flatMap((module) =>
+      "output" in module
+        ? module.output.flatMap((item) =>
+            item.type === "chunk" ? [[item.fileName, item.code] as const] : [],
+          )
+        : [],
+    ),
+  );
+  expect(chunks.has("timeline.js") && chunks.has("render.js")).toBe(true);
+  await page.route("**/__video-test/**", async (route) => {
+    const name = new URL(route.request().url()).pathname.slice(
+      "/__video-test/".length,
+    );
+    const code = chunks.get(name);
+    await route.fulfill(
+      code === undefined
+        ? { status: 404 }
+        : { contentType: "text/javascript", body: code },
+    );
+  });
+  const result = await page.evaluate(
+    async ({ episode, wav, timelineModule, renderModule }) => {
+      const { buildTimeline } = await import(timelineModule);
+      const { renderVideo } = await import(renderModule);
+      const audioContext = new OfflineAudioContext(1, 1, 24_000);
+      const audio = await audioContext.decodeAudioData(
+        Uint8Array.from(wav).buffer,
+      );
+      const plan = buildTimeline(episode, {
+        resolution: { width: 1080, height: 1920 },
+      });
+      const receipt = await renderVideo({
+        plan,
+        audio,
+        theme: "light",
+        sceneId: "waveform",
+      });
+      const video = document.createElement("video");
+      const url = URL.createObjectURL(receipt.blob);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => resolve();
+          video.onerror = () =>
+            reject(new Error("Could not read rendered video metadata"));
+          video.preload = "metadata";
+          video.src = url;
+        });
+        return {
+          width: video.videoWidth,
+          height: video.videoHeight,
+          duration: video.duration,
+          orientation: receipt.orientation,
+        };
+      } finally {
+        video.removeAttribute("src");
+        URL.revokeObjectURL(url);
+      }
+    },
+    {
+      episode,
+      wav,
+      timelineModule: "/__video-test/timeline.js",
+      renderModule: "/__video-test/render.js",
+    },
+  );
+  expect([result.width, result.height, result.orientation]).toEqual([
+    1080,
+    1920,
+    "portrait",
+  ]);
+  expect(result.duration).toBeCloseTo(duration, 1);
   expect(unexpected).toEqual([]);
 });
 
