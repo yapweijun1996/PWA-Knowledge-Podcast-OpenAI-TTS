@@ -36,6 +36,28 @@ when it resumes, subject to its rolling attempt limit. The worker can encode
 MP3 when FFmpeg and `libmp3lame` are available. WAV remains available if MP3
 encoding fails. [Automation](../server/production.mjs) · [MP3 support](../server/mp3.mjs)
 
+### Verified macOS installation and playback
+
+On 2026-11-23, the private worker from release `e6bbb361` ran as a per-user
+LaunchAgent. The agent starts at login with the extracted release as its
+working directory. Its program arguments invoke Node 24 with
+`--env-file-if-exists=<absolute path to the private .env>` followed by
+`server/main.mjs`. The credential file has mode `0600`. The agent sets
+`PODCAST_DATA_DIR` to a durable directory outside the release and
+`PODCAST_PORT=18787` because the default port was occupied. After restarting
+the agent, the session endpoint reported a configured local worker and the
+paid discovery schedule remained disabled. [Verified release](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45149039028)
+
+On that Mac, open [Studio](http://127.0.0.1:18787/PWA-Knowledge-Podcast-OpenAI-TTS/?view=studio),
+enter a topic, approve the individual production request and submit it. The
+trial produced a three-chapter Mandarin episode about sundials. The worker
+completed research, outline, script, narration and transcription. The finished
+WAV was 68.41 seconds of 24 kHz mono audio. The app reported 99% transcript
+similarity. Playback advanced after an offline reload and from the installed
+macOS PWA. Restoring the exported episode backup reproduced the WAV byte for
+byte. Open the installed app with the same browser profile to find the episode
+in its Library.
+
 For a private HTTPS reverse proxy, configure an exact `PODCAST_PUBLIC_ORIGIN`
 and a separate random 32–128 character base64url `PODCAST_OWNER_TOKEN`.
 Preserve the intended Host header and bypass proxy caching for API responses.
