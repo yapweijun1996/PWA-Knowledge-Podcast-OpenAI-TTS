@@ -349,23 +349,31 @@ export function resolveThumbnailVariant(options: ThumbnailOptions) {
 }
 
 function prepareThumbnail(options: ThumbnailOptions) {
+  const title = options.title?.normalize("NFC");
+  const customHeadline = options.headline?.normalize("NFC");
   const locale =
     options.locale ??
     (options.language && publishLocales[options.language]) ??
     defaultLocale;
-  const { variant, graphic } = resolveThumbnailVariant(options);
+  const { variant, graphic } = resolveThumbnailVariant({
+    ...options,
+    title,
+    headline: customHeadline,
+  });
   const wordmarkLocale = options.language
     ? publishLocales[options.language]
     : locale;
-  const defaultWordmark = createTranslator(wordmarkLocale)("video.wordmark");
+  const defaultWordmark =
+    createTranslator(wordmarkLocale)("video.wordmark").normalize("NFC");
   const headline =
-    options.headline ??
+    customHeadline ??
     deriveThumbnailHeadline(
-      options.title ?? "",
+      title ?? "",
       locale,
       variant === "headline",
-    );
-  const label = options.wordmark?.trim() ?? "";
+    )?.normalize("NFC") ??
+    null;
+  const label = options.wordmark?.normalize("NFC").trim() ?? "";
   const limit = isCjkHeadline(label)
     ? designTokens.landscape.text.wordmark[1]
     : designTokens.landscape.text.wordmark[2];
@@ -639,9 +647,10 @@ function drawLegacyThumbnail(
   const colors = options.theme === "light" ? palettes.light : palettes.aurora;
   const locale =
     options.locale ?? (options.language && publishLocales[options.language]);
-  const headline =
+  const headline = (
     (options.headline ?? options.title)?.trim() ||
-    (locale ? createTranslator(locale) : t)("publish.content.untitled");
+    (locale ? createTranslator(locale) : t)("publish.content.untitled")
+  ).normalize("NFC");
   const inset = 104;
   const textWidth = width - 2 * inset;
   const fontSize = 84;

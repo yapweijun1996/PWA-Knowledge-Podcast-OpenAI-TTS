@@ -178,7 +178,7 @@ const copy = {
   }
 >;
 
-function fixture(
+export function fixture(
   options: VisualCase,
   durations = [2.7, 2.9, 2.7, 2.4, 2.55, 2.2, 0.3, 0.42],
 ) {
@@ -544,9 +544,24 @@ function makeProbe(
   text: string,
   x: number,
   y: number,
-  maxWidth?: number,
+  maxWidth: number | undefined,
+  masks: Map<string, ReturnType<typeof measureGlyphs>>,
 ): TextProbe | undefined {
-  const glyphs = measureGlyphs(ctx, text, x, y, maxWidth);
+  const key = JSON.stringify([
+    text,
+    x,
+    y,
+    maxWidth,
+    ctx.font,
+    ctx.textBaseline,
+    ctx.textAlign,
+    ctx.direction,
+    ctx.fontKerning,
+    ctx.letterSpacing,
+    ctx.wordSpacing,
+  ]);
+  if (!masks.has(key)) masks.set(key, measureGlyphs(ctx, text, x, y, maxWidth));
+  const glyphs = masks.get(key);
   if (!glyphs) return;
   const { box } = glyphs;
   const background = context(box.width, box.height);
@@ -569,22 +584,21 @@ function makeProbe(
   };
 }
 
-function safeExterior(
+const minimumDecodedEdgePixels = 8;
+
+export function safeExterior(
   pixels: Pixels,
   titleSafe: PixelBox,
   width: number,
   height: number,
 ) {
-  let strongEdges = 0;
+  const edges = new Set<number>();
+  const safeRight = Math.ceil(titleSafe.x + titleSafe.width);
   for (let y = 2; y < height - 2; y++) {
+    const safeRow = y >= titleSafe.y && y < titleSafe.y + titleSafe.height;
     for (let x = 2; x < width - 2; x++) {
-      if (
-        x >= titleSafe.x &&
-        x < titleSafe.x + titleSafe.width &&
-        y >= titleSafe.y &&
-        y < titleSafe.y + titleSafe.height
-      )
-        continue;
+      if (safeRow && x >= titleSafe.x && x < safeRight) x = safeRight;
+      if (x >= width - 2) break;
       const offset = (y * width + x) * 4;
       // Both a diagonal 2D gradient and a radial WebGL backdrop are allowed.
       // A visible edge in the reserved region changes faster than either.
@@ -593,10 +607,39 @@ function safeExterior(
         colorDistance(pixels, offset - width * 8, pixels, offset + width * 8) >
           24
       )
-        strongEdges++;
+        edges.add(y * width + x);
     }
   }
-  return strongEdges;
+  const total = edges.size;
+  const first = edges.values().next().value;
+  let largestComponent = 0;
+  let connectedPixels = 0;
+  // Candidates are at least two pixels from the image border, so neighbor
+  // offsets cannot wrap into another row or leave the image.
+  for (const pixel of edges) {
+    const component = [pixel];
+    edges.delete(pixel);
+    for (const next of component) {
+      for (const row of [-width, 0, width]) {
+        for (const column of [-1, 0, 1]) {
+          const adjacent = next + row + column;
+          if (edges.delete(adjacent)) component.push(adjacent);
+        }
+      }
+    }
+    largestComponent = Math.max(largestComponent, component.length);
+    if (component.length >= minimumDecodedEdgePixels)
+      connectedPixels += component.length;
+  }
+  return {
+    total,
+    largestComponent,
+    connectedPixels,
+    first:
+      first === undefined
+        ? null
+        : { x: first % width, y: Math.floor(first / width) },
+  };
 }
 
 // A 10-degree field is approximated by a half-width, half-height window.
@@ -861,7 +904,7 @@ function captionEvidence(
   locale: string,
   add: (issue: Issue) => void,
 ) {
-  const source = sourceText.trim().replace(/\s+/gu, " ");
+  const source = sourceText.normalize("NFC").trim().replace(/\s+/gu, " ");
   const words = [
     ...source.matchAll(
       /[\p{Script=Latin}\p{N}][\p{Script=Latin}\p{N}\p{M}]*(?:['’\-][\p{Script=Latin}\p{N}][\p{Script=Latin}\p{N}\p{M}]*)*/gu,
@@ -981,101 +1024,180 @@ async function mediaEvent(
 
 async function withVideo<T>(
   blob: Blob,
-  consume: (video: HTMLVideoElement) => Promise<T>,
+  consume: (video: HTMLVideoElement, firstMediaTime: number) => Promise<T>,
 ) {
   const url = URL.createObjectURL(blob);
   const video = document.createElement("video");
   video.muted = true;
   video.preload = "auto";
+  // Keep the paused video in the compositor so a seek publishes its frame.
+  video.width = 160;
+  document.body.append(video);
   try {
-    await mediaEvent(video, "loadeddata", () => {
-      video.src = url;
-    });
-    return await consume(video);
+    const firstMediaTime = await presentedFrame(video, 0, () =>
+      mediaEvent(video, "loadeddata", () => {
+        video.src = url;
+        video.currentTime = frameCenter(0);
+      }),
+    );
+    return await consume(video, firstMediaTime);
   } finally {
+    video.remove();
     video.removeAttribute("src");
     video.load();
     URL.revokeObjectURL(url);
   }
 }
 
-async function seek(video: HTMLVideoElement, frame: number) {
-  const time = Math.min((frame + 0.5) / fps, video.duration - 1e-6);
-  if (
-    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-    video.currentTime === time
-  )
-    return;
-  await mediaEvent(video, "seeked", () => {
-    video.currentTime = time;
-  });
+const frameCenter = (frame: number) => (frame + 0.5) / fps;
+const halfFrame = 0.5 / fps;
+// The mux starts sample i at i / fps. mediaTime reports that presentation
+// timestamp. The seek target is half a frame later, inside the same sample.
+const matchesFrameTime = (frame: number, mediaTime: number) =>
+  Math.abs(mediaTime - frame / fps) < halfFrame;
+
+export function assertFrameTime(frame: number, mediaTime: number) {
+  if (!matchesFrameTime(frame, mediaTime))
+    throw frameAlignmentError(frame, mediaTime);
+}
+
+function frameAlignmentError(frame: number, mediaTime: number) {
+  return new Error(
+    `Visual QA frame alignment: frame ${frame}, seek center ${frameCenter(frame).toFixed(6)} s, expected PTS ${(frame / fps).toFixed(6)} s within half a frame, observed mediaTime ${Number.isNaN(mediaTime) ? "none" : `${mediaTime.toFixed(6)} s`}`,
+  );
+}
+
+async function presentedFrame(
+  video: HTMLVideoElement,
+  frame: number,
+  start: () => Promise<void>,
+) {
+  if (typeof video.requestVideoFrameCallback !== "function")
+    throw new Error(
+      "Visual QA frame alignment requires requestVideoFrameCallback",
+    );
+  let request: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let mediaTime = NaN;
+  try {
+    const presentation = new Promise<void>((resolve, reject) => {
+      const next: VideoFrameRequestCallback = (_now, metadata) => {
+        mediaTime = metadata.mediaTime;
+        if (matchesFrameTime(frame, mediaTime)) resolve();
+        else request = video.requestVideoFrameCallback(next);
+      };
+      request = video.requestVideoFrameCallback(next);
+      timer = setTimeout(
+        () => reject(frameAlignmentError(frame, mediaTime)),
+        8_000,
+      );
+    });
+    await Promise.all([start(), presentation]);
+    assertFrameTime(frame, mediaTime);
+    return mediaTime;
+  } finally {
+    clearTimeout(timer);
+    if (request !== undefined) video.cancelVideoFrameCallback(request);
+  }
+}
+
+export function seekFrame(video: HTMLVideoElement, frame: number) {
+  // The final presentation interval can be shorter than one frame.
+  const target = Math.min(frameCenter(frame), video.duration - 1e-6);
+  return presentedFrame(video, frame, () =>
+    mediaEvent(video, "seeked", () => {
+      video.currentTime = target;
+    }),
+  );
 }
 
 async function readMovieFrames(
   video: HTMLVideoElement,
+  firstMediaTime: number,
   frameCount: number,
-  read: (frame: number) => void,
+  exactFrames: number[],
+  readExact: (frame: number, mediaTime: number) => Pixels,
+  readFlash: () => Pixels,
 ) {
-  const seen = new Set<number>();
-  const capture = (frame: number) => {
-    if (frame < 0 || frame >= frameCount || seen.has(frame)) return;
-    read(frame);
-    seen.add(frame);
-  };
-  capture(0);
-  if (typeof video.requestVideoFrameCallback === "function") {
-    const listening = new AbortController();
-    let request: number | undefined;
-    // Keep the video in the compositor while reading the native-size pixels.
-    video.width = 160;
-    document.body.append(video);
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, (video.duration + 2) * 1000);
-        listening.signal.addEventListener("abort", () => clearTimeout(timer));
-        video.addEventListener("ended", () => resolve(), {
-          signal: listening.signal,
-        });
-        video.addEventListener(
-          "error",
-          () =>
-            reject(new Error(video.error?.message || "MP4 playback failed")),
-          { signal: listening.signal },
-        );
-        const next = (
-          _now: number,
-          { mediaTime }: VideoFrameCallbackMetadata,
-        ) => {
-          try {
-            capture(Math.round(mediaTime * fps));
-            if (seen.size === frameCount) resolve();
-            else request = video.requestVideoFrameCallback(next);
-          } catch (error) {
-            reject(error);
-          }
-        };
-        request = video.requestVideoFrameCallback(next);
-        // Use one forward decode. Seek only for frames skipped by the compositor.
-        video.playbackRate = 1.5;
-        void video.play().catch(() => resolve());
-      });
-    } finally {
-      listening.abort();
-      if (request !== undefined) video.cancelVideoFrameCallback(request);
-      video.pause();
-      video.remove();
-    }
+  const flashFrames: Pixels[] = [];
+  for (const frame of exactFrames) {
+    const mediaTime =
+      frame === 0 ? firstMediaTime : await seekFrame(video, frame);
+    assertFrameTime(frame, mediaTime);
+    flashFrames[frame] = readExact(frame, mediaTime);
   }
-  const forwardFrames = seen.size;
+  const rate = 1.5;
+  const listening = new AbortController();
+  let request: number | undefined;
+  let forwardFrames = 0;
+  let lastMediaTime = NaN;
+  try {
+    if (exactFrames.at(-1) !== 0) await seekFrame(video, 0);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, (video.duration / rate + 2) * 1000);
+      listening.signal.addEventListener("abort", () => clearTimeout(timer));
+      video.addEventListener("ended", () => resolve(), {
+        signal: listening.signal,
+      });
+      video.addEventListener(
+        "error",
+        () => reject(new Error(video.error?.message || "MP4 playback failed")),
+        { signal: listening.signal },
+      );
+      const next: VideoFrameRequestCallback = (_now, { mediaTime }) => {
+        try {
+          const frame = Math.round(mediaTime * fps);
+          const playbackTime = video.currentTime;
+          lastMediaTime = mediaTime;
+          if (
+            frame >= 0 &&
+            frame < frameCount &&
+            matchesFrameTime(frame, mediaTime) &&
+            playbackTime >= mediaTime &&
+            playbackTime < mediaTime + 1 / fps &&
+            !flashFrames[frame]
+          ) {
+            flashFrames[frame] = readFlash();
+            forwardFrames++;
+          }
+          if (exactFrames.length + forwardFrames === frameCount) resolve();
+          else request = video.requestVideoFrameCallback(next);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      request = video.requestVideoFrameCallback(next);
+      video.playbackRate = rate;
+      void video.play().catch(() => resolve());
+    });
+  } finally {
+    listening.abort();
+    if (request !== undefined) video.cancelVideoFrameCallback(request);
+    video.pause();
+  }
+  let flashSeeks = 0;
   for (let frame = 0; frame < frameCount; frame++) {
-    if (seen.has(frame)) continue;
-    await seek(video, frame);
-    capture(frame);
+    if (flashFrames[frame]) continue;
+    // After an interrupted playback pass, force a new presentation if the
+    // first gap is the frame currently displayed.
+    if (
+      matchesFrameTime(frame, lastMediaTime) ||
+      Math.floor(video.currentTime * fps) === frame
+    )
+      await seekFrame(video, 0);
+    lastMediaTime = NaN;
+    await seekFrame(video, frame);
+    flashFrames[frame] = readFlash();
+    flashSeeks++;
   }
   return {
-    total: seen.size,
-    forwardFrames,
-    soughtFrames: seen.size - forwardFrames,
+    flashFrames,
+    counts: {
+      total: frameCount,
+      exactFrames: exactFrames.length,
+      forwardFrames,
+      flashSeeks,
+    },
   };
 }
 
@@ -1394,7 +1516,8 @@ export async function runVisualCase(options: VisualCase) {
   const readback = context(width, height);
   const rawHashes = new Map<number, Promise<string>>();
   const decodedHashes = new Map<number, Promise<string>>();
-  const decodedFlashFrames: Pixels[] = [];
+  const rawExterior = new Map<number, ReturnType<typeof safeExterior>>();
+  const masks = new Map<string, ReturnType<typeof measureGlyphs>>();
   const pendingText: TextProbe[] = [];
   const titleFrames = new Set<number>();
   type CapturedText = {
@@ -1413,6 +1536,7 @@ export async function runVisualCase(options: VisualCase) {
       readback.drawImage(canvas, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
       if (hashFrames.has(index)) rawHashes.set(index, sha256(data));
+      rawExterior.set(index, safeExterior(data, titleSafe, width, height));
       observations.set(
         index,
         pendingText.map((probe) => ({
@@ -1445,7 +1569,8 @@ export async function runVisualCase(options: VisualCase) {
           const role = textRole(geometry, drawing, x, y);
           if (role === "title") titleFrames.add(index);
           if (!frameLookup.has(index)) return;
-          const probe = role && makeProbe(drawing, role, text, x, y, maxWidth);
+          const probe =
+            role && makeProbe(drawing, role, text, x, y, maxWidth, masks);
           if (probe) pendingText.push(probe);
         });
         return canvas;
@@ -1478,7 +1603,11 @@ export async function runVisualCase(options: VisualCase) {
 
   const frameEvidence: {
     frame: number;
-    edges: number;
+    mediaTime: number;
+    exterior: {
+      raw: ReturnType<typeof safeExterior>;
+      decoded: ReturnType<typeof safeExterior>;
+    };
     expectedTitle: boolean;
     chapter: number;
     text: {
@@ -1489,7 +1618,7 @@ export async function runVisualCase(options: VisualCase) {
       decoded: Sample;
     }[];
   }[] = [];
-  let exteriorEdges = 0;
+  const exteriorEdges = { raw: 0, decoded: 0, decodedLargestComponent: 0 };
   let minimumRaw = Infinity;
   let minimumDecoded = Infinity;
   const measuredRoles = new Set<TextRole>();
@@ -1510,25 +1639,28 @@ export async function runVisualCase(options: VisualCase) {
     throw new Error(
       `Expected H.264 for the decoded checks, received ${rendered.videoCodec}`,
     );
-  const decodeStarted = performance.now();
-  const decode = await withVideo(rendered.blob, async (video) => {
+  async function readVideo(video: HTMLVideoElement, firstMediaTime: number) {
     if (video.videoWidth !== width || video.videoHeight !== height)
       throw new Error(
         `Decoded dimensions ${video.videoWidth}×${video.videoHeight} do not match ${width}×${height}`,
       );
-    return readMovieFrames(video, frameCount, (frame) => {
-      decodedFlashFrames[frame] = flash.sample(video);
-      if (!frameLookup.has(frame)) return;
+    function readExact(frame: number, mediaTime: number) {
       readback.drawImage(video, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
       if (hashFrames.has(frame)) decodedHashes.set(frame, sha256(data));
-      const edges = safeExterior(data, titleSafe, width, height);
-      exteriorEdges = Math.max(exteriorEdges, edges);
-      if (edges)
+      const raw = rawExterior.get(frame)!;
+      const decoded = safeExterior(data, titleSafe, width, height);
+      exteriorEdges.raw = Math.max(exteriorEdges.raw, raw.total);
+      exteriorEdges.decoded = Math.max(exteriorEdges.decoded, decoded.total);
+      exteriorEdges.decodedLargestComponent = Math.max(
+        exteriorEdges.decodedLargestComponent,
+        decoded.largestComponent,
+      );
+      if (raw.total || decoded.connectedPixels)
         add({
           criterion: "framing",
           frame,
-          detail: `${edges} decoded strong edges outside title-safe`,
+          detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component)`,
         });
       const observed = observations.get(frame) ?? [];
       const textEvidence = observed.map(
@@ -1685,15 +1817,27 @@ export async function runVisualCase(options: VisualCase) {
       }
       frameEvidence.push({
         frame,
-        edges,
+        mediaTime,
+        exterior: { raw, decoded },
         expectedTitle,
         chapter: chapter + 1,
         text: textEvidence,
       });
-    });
-  });
+      return flash.sample(readback.canvas);
+    }
+    return readMovieFrames(
+      video,
+      firstMediaTime,
+      frameCount,
+      frames,
+      readExact,
+      () => flash.sample(video),
+    );
+  }
+  const decodeStarted = performance.now();
+  const decode = await withVideo(rendered.blob, readVideo);
   const decodeMs = performance.now() - decodeStarted;
-  for (const [frame, pixels] of decodedFlashFrames.entries())
+  for (const [frame, pixels] of decode.flashFrames.entries())
     flash.decoded.add(frame, pixels);
   const hashes: FrameHashes = Object.fromEntries(
     await Promise.all(
@@ -1728,7 +1872,7 @@ export async function runVisualCase(options: VisualCase) {
       fps,
       seed,
       frameCount,
-      decode,
+      decode: decode.counts,
       elapsedMs: {
         render: renderMs,
         decode: decodeMs,
@@ -1782,6 +1926,7 @@ export async function runThumbnails() {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { colorSpace: "srgb", alpha: false })!;
     const probes: TextProbe[] = [];
+    const masks = new Map<string, ReturnType<typeof measureGlyphs>>();
     observeText(ctx, (text, x, y, maxWidth) => {
       if (y < 120) probes.length = 0; // A retry starts with the wordmark.
       const probe = makeProbe(
@@ -1791,6 +1936,7 @@ export async function runThumbnails() {
         x,
         y,
         maxWidth,
+        masks,
       );
       if (probe) probes.push(probe);
     });
@@ -1947,7 +2093,7 @@ export async function runFallback(orientation: Orientation) {
     },
   });
   const plays = await withVideo(rendered.blob, async (video) => {
-    await seek(video, 75);
+    await seekFrame(video, 75);
     return (
       video.videoWidth === plan.resolution.width &&
       video.videoHeight === plan.resolution.height

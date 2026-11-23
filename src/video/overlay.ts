@@ -153,19 +153,27 @@ export function overlayCopy(
   const episodeLocale = isLocale(plan.locale) ? plan.locale : "en";
   const wordmark = createTranslator(plan.wordmarkLocale ?? episodeLocale)(
     "video.wordmark",
-  );
+  ).normalize("NFC");
+  const showName = plan.showName?.normalize("NFC") ?? wordmark;
   const hostLabels = Object.fromEntries(
-    hostIds.map((name) => [name, t("video.caption.speaker", { name })]),
+    hostIds.map((name) => [
+      name,
+      t("video.caption.speaker", { name }).normalize("NFC"),
+    ]),
   ) as Record<Host, string>;
   const hostNames = Object.fromEntries(
     hostIds.map((name) => [
       name,
-      labels?.get(name) ?? plan.hostNames?.[name] ?? hostLabels[name],
+      (
+        labels?.get(name) ??
+        plan.hostNames?.[name] ??
+        hostLabels[name]
+      ).normalize("NFC"),
     ]),
   ) as Record<Host, string>;
   const count = plan.chapterWindows?.length || plan.chapters?.length || 0;
   const chapterLabels = Array.from({ length: count }, (_, index) =>
-    t("publish.content.chapterNumber", { number: index + 1 }),
+    t("publish.content.chapterNumber", { number: index + 1 }).normalize("NFC"),
   );
   const numbers = new Intl.NumberFormat(plan.locale ?? "en");
   const progressLabels = Array.from(
@@ -175,7 +183,7 @@ export function overlayCopy(
   const texts = new Set([
     "…",
     wordmark,
-    plan.showName ?? wordmark,
+    showName,
     ...Object.values(hostLabels),
     ...Object.values(hostNames),
     ...chapterLabels,
@@ -184,13 +192,15 @@ export function overlayCopy(
   for (const scene of plan.scenes) {
     if (scene.kind === "turn") {
       for (const cue of scene.captions)
-        texts.add(cue.text ?? joinCaptionLines(cue.lines));
-      if (scene.captionSource) texts.add(scene.captionSource);
-    } else texts.add(scene.title);
+        texts.add((cue.text ?? joinCaptionLines(cue.lines)).normalize("NFC"));
+      if (scene.captionSource) texts.add(scene.captionSource.normalize("NFC"));
+    } else texts.add(scene.title.normalize("NFC"));
   }
-  for (const callout of plan.callouts ?? []) texts.add(callout.text);
+  for (const callout of plan.callouts ?? [])
+    texts.add(callout.text.normalize("NFC"));
   return {
     wordmark,
+    showName,
     episodeLocale,
     hostLabels,
     hostNames,
@@ -245,7 +255,13 @@ export function prepareOverlay(
   const background = new Map<VideoPaletteId, string | CanvasGradient>();
   const canvasFont = (role: keyof typeof type) =>
     videoFont(weight[role], type[role]);
-  function wrap(role: TextRole, text: string, width: number, truncate = true) {
+  function wrap(
+    role: TextRole,
+    source: string,
+    width: number,
+    truncate = true,
+  ) {
+    const text = source.normalize("NFC");
     context.font = canvasFont(role);
     context.textAlign = "left";
     context.textBaseline = "middle";
@@ -278,12 +294,8 @@ export function prepareOverlay(
     return lines;
   }
   const wordmark =
-    wrap(
-      "wordmark",
-      plan.showName ?? copy.wordmark,
-      geometry.wordmark.width,
-      false,
-    )[0] ?? wrap("wordmark", copy.wordmark, geometry.wordmark.width)[0];
+    wrap("wordmark", copy.showName, geometry.wordmark.width, false)[0] ??
+    wrap("wordmark", copy.wordmark, geometry.wordmark.width)[0];
   const names = Object.fromEntries(
     hostIds.map((host) => [
       host,
@@ -316,7 +328,9 @@ export function prepareOverlay(
   const topicGraphic =
     opening?.kind === "intro"
       ? chooseTopicGraphic(
-          [opening.topic ?? "", opening.title],
+          [opening.topic ?? "", opening.title].map((text) =>
+            text.normalize("NFC"),
+          ),
           copy.episodeLocale,
         )
       : null;

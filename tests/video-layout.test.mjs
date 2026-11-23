@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTranslator, setLocale } from "../src/i18n/index.ts";
+import { encodeThumbnail } from "../src/publish/thumbnail.ts";
 import { videoLayout } from "../src/video/design/layout.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 import { designTokens } from "../src/video/design/tokens.ts";
 import { videoFont } from "../src/video/fonts/loader.ts";
 import { overlayCopy, prepareOverlay } from "../src/video/overlay.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
-import { flashAnalysis, flashAssessment } from "./fixtures/visual-qa.ts";
+import {
+  assertFrameTime,
+  fixture as visualFixture,
+  flashAnalysis,
+  flashAssessment,
+  safeExterior,
+  seekFrame,
+} from "./fixtures/visual-qa.ts";
 
 const close = (a, b) =>
   assert.ok(Math.abs(a - b) < 1e-8, `${a} is not close to ${b}`);
@@ -315,6 +323,181 @@ test("the wordmark uses the episode catalogue and a fitting show name takes prec
     branded.draw(branded.frameAt(0), "ocean");
     assert.equal(context.text[0].value, "Fixture Studio");
   }
+});
+
+test("canonical equivalents produce the same video plan, preflight copy and drawn text", () => {
+  function render(accent) {
+    const episode = {
+      topic: `The caf${accent} district`,
+      language: "en",
+      revision: 1,
+      outline: {
+        chapters: [
+          { id: "a", title: `A caf${accent} nearby` },
+          { id: "b", title: `Another caf${accent}` },
+        ],
+      },
+      script: {
+        title: `Caf${accent} stories`,
+        turns: [
+          {
+            id: "1",
+            chapterId: "a",
+            host: "A",
+            text: `We found a caf${accent}.`,
+          },
+          {
+            id: "2",
+            chapterId: "a",
+            host: "B",
+            text: `The caf${accent} is open.`,
+          },
+          {
+            id: "3",
+            chapterId: "b",
+            host: "A",
+            text: `Ren${accent} meets us there.`,
+          },
+        ],
+      },
+      render: {
+        revision: 1,
+        clips: { 1: { duration: 3 }, 2: { duration: 4 } },
+      },
+    };
+    const original = structuredClone(episode);
+    const plan = buildTimeline(episode, {
+      hostNames: { A: `Ren${accent}` },
+      showName: `Caf${accent} Studio`,
+      callouts: [{ chapterId: "a", start: 3, text: `Caf${accent} service` }],
+      endCard: true,
+    });
+    assert.deepEqual(episode, original);
+    const context = recordingContext();
+    const copy = overlayCopy(plan);
+    const overlay = prepareOverlay(context, plan, copy);
+    for (const time of [0, 3.3, 7.5, plan.duration - 0.5])
+      overlay.draw(overlay.frameAt(time), "aurora");
+    return { plan, copy, text: context.text };
+  }
+
+  const canonical = render("é");
+  assert.deepEqual(render("e\u0301"), canonical);
+  for (const value of [
+    "Café Studio",
+    "René",
+    "Café service",
+    "Another café",
+    "We found a café.",
+  ])
+    assert.ok(
+      canonical.text.some((line) => line.value === value),
+      value,
+    );
+});
+
+test("thumbnail preflight and layout share NFC headlines and wordmarks", async () => {
+  async function render(accent) {
+    const context = {
+      ...recordingContext(),
+      save() {},
+      restore() {},
+      createLinearGradient: () => ({ addColorStop() {} }),
+    };
+    const canvas = {
+      getContext: () => context,
+      toBlob: (callback) => callback(new Blob(["mock"], { type: "image/png" })),
+    };
+    let preflight;
+    await encodeThumbnail(
+      canvas,
+      {
+        locale: "en",
+        variant: "headline",
+        headline: `Visit the caf${accent}`,
+        wordmark: `Caf${accent} Studio`,
+      },
+      async ({ texts }) => {
+        preflight = texts;
+        return { notices: [], missingCharacters: [] };
+      },
+    );
+    return { preflight, text: context.text };
+  }
+  const canonical = await render("é");
+  assert.deepEqual(await render("e\u0301"), canonical);
+  assert.ok(canonical.text.some(({ value }) => value === "Visit the café"));
+  assert.ok(canonical.text.some(({ value }) => value === "Café Studio"));
+});
+
+test("visual QA seeks to the sample center and waits past an adjacent presentation", async () => {
+  assert.doesNotThrow(() => assertFrameTime(80, 2.667));
+  assert.throws(
+    () => assertFrameTime(80, 2.7),
+    /frame 80.*observed mediaTime 2\.700000 s/,
+  );
+  assert.doesNotThrow(() => assertFrameTime(177, 5.9));
+  assert.throws(
+    () => assertFrameTime(177, 178 / 30),
+    /frame 177.*observed mediaTime 5\.933333 s/,
+  );
+  const video = new EventTarget();
+  video.duration = 6;
+  const callbacks = new Map();
+  let nextId = 0;
+  video.requestVideoFrameCallback = (callback) => {
+    callbacks.set(++nextId, callback);
+    return nextId;
+  };
+  video.cancelVideoFrameCallback = (id) => callbacks.delete(id);
+  const present = (mediaTime) => {
+    const pending = [...callbacks.values()];
+    callbacks.clear();
+    for (const callback of pending) callback(0, { mediaTime });
+  };
+  const pending = seekFrame(video, 80);
+  assert.equal(video.currentTime, 80.5 / 30);
+  video.dispatchEvent(new Event("seeked"));
+  present(2.7);
+  assert.equal(callbacks.size, 1);
+  present(2.667);
+  assert.equal(await pending, 2.667);
+  assert.equal(callbacks.size, 0);
+});
+
+test("the Malay framing sample at frame 350 is a chapter card", () => {
+  const { plan } = visualFixture({
+    scene: "studio3d",
+    orientation: "landscape",
+    language: "ms",
+  });
+  const overlay = prepareOverlay(recordingContext(), plan);
+  const { card } = overlay.frameAt(350 / 30);
+  assert.equal(card.kind, "chapter");
+  assert.equal(card.title, "Ruang bersama");
+  assert.equal(card.start, 11.62);
+  assert.equal(card.end, 13.233333);
+});
+
+test("visual QA separates a single decoded exterior edge from a connected crossing", () => {
+  const width = 60;
+  const height = 40;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const titleSafe = { x: 12, y: 8, width: 36, height: 24 };
+  pixels[10 * width * 4] = 255;
+  assert.deepEqual(safeExterior(pixels, titleSafe, width, height), {
+    total: 1,
+    largestComponent: 1,
+    connectedPixels: 0,
+    first: { x: 2, y: 10 },
+  });
+  for (let y = 11; y < 18; y++) pixels[y * width * 4] = 255;
+  assert.deepEqual(safeExterior(pixels, titleSafe, width, height), {
+    total: 8,
+    largestComponent: 8,
+    connectedPixels: 8,
+    first: { x: 2, y: 10 },
+  });
 });
 
 test("visual QA gates field flashes and reports cell rates as diagnostics", () => {
