@@ -1,55 +1,50 @@
-# Product direction (decided 2026-11-23)
+# Product direction
 
-## Goal
+Knowledge Podcast Studio turns a topic into a reviewed podcast. The browser
+can reach OpenAI directly using the owner's key and saves episode progress in
+IndexedDB. The optional Node worker supports unattended production. The owner
+reviews the output and handles any YouTube upload manually.
+[Roadmap](ROADMAP.md) · [Studio runbook](V2-FACTORY.md)
 
-Podcast Studio is a browser-first studio, similar in spirit to YouTube Studio.
-An AI agent researches a topic, writes the script, produces the audio, animates
-a video (Three.js first; Godot and others later) and, after a human review,
-publishes to YouTube. The owner is the only user for now.
+## Product decisions
 
-See the [roadmap](ROADMAP.md) for milestones, risks and unverified claims.
+1. **Browser first.** The static app supports browser BYOK and an offline
+   Library after caching. Each browser profile and origin has its own data.
+   Use private episode backups for transfers. [Library](../src/factory/library.ts) · [Backup format](../shared/episode-backup.ts)
+2. **Browser key boundary.** The key lives in page memory and is readable by
+   page code, permitted extensions and a compromised device while present. It
+   clears on page exit or reload. [Key lifecycle](../src/factory/browser-key.ts) · [Security](SECURITY.md)
+3. **Consent and checkpoints.** Show labelled usage estimates, require
+   permission for each manual paid run, and save results before starting the
+   next paid step. Ambiguous paid requests require an explicit decision before
+   resuming. [Studio intake](../src/factory/StudioIntake.tsx) · [Browser runner](../src/factory/browser-production.ts)
+4. **Optional worker.** The trusted worker holds its provider key and handles
+   unattended runs and configured schedules. The browser receives episode
+   checkpoints for the Library. [Worker](../server/main.mjs) · [Scheduler](../server/production.mjs)
+5. **Local outputs.** Use a waveform and caption MP4 and a publish package
+   for manual review and upload. The render and package operate on episode
+   assets and metadata. [Renderer](../src/video/render.ts) · [Publish package](../src/publish/package.ts)
+6. **Localized interface.** Simplified Chinese is the source locale. English
+   and Malay are available from Settings. Episode language is independent of
+   the interface. [i18n guide](I18N.md)
 
-## Decisions
+## Implementation status
 
-1. **Browser first.** The browser is the primary runtime. IndexedDB is the
-   system of record for episodes, research, scripts, audio, video and
-   backups. Everything the Library does works offline after the first visit.
-2. **BYOK.** The user brings their own OpenAI API key. Browser BYOK is a
-   supported mode again (M0 in the [roadmap](ROADMAP.md), T24 to T31 in `TASK.md`). It is an explicit trade-off:
-   a key entered in the page is readable by page code, extensions and a
-   compromised device. Use a restricted, budget-limited key. The key is never
-   written to IndexedDB, backups, caches, logs or source.
-3. **The worker is optional.** The trusted local worker adds unattended
-   scheduling, long research runs and server-held keys. It is an upgrade, not
-   a requirement.
-4. **One interface.** The Library, Studio, Automation and Settings are the
-   only UI. The V1 local editor was removed in `71a53da`; its source is in git
-   history at `636fae0`.
-5. **Output is an MP4.** The Studio produces a production-ready MP4 and a
-   publish package; the owner uploads to YouTube manually (decided 2026-11-23).
-6. **Agents.** The pi coding agent in the browser is the first agent
-   integration, with the OpenAI API key as the provider (T39).
-7. **No spend without per-run consent.** Paid calls show an
-   estimate-labelled cost disclosure and need consent.
-
-## Current state versus the goal
-
-| Capability | State |
+| Capability | Status and evidence |
 | --- | --- |
-| Library in IndexedDB, offline playback, backup and restore | implemented |
-| Research, script and audio through the worker | implemented |
-| Browser-direct BYOK generation in the Studio | **removed with V1; planned (M0, T24 to T31)** |
-| Video rendering | planned (M1, T32-T36) |
-| Publish package for manual YouTube upload | planned (M2, T38); in-app upload dropped |
-| pi agent adapter | planned (M3, T39) |
+| M0 · Browser Studio and Library | **Implemented.** Direct BYOK generation, checkpoint recovery, playback and `.kps` transfer. T30/T31 browser execution and live full-episode quality are **UNVERIFIED**. [Browser runner](../src/factory/browser-production.ts) · [Test matrix](TEST-MATRIX.md) |
+| M1 · Render | **Core module implemented.** Canvas waveform and captions, WebCodecs and MP4 hashing. Target-device performance and Studio review are **UNVERIFIED**. [Render tests](../tests/video-render.test.mjs) · [Video evidence](VIDEO-RENDER-DECISION.md) |
+| M2 · Manual publish | **Core module implemented.** Local ZIP packaging and agent export. Studio UI download and upload acceptance remain **UNVERIFIED**. [Package tests](../tests/publish-package.test.mjs) · [Agent tools](../src/agent/tools.ts) |
+| M3 · Agent and pi | **In-page loop and tools implemented.** The optional pi loopback spike has limited evidence. Model-driven bridge use remains **UNVERIFIED**. [Agent tests](../tests/agent.test.mjs) · [Bridge evidence](PI-BRIDGE.md) |
+| M6 · i18n | **Implemented.** Three catalogues, runtime locale switch, Intl formatting, catalogue checks and browser sweep. Sensitive-copy native review remains **UNVERIFIED**. [i18n tests](../tests/i18n.test.mjs) · [UI/UX evidence](UIUX-EVIDENCE.md) |
 
 ## Run modes
 
-| Mode | Key lives in | Needs worker | Status |
-| --- | --- | --- | --- |
-| Browser BYOK | page memory only | no | planned (M0, T24 to T31) |
-| Worker | worker process memory | yes | implemented |
-| Library only (public Pages) | none | no | implemented |
+| Mode | Key location while configured | Worker process |
+| --- | --- | --- |
+| Browser BYOK | Current tab memory | Optional |
+| Worker production | Trusted worker memory, with optional environment provisioning | Required |
+| Library playback and backup | No key required | Optional |
 
-Documents written before this date that describe V1, the admin workspace,
-demo tones or the T05/T06 narration experiment are historical.
+The V1 editor, demo tones and V1 backup formats describe the earlier prototype.
+[Historical review](REVIEW-2026-11-04.md)

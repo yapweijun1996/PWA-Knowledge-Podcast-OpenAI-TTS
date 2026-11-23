@@ -1,140 +1,44 @@
-# Roadmap: browser-first BYOK podcast studio to YouTube
+# Roadmap for the browser-first podcast studio
 
-Owner rule (2026-11-23): **browser first, bring your own key (BYOK), no server
-required.** IndexedDB is the system of record. A worker is an optional
-upgrade. See [Product direction](PRODUCT-DIRECTION.md) for the decisions and
-[TASK.md](../TASK.md) for the task list (T24 onward). The older
-[content roadmap](CONTENT-ROADMAP.md) covers editorial topics, not engineering.
+The browser is the primary runtime and the user brings their own key.
+IndexedDB holds the Library. The optional worker adds unattended runs and
+scheduling. The owner handles YouTube uploads manually.
+[Product direction](PRODUCT-DIRECTION.md) · [Task backlog](../TASK.md)
 
-Status words: **implemented** (code and tests in `main`), **planned**,
-**UNVERIFIED** (a claim nobody has checked in this repository).
+## Milestone status
 
-## Where the project stands (audited 2026-11-23, source read only)
+| Milestone | Implementation status | Verification still open |
+| --- | --- | --- |
+| M0 · Browser Studio, T24–T31 | **Implemented.** Settings holds a browser key in memory and Studio runs research through transcription with saved checkpoints. T30 adds guarded regression cases and CI enforcement. T31 updates the runbook and release checks. [Key code](../src/factory/browser-key.ts) · [Browser runner](../src/factory/browser-production.ts) · [Browser rules](../tests/factory-rules.browser.ts) | T30 Chromium runtime, live Pages, full paid episode listening and costs, and target-browser provider behavior remain **UNVERIFIED**. The earlier Chromium endpoint and short narration checks have a limited scope. [Test matrix](TEST-MATRIX.md) · [Provider contract](PROVIDER-CONTRACT.md) |
+| M1 · Browser video, T32–T36 | **Render and timeline modules implemented.** The renderer draws local waveform and caption scenes, uses WebCodecs and produces an MP4 with a SHA-256 digest. Agent tools persist artifacts in IndexedDB. [Timeline](../src/video/timeline.ts) · [Renderer](../src/video/render.ts) · [Artifact store](../src/agent/artifacts.ts) | Studio preview and approval, end-to-end persistence and quota recovery, and target-device codec and performance claims remain **UNVERIFIED**. [Video evidence](VIDEO-RENDER-DECISION.md) |
+| M2 · Manual publish package, T38 | **Package module implemented.** A ZIP can contain an MP4, thumbnail, title, description, tags, chapter list and disclosure checklist. The agent export tool uses the saved render for the current episode revision. T37 in-app upload remains parked. [Package builder](../src/publish/package.ts) · [Export tool](../src/agent/tools.ts) · [Task backlog](../TASK.md) | Main Studio download and manual upload compatibility remain **UNVERIFIED**. Verify the actual delivery ZIP and codecs before release. [Episode checklist](V2-PRODUCTION-CHECKLIST.md) |
+| M3 · Agent, T39 | **In-page agent loop and tools implemented.** The optional pi loopback is a spike. [Agent](../src/agent/agent.ts) · [Node fixtures](../tests/agent.test.mjs) · [pi spike](PI-BRIDGE.md) | Model-initiated calls over the pi bridge and interactive release integration remain **UNVERIFIED**. |
+| M4 · Optional worker and render options, T40–T41 | **Optional worker implemented.** Shared pipeline stages serve both run modes. Godot remains a candidate renderer. [Worker](../server/main.mjs) · [Shared pipeline](../shared/pipeline/) · [Render decision](VIDEO-RENDER-DECISION.md) | Unattended production on the target host remains **UNVERIFIED** for this candidate. |
+| M5 · Release hardening, T42–T43 | **Release checklist updated.** CI runs the audit, type check, Node tests, strict scan, builds, browser suites and worker startup check. [CI](../.github/workflows/ci.yml) · [Release checklist](PRODUCTION-READINESS.md) | Physical iOS and Android, installed offline use and device accessibility remain `NOT_RUN`. [Test matrix](TEST-MATRIX.md) |
+| M6 · i18n and UI/UX, T44–T48 | **Implemented.** The Chinese source catalogue, English and Malay translations, locale controls, parity checks and Chromium sweep are in place. T47 records earlier browser and layout evidence. [Catalogues](../src/i18n/) · [Node i18n tests](../tests/i18n.test.mjs) · [T47 evidence](UIUX-EVIDENCE.md) | Sensitive English and Malay copy needs native review. Current device and assistive-technology coverage remains `NOT_RUN`. [Review standard](UIUX-STANDARD.md) |
 
-| Area | State |
-| --- | --- |
-| Library in IndexedDB (`idb`, db `knowledge-podcast-library`), offline playback, `.kps` backup and restore | implemented |
-| Research, outline, script, audio, transcript QA through the Node worker (`server/*.mjs`, about 2,500 lines) | implemented, **requires the worker** |
-| Browser-direct generation | **missing**: removed with V1 (`71a53da`); old code at `636fae0` (`src/browser-tts.ts`) |
-| Studio without a worker | blocked: `StudioIntake` offers only `no-worker`, `locked`, `no-key`, `working`, `ready` |
-| Private build CSP | `connect-src 'self' blob:` blocks `api.openai.com` (`vite.config.ts`); only the public build allows it |
-| Video, YouTube upload, agent adapter | not started |
+## Rules every milestone keeps
 
-### What can move to the browser
+1. The browser key lives in page memory, clears on page exit or reload, and
+   stays out of persistent storage, exports, logs and URLs.
+2. Paid browser runs require explicit consent and a labelled estimate.
+   An ambiguous paid request never retries automatically.
+3. Automated tests intercept provider requests. A live trial has an
+   owner-approved scope and an operator who reports actual usage.
+4. Save each result before starting the next paid step. Stop on save failure.
+5. Keep local Library playback and backup workflows available offline once
+   the app shell has been cached.
+6. Prepare a local package for a human to review and upload manually.
 
-The worker pipeline is mostly pure JavaScript with an injected `openai`
-function, so it can be shared instead of rewritten:
+[Security boundaries](SECURITY.md) · [Checks and evidence](TEST-MATRIX.md)
 
-- Portable as is: `openai.mjs` (fetch only), `script.mjs`, `research.mjs`,
-  `research-audit.mjs`, `claims.mjs`, `transcript.mjs`, `qa.mjs`,
-  `languages.mjs`, `errors.mjs`.
-- Needs a browser replacement: `audio.mjs` and `mp3.mjs` (use Node `Buffer`;
-  the narrator opens `wss://api.openai.com/v1/realtime` with an
-  `Authorization` header, which browsers cannot set; V1 used WebRTC
-  `/v1/realtime/calls` instead), `jobs.mjs` (filesystem spool), `store.mjs`,
-  `production.mjs` (scheduling and filesystem), `http.mjs`, `session.mjs`.
-- Worker only, by nature: unattended scheduling (Automation), long runs while
-  the page is closed, server-held keys.
+## Open release work
 
-### Rules every milestone must keep
+Run the current guarded Chromium and selected WebKit cases, then record the
+candidate's live-origin and real-device evidence. Review measured video
+renders and ZIP contents on the intended devices. Record fluent listening
+and native review of sensitive UI copy with the release evidence.
+[Production readiness](PRODUCTION-READINESS.md) · [Episode sign-off](V2-PRODUCTION-CHECKLIST.md)
 
-1. A key lives in page memory only. Never in IndexedDB, backups, caches, logs,
-   URLs or source. Cleared on page exit. The UI says plainly that page code and
-   extensions can read it.
-2. No paid call without per-run consent and a cost disclosure; estimates are
-   labelled as estimates. No automatic retry of an ambiguous paid request.
-3. Tests intercept every provider request by default. A real-provider run needs
-   the owner's explicit approval, a dollar ceiling and a named operator.
-4. Save each result before starting the next paid step; stop the batch when a
-   save fails.
-5. Nothing uploads to YouTube without an explicit approval; uploads are
-   private by default.
-6. The Library, playback and backup keep working offline and with no server.
-
-## Milestones
-
-### M0. Restore the owner's rule (T24 to T31) , highest priority
-
-Goal: topic in, finished episode in IndexedDB, with no worker.
-
-Exit criteria:
-- A browser-only run (no worker process) creates an episode from a topic and
-  saves script and audio to the Library.
-- The provider contract is verified once with a small owner-approved call:
-  browser CORS and WebRTC behavior for `/v1/responses` (with web search),
-  `/v1/audio/transcriptions` and `/v1/realtime/calls` were checked in Chromium on 2026-11-23 and work (see [Provider contract](PROVIDER-CONTRACT.md)); Safari, Firefox and the Pages origin are still **UNVERIFIED**.
-- A leak test proves the key is absent from IndexedDB, backups, caches and logs.
-- Worker mode still passes its existing tests using the same shared code.
-
-Risks: browser CORS may block an endpoint (fallback: that stage stays
-worker-only and the UI says so); a long run can lose the page (mitigation:
-stage checkpoints in IndexedDB and resume, never auto-retry paid stages);
-realtime audio capture quality (V1 reported WAV output; quality was never
-independently verified).
-
-### M1. Video in the browser (T32 to T36)
-
-Goal: an MP4 rendered from an episode, entirely client side.
-
-Approach to prove first (T32): Three.js on a canvas, frames stepped
-deterministically, encoded with WebCodecs and muxed with the episode audio.
-Fallbacks: ffmpeg.wasm, or a worker-side ffmpeg. Godot is **not** browser
-first; keep it as an optional worker or export path (T40), not on the critical
-path. Browser support for WebCodecs H.264 and AAC is **UNVERIFIED** on the
-owner's devices; T32 tests it.
-
-Exit criteria: deterministic fixture render, cancellation, memory and storage
-limits documented, MP4 saved in IndexedDB with a SHA-256 receipt, preview and
-approve or reject in the Studio.
-
-Risks: mobile memory limits, large IndexedDB blobs and eviction, Safari codec
-gaps.
-
-### M2. Publish package (T38; upload is out of scope)
-
-Owner decision (2026-11-23): the Studio must produce a fully production-ready
-MP4 and the owner uploads to YouTube manually. T38 exports the MP4 plus title,
-description with chapters, tags, thumbnail and a manual-upload checklist,
-including YouTube's AI-content disclosure. A mock-tested upload client (T37)
-exists only on a parked branch and is not merged.
-
-### M3. Agent integration (T39)
-
-Decision (manager, 2026-11-23): a page cannot spawn the local `pi` CLI, so the
-agent is built in two layers. First, a native in-page agent loop on the OpenAI
-Responses API with explicit, logged tools behind an `AgentBridge` interface; it
-works with no server. Second, an optional loopback bridge so the installed pi
-(1.5.2, with `--mode rpc` and extensions) can drive the same interface. A spike on 2026-11-23 showed a pi extension with a loopback WebSocket can
-drive a real browser page ([PI-BRIDGE.md](PI-BRIDGE.md)); model-initiated tool
-calls are still **UNVERIFIED**. The agent works
-within browser limits; "no limitation" is not achievable literally.
-
-### M4. Optional worker and Godot (T40, T41)
-
-Automation scheduling and long unattended runs stay worker features, clearly
-labelled optional. Godot rendering is evaluated as a worker or export path.
-
-### M5. Release hardening (T42, T43)
-
-Release gates, real-device and offline checks, storage quota handling for video,
-documentation, and a rollback note. Update
-[the production checklist](V2-PRODUCTION-CHECKLIST.md) for video and upload.
-
-## Suggested order
-
-M0 (T24, T25, T26, T27, T28, T29, T30, T31) then M1 (T32 to T36), then M2, then
-M3. M4 and M5 run alongside once M1 exists. T32 (render spike) may run in
-parallel with M0 because it needs no provider key.
-
-## Owner decisions needed
-
-Decided on 2026-11-23: real-provider testing is approved with no dollar cap
-from the owner (the manager self-limits and reports actual usage); the first
-video style is waveform plus captions; YouTube upload is out of scope (manual
-upload); the pi interface was left to the manager (see M3). Still open: a
-listening review of real audio, and real-device and Safari checks.
-
-## Non-goals for now
-
-Multi-user accounts, cloud sync, payment, a hosted server, and a mobile native
-app.
+Multi-user accounts, cloud sync, payments, a required hosted server and a
+native mobile app remain outside this roadmap.

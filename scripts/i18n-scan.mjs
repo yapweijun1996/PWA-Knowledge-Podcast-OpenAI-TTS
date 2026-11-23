@@ -60,4 +60,6 @@ if (
   console.log(
     `Total: ${total} CJK text fragments in ${affectedFiles} of ${scannedFiles} files.`,
   );
+  if (total > 0 && process.argv.includes("--fail-on-found"))
+    process.exitCode = 1;
 }

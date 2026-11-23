@@ -1,9 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { buffer } from "node:stream/consumers";
 import { restoreRecord } from "../shared/episode-backup";
+import { test } from "./fixtures/guards";
 import { fakeOpenAI } from "./fixtures/podcast-provider.mjs";
-
-test.use({ serviceWorkers: "block" });
 
 const key = "fixture-only";
 const unknown = "请求结果未知，可能已计费。请确认后手动重试。";
@@ -21,54 +20,12 @@ async function enterBrowserKey(page: Page) {
   await expect(settings.getByRole("status")).toContainText("已设置浏览器密钥");
 }
 
-async function assertKeyAbsent(page: Page) {
-  const stored = await page.evaluate(async () => {
-    function result<T>(request: IDBRequest<T>) {
-      return new Promise<T>((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    }
-    const databases = await indexedDB.databases();
-    const indexed = await Promise.all(
-      databases.map(async ({ name }) => {
-        const db = await result(indexedDB.open(name!));
-        try {
-          return {
-            name,
-            stores: await Promise.all(
-              Array.from(db.objectStoreNames, async (name) => {
-                const store = db.transaction(name).objectStore(name);
-                const [keys, values] = await Promise.all([
-                  result(store.getAllKeys()),
-                  result(store.getAll()),
-                ]);
-                return { name, keys, values };
-              }),
-            ),
-          };
-        } finally {
-          db.close();
-        }
-      }),
-    );
-    return {
-      indexed: JSON.stringify(indexed),
-      local: JSON.stringify(localStorage),
-      session: JSON.stringify(sessionStorage),
-      text: document.body.textContent,
-      url: location.href,
-    };
-  });
-  expect(stored.indexed).toContain("knowledge-podcast-library");
-  for (const [surface, value] of Object.entries(stored))
-    expect(value, surface).not.toContain(key);
-}
-
 test("browser Studio saves stages without a worker and resumes only after fresh consent", async ({
   page,
   context,
   baseURL,
+  guard,
+  scanForKey,
 }) => {
   const origin = new URL(baseURL!).origin;
   const fixture = fakeOpenAI({ dynamic: true, cast: 2 });
@@ -76,25 +33,21 @@ test("browser Studio saves stages without a worker and resumes only after fresh 
   const unexpected: string[] = [];
   let sessionChecks = 0;
 
-  // Only local static files may reach the fixture server.
-  await context.route("**/*", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (url.origin === origin && url.pathname.startsWith("/api/studio/")) {
-      if (url.pathname === "/api/studio/session" && request.method() === "GET")
+  // Simulate the static build, with no worker API available.
+  await context.route(
+    (url) => url.origin === origin && url.pathname.startsWith("/api/studio/"),
+    async (route) => {
+      const request = route.request();
+      const { pathname } = new URL(request.url());
+      if (pathname === "/api/studio/session" && request.method() === "GET")
         sessionChecks++;
-      else unexpected.push(`worker: ${request.method()} ${url.pathname}`);
+      else unexpected.push(`worker: ${request.method()} ${pathname}`);
       await route.fulfill({ status: 404, body: "Not found" });
-    } else if (url.origin === origin) {
-      await route.continue();
-    } else {
-      unexpected.push(`external: ${request.method()} ${url.origin}`);
-      await route.abort();
-    }
-  });
+    },
+  );
 
   const progress = page.getByRole("region", { name: "浏览器制作进度" });
-  await page.route("https://api.openai.com/**", async (route) => {
+  guard.mockProvider(async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const cors = {
@@ -162,7 +115,7 @@ test("browser Studio saves stages without a worker and resumes only after fresh 
 
   await nav.getByRole("link", { name: "设置" }).click();
   await enterBrowserKey(page);
-  await assertKeyAbsent(page);
+  expect(await scanForKey(page, key)).toEqual([]);
   await nav.getByRole("link", { name: "制作台" }).click();
   await expect(page.getByText("可以在浏览器制作")).toBeVisible();
   await expect(page.getByText("费用预估（按用量）")).toBeVisible();
@@ -193,7 +146,7 @@ test("browser Studio saves stages without a worker and resumes only after fresh 
   expect(saved.research?.claims).not.toHaveLength(0);
   expect(saved.outline?.chapters).toHaveLength(2);
   expect(saved.script?.turns).toHaveLength(4);
-  await assertKeyAbsent(page);
+  expect(await scanForKey(page, key)).toEqual([]);
   expect(fixture.calls).toEqual(["research", "audit", "outline", "script"]);
   const initialCalls = [
     ...Array<string>(4).fill("/v1/responses"),
@@ -240,7 +193,7 @@ test("browser Studio saves stages without a worker and resumes only after fresh 
   await nav.getByRole("link", { name: "设置" }).click();
   await page.getByRole("button", { name: "清除浏览器密钥" }).click();
   await expect(page.getByText(/尚未设置浏览器密钥/)).toBeVisible();
-  await assertKeyAbsent(page);
+  expect(await scanForKey(page, key)).toEqual([]);
   expect(sessionChecks).toBeGreaterThan(0);
   expect(unexpected).toEqual([]);
 });

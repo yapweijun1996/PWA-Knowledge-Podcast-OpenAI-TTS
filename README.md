@@ -1,21 +1,36 @@
 # Knowledge Podcast Studio
 
-Podcast Studio is a browser-first podcast studio: a browser-local Library (IndexedDB) with an optional trusted production worker. The project direction is browser-first, bring-your-own-key (BYOK), and eventually AI-made podcast video published to YouTube. See [Product direction](docs/PRODUCT-DIRECTION.md) for the decisions and run modes, and the [roadmap](docs/ROADMAP.md) for the plan. Browser-direct BYOK generation was removed with V1 and is planned again (M0, T24 to T31); until then, generation needs the worker. The worker can discover topics, cross-check citations, plan one to three hosts and an adaptive runtime, generate audio, and compare a separate audio transcript to the script. The browser stores the resulting episodes, research, scripts and playable audio for offline use.
+Research a topic, write a podcast script, generate narration and review the
+result in a browser. Studio can send requests directly to OpenAI with your own
+API key. The Library keeps episodes and audio in IndexedDB. An optional local
+worker adds scheduled discovery and production that can continue while the tab
+is closed. [Product direction](docs/PRODUCT-DIRECTION.md)
 
-## Pocket Frequency animation
+## Browser quick start
 
-In this Blender MCP design demo, a cassette hops onto the studio controls and accidentally starts a party. A disco ball swings over its head amid two bursts of confetti. The cassette ducks, then springs back to its starting pose.
+1. Open the [Pages app](https://yapweijun1996.github.io/PWA-Knowledge-Podcast-OpenAI-TTS/)
+   or, from a Node.js 24 checkout, run `npm ci`, `npm run build` and
+   `npm run preview`. Open the URL printed by Vite, including the project path.
+2. Open Settings and choose Simplified Chinese (`zh-CN`, the default), English
+   (`en`) or Malay (`ms`). The choice applies immediately. Episode content
+   keeps its own language. [Locale guide](docs/I18N.md)
+3. In Settings, enter a browser API key, acknowledge the exposure risk and set
+   the key. It stays in the tab's memory and clears on page exit or reload.
+   Page code, extensions and a compromised device can read it while it is
+   present. [Security model](docs/SECURITY.md)
+4. In Studio, enter a topic and choose the cast. Review the usage estimate and
+   consent for this run before submitting. Studio saves each checkpoint before
+   the next paid step. If a request's outcome is unknown, check provider usage
+   before choosing to continue with fresh consent. [Browser runner](src/factory/browser-production.ts)
+5. Review the citations, script, WAV and transcript in the Library. Export a
+   private `.kps` backup to transfer to another browser profile or origin. The
+   Library can open saved episodes, play audio and restore backups offline
+   after the app shell is cached. [Storage and recovery](docs/V2-FACTORY.md#storage-and-recovery)
 
-- [Watch or download the MP4](design/pocket-frequency-duck.mp4). Enable repeat in your player for continuous playback. The export runs for 4 seconds at 24 fps (96 frames) with H.264 video at 1000 × 744 and stereo AAC audio.
-- [Open the editable scene](design/pocket-frequency-duck.blend) in Blender. The timeline covers frames 1–96 and marks the button press, disco ball drop, duck and return. The scene was verified in Blender 5.1.2. The stereo soundtrack is in the MP4.
+## Optional worker quick start
 
-Verification covered the ball's clearance over the cassette and nearby props, pixel-identical rendered endpoints, and a quiet audio splice.
-
-## Start the V2 local studio
-
-For the prebuilt release, open a successful [Pages release run](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/workflows/pages.yml), download the `knowledge-podcast-worker` artifact and extract its tarball. The worker starts directly with Node.js 24 LTS. [Run the prebuilt worker](deploy/WORKER.md)
-
-To build from source, use Node.js 24 LTS.
+Use Node.js 24 with the prebuilt worker artifact from a successful Pages release,
+or build and run the worker from source. [Prebuilt worker instructions](deploy/WORKER.md)
 
 ```sh
 npm ci
@@ -23,88 +38,50 @@ npm run build:private
 npm run start:private
 ```
 
-Open [the loopback workspace](http://127.0.0.1:8787/) to see the Library (**资料库**). Set the worker's OpenAI API key under Settings (**设置**), enter a topic in Studio (**制作台**), or save interests and scheduling preferences in Automation (**自动化**). The worker must stay awake and running.
+Open [the loopback workspace](http://127.0.0.1:8787/). Set the worker key in
+Settings, select worker production in Studio if both modes are available, then
+review the cost disclosure and consent. Configure a schedule in Automation for
+unattended production. The worker must stay running. [Worker setup and access](docs/V2-FACTORY.md#optional-worker)
 
-The V1 local editor has been removed; the Podcast Studio (Library, Studio, Automation, Settings) is the only interface, in both the Pages and private builds. The Pages build has no worker, so it offers the Library and playback only. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
+## Video and publishing
 
-For the current release decision, tested environments, open gates and rollback steps, see the [project production readiness checklist](docs/PRODUCTION-READINESS.md).
+The repository includes a browser-local waveform and caption renderer using
+Canvas, WebCodecs and MP4 muxing. A publish ZIP builder packages the MP4, a
+thumbnail, title, description, tags, chapters and a manual-upload checklist.
+Both are exposed as agent tools. Studio video review and ZIP download through
+the main UI are **UNVERIFIED** in this candidate. The owner handles any YouTube
+upload manually. [Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts) · [Tool integration](src/agent/tools.ts)
 
-Before sharing a finished episode, use the [V2 episode production checklist](docs/V2-PRODUCTION-CHECKLIST.md) to review the narration, verify the exports, reconcile costs and test the backup.
+## Repository layout
 
-## V2 release status and player (2026-11-22)
+| Path | Role |
+| --- | --- |
+| [`src/factory/`](src/factory/) | Library, playback, browser BYOK, Studio and Settings |
+| [`src/i18n/`](src/i18n/) | Simplified Chinese source catalogue, English and Malay translations, Intl formatting |
+| [`shared/pipeline/`](shared/pipeline/) and [`server/`](server/) | Shared production stages and optional Node 24 worker |
+| [`src/video/`](src/video/), [`src/publish/`](src/publish/) and [`src/agent/`](src/agent/) | Local media render, export and agent tools |
+| [`tests/`](tests/) and [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Node tests, mocked Factory browser suites and release gates |
 
-The V2 implementation and UI Batches 1–3 were merged into `main` at commit `559b7cf56e4877fd12c3b61d28852498df27eebe`. Independent macOS verification passed **95/95 automated tests**: 30 Node tests, 10 V2 Chromium tests and 55 V1 Chromium tests. Type checking, public/private builds and `git diff --check` passed; the production-dependency audit reported zero vulnerabilities. These are **candidate/source QA results**, not evidence of a deployed site, successful paid OpenAI calls or real-device validation. Consult the [independent verification record](docs/V2-FACTORY.md#independent-release-verification-2026-11-22).
+## Verification
 
-The Library now offers local Unicode search, status/language filters, sorting and validated audio status. The V2 shell owns a single audio engine shared across pages, with a desktop bottom bar, mobile mini player, chapters, seek and speed controls. Switching V2 pages preserves the playing source; refresh can restore its position **paused**, after checking the saved WAV. The browser stores episode media in IndexedDB, while lightweight current-tab playback position is stored in session storage. No cross-device sync or guaranteed iOS background playback is provided.
+The T30/T31 candidate passed the type check and 152 Node tests. The locale
+scan found zero CJK fragments outside the UI catalogue in its scanned source.
+Playwright listed 30 Chromium cases and one WebKit case. Browser execution for
+this candidate is `NOT_RUN`. Earlier paid evidence covers individual API
+endpoints and a short Chromium narration sample. Full-episode listening,
+actual episode costs, physical devices, and manual upload compatibility remain
+**UNVERIFIED**. [Test matrix and commands](docs/TEST-MATRIX.md) · [Provider contract](docs/PROVIDER-CONTRACT.md)
 
-For the complete local worker and offline recovery procedures, use the [V2 runbook](docs/V2-FACTORY.md). A GitHub `main` push does **not** confirm GitHub Pages deployment or worker availability; verify Actions/Pages separately.
+Pages publishes the tested public build through the Pages workflow. The
+optional worker has its own distributable artifact. Use the release and
+episode checklists before promoting a candidate or distributing an episode.
+[Pages workflow](.github/workflows/pages.yml) · [Release checklist](docs/PRODUCTION-READINESS.md) · [Episode checklist](docs/V2-PRODUCTION-CHECKLIST.md)
 
-## Run the Pages build
+## Historical material
 
-> **Note:** the V1 local editor, its browser BYOK mode and its V1 tests were removed. Sections below that describe V1 (admin workspace, demo tones, BYOK, V1 recovery, V1 provider migration) are historical and no longer match the app.
+The V1 editor, demo tones and V1 backup formats belong to the earlier
+prototype. The former editor is available at revision `636fae0`.
+[Historical V1 review](docs/REVIEW-2026-11-04.md)
 
-Use Node.js 24 LTS or newer (CI uses Node 24), then:
-
-```sh
-npm ci
-npm run dev
-npm test
-npm run build
-npm run preview
-npx playwright install chromium
-npm run e2e:factory
-npm audit
-```
-
-Vite is configured for `/PWA-Knowledge-Podcast-OpenAI-TTS/`. The preview command prints the complete local URL. The build creates a versioned service worker with a user-confirmed update flow. Before accepting an update it fetches cache-busted build assets and checks their hashes; a mixed release fails installation and leaves the old version active. The service worker precaches build artifacts only, not API responses or project data. Offline access requires one successful online visit and service-worker activation first.
-
-The admin workspace provides navigation to the script, voice, generation, export and settings sections. Script segments can be moved up or down without discarding their audio. The desktop sidebar can be collapsed, and the mobile navigation opens as a drawer. The style selector reflects the saved narrator instructions and shows Custom for text that does not match a built-in preset. Appearance supports light, dark and system preferences; appearance and sidebar preferences are stored locally. The settings section shows the application version and can check for updates.
-
-## Demo, browser BYOK and privacy
-
-Demo mode requires no key and produces **synthetic one-second tones, not speech**. Browser BYOK mode sends a user-entered OpenAI API key and the script directly from the browser to OpenAI. Select **OpenAI · 浏览器 BYOK**, enter your own key, acknowledge the risk and possible charges, then click generate. No API request is made until generation is clicked. Cancellation or a failed request may still incur charges; requests are not retried automatically.
-
-After the app has been cached by an online visit, demo tones can also be generated offline; OpenAI generation remains unavailable offline. Demo generation skips segments with a saved OpenAI take, including stale and alternate takes. Full WAV export skips blank segments and requires current audio for every nonempty segment, with at least one nonempty segment. If a protected segment blocks full demo export or continuous preview, the app lists the affected segments and points to per-segment downloads for available demo tones.
-
-**Security trade-off:** OpenAI recommends keeping standard API keys on a trusted server. This experimental browser-only design was requested by the project owner and exposes the key to this page's scripts, browser extensions and potentially the device. A malicious script, compromised deployment, extension or shared device could steal it. Use a restricted, budget-limited key on a trusted device. The field is not written to application storage, backups, service-worker caches or logs; it is cleared on page exit, mode change or explicit clear. This does not protect the key against a compromised browser or frontend. The browser sends the script to OpenAI; projects and resulting audio are stored in local IndexedDB and can be lost if browser data is cleared.
-
-Each generated segment must be saved locally before the next segment starts. If saving fails, generation stops and the current audio remains available in the open page for download or an explicit save retry; closing the page can lose that unsaved audio. To discard the take, download the WAV and confirm deletion of its segment. Recovery clears after the deletion is saved, so generation in other projects can resume without a reload. Retrying the save does not make another provider request.
-
-See the [V1 recording protection and recovery verification](docs/TEST-MATRIX.md#v1-recording-protection-and-recovery-2026-11-22) for the covered workflows.
-
-Before a BYOK batch, the app checks all selected segments against its 4,000-unit per-segment limit and the 2,000-unit instruction limit. Lengths use JavaScript UTF-16 code units, so some characters, including many emoji, count as two. An invalid batch is not sent to OpenAI and the text remains editable.
-
-The owner reports that browser BYOK produced WAV speech; the implementation team has not independently verified that provider session or its audio quality. Remote audio is captured as PCM with an AudioWorklet and encoded as WAV, avoiding a second browser container-decoding step. A muted media-element sink keeps the remote WebRTC audio track active in Chromium while the worklet records it; the sink is detached after the session. After the server reports that its audio buffer is drained, capture waits for audible samples and a two-second quiet tail, with a bounded timeout; this is a heuristic and cannot guarantee that delayed audio is complete. The app checks that capture can start before opening a potentially billable session; browsers without AudioWorklet cannot use this path. A successful preflight or mocked test does not prove provider access, output completeness or narration quality. The API may change. Users must listen to generated audio and verify narration matches the script. Browser speech synthesis is separate and cannot be exported. The current WAV assembly requires compatible sample formats; MP3 is not supported. The script-only JSON backup contains scripts and settings. Choose the audio-inclusive backup to preserve recorded takes.
-
-OpenAI clips are marked **awaiting listening verification**, including clips saved by older versions. Listen to each clip and compare it with the script before confirming it; the full WAV export requires confirmations. Individual clips remain downloadable before confirmation. This is a human check, not proof that the transport captured all audio, and a truncated clip may need an explicitly initiated, potentially chargeable replacement.
-
-Re-record an existing segment to keep a separate alternate take for listening and comparison. OpenAI re-recording asks for confirmation because it may incur a charge. The current take is retained on failure or cancellation; choosing the alternate swaps the takes. Resolve or explicitly remove an existing alternate before creating another. Script-only backups do not include either take.
-
-The experimental continuity comparison prepares one single-response, one shared-session and three context-reference sessions after explicit consent, with a per-response output limit and no automatic retry. It saves each result before continuing, but the limit is not a dollar cap. Real provider audio and listener results remain unverified; see the [comparison protocol](docs/NARRATION-EVALUATION.md).
-
-Each generation shows its fixed input snapshot. OpenAI takes retain their requested model, voice, instructions and script, plus any model or voice reported by the provider session; absent or unsupported values are shown as unknown, and a reported mismatch is flagged for review. Session metadata does not prove what a listener heard. Older audio may lack provenance. Script-only backups omit audio and provenance.
-
-The optional audio backup is an unencrypted JSON file containing script, both WAV takes and provenance. Audio is limited to 16 MiB total; the file limit is 24 MiB. Treat it as private. Each WAV has a SHA-256 checksum for accidental corruption, not proof of authenticity: import only trusted files. Import creates a separate project, and a failed local save can be retried without changing the source backup. Older script-only backups remain supported. API keys are not included.
-
-Continuous preview assembles current local audio from a selected segment onward without contacting OpenAI. The player supports pause and seek; changing any included segment invalidates the preview. Audio formats must be compatible. Choose no added pause, 0.2 seconds or 0.5 seconds between segments for the preview and full WAV export; original clips remain untouched. This does not smooth clicks or guarantee consistent delivery. A [listening rubric](docs/NARRATION-EVALUATION.md) supports comparison.
-
-Updates wait until other app tabs are closed. If Web Locks are unavailable, close every app page and reopen it to activate a waiting update. Old asset caches are retained for offline recovery and may consume storage. Concurrent changes to the same project are detected on save; the affected tab keeps its local changes and can save a separate conflict copy. Back up important projects before clearing site data.
-
-Release hardening and browser-key limitations are described in [the security notes](docs/SECURITY.md).
-
-## V1 prototype gaps
-
-- The owner reports successful live BYOK speech generation; independent verification of the provider session, completeness, narration continuity and Chinese pronunciation remains outstanding. The original authenticated-gateway requirement was superseded by the owner's explicit browser-only requirement.
-- Individual clips use separate sessions and are joined without transition processing; the owner reports inconsistent emotion and pacing between clips. The comparison workflow is available. The controlled listening evaluation and selection of a production approach remain open.
-- Cross-voice comparison, reusable user presets, full chunk planning, and live provider retry/error evaluation remain incomplete. There is no automatic retry after an ambiguous paid request.
-- Selected V1 Firefox and Chromium multi-tab update cases pass in CI. Physical-device installation, mobile multi-tab behavior and Firefox with a live provider still need verification. See the [browser and device matrix](docs/TEST-MATRIX.md).
-
-The [prioritized task backlog](TASK.md) and [six-persona review](docs/REVIEW-2026-11-04.md) describe current risks, evidence and proposed next steps.
-
-## V1 provider migration
-
-OpenAI's [text-to-speech guide](https://developers.openai.com/api/docs/guides/text-to-speech) states that `tts-1`, `tts-1-hd`, and `gpt-4o-mini-tts` are scheduled to shut down on 2027-01-06. OpenAI recommends `gpt-realtime-2.1-mini` with the [Realtime API](https://developers.openai.com/api/docs/guides/realtime); it is not a drop-in model for `/v1/audio/speech`. Voice availability must be checked against the model and provider. The team has not independently made a paid provider call as part of its verification.
-
-## Deployment
-
-Every release to GitHub Pages passes the same Node 24 checks as a pull request. On `main`, the Pages workflow runs the dependency audit, type check, Node tests, public and private builds, and the configured Chromium, WebKit and Firefox suites. It then publishes the tested `dist` artifact. The workflow also supports a manual run on `main`. Select GitHub Actions as the Pages source. The private worker runs on its own host and keeps operator credentials there. See the [production checklist](docs/PRODUCTION-READINESS.md) and [worker runbook](docs/V2-FACTORY.md).
+The Pocket Frequency animation is a separate design demo.
+[MP4](design/pocket-frequency-duck.mp4) · [Blender scene](design/pocket-frequency-duck.blend)
