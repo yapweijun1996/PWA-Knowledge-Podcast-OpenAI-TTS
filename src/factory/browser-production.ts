@@ -22,6 +22,12 @@ import { researchTopic } from "../../shared/pipeline/research.ts";
 import { makeOutline, makeScript } from "../../shared/pipeline/script.ts";
 import { transcribe } from "../../shared/pipeline/transcript.ts";
 import { productionBounds, readPreferences } from "../../shared/preferences.ts";
+import {
+  createTranslator,
+  locales,
+  t,
+  type MessageKey,
+} from "../i18n/index.ts";
 import { get as getBrowserKey } from "./browser-key.ts";
 import {
   generateNarration,
@@ -39,30 +45,43 @@ const active = new Set<string>();
 const localSaveSignal = new AbortController().signal;
 
 const messages = {
-  "no-key": "请先在此页面设置 OpenAI API 密钥。",
-  "no-consent": "请先确认本次 OpenAI 使用的预估费用并同意继续。",
-  "invalid-input": "请输入有效主题并检查语言、主持人数和制作时长上限。",
-  "invalid-checkpoint": "本地制作记录或音频无效，请检查资料库。",
-  "missing-checkpoint": "资料库中没有此制作记录。",
-  conflict: "此节目正在制作或已在另一标签页更新，请重新打开后再试。",
-  "save-failed": "无法保存本次制作进度。请检查浏览器存储后手动继续。",
-  "load-failed": "无法读取本地制作进度，请检查浏览器存储。",
-  cancelled: "已取消制作。先前保存的进度仍可继续使用。",
-  unknown: "请求结果未知，可能已计费。请确认后手动重试。",
-  rejected: "OpenAI 拒绝了请求，请检查密钥、模型权限或用量后手动重试。",
-  "invalid-result":
-    "OpenAI 返回的结果未通过检查。可使用先前保存的进度手动重试。",
-  "incomplete-take": "配音片段未完成，可能已计费。请手动重试此片段。",
-  "audio-too-long": "配音超出时长上限。已保存先前的片段。",
-  "key-in-content": "内容包含当前 API 密钥，已停止制作。请移除密钥后再试。",
-  "callback-failed": "无法显示制作预估或进度，已停止制作。",
-} as const;
+  "no-key": "studio.production.noKey",
+  "no-consent": "studio.production.noConsent",
+  "invalid-input": "studio.production.invalidInput",
+  "invalid-checkpoint": "studio.production.invalidCheckpoint",
+  "missing-checkpoint": "studio.production.missingCheckpoint",
+  conflict: "studio.production.conflict",
+  "save-failed": "studio.production.saveFailed",
+  "load-failed": "studio.production.loadFailed",
+  cancelled: "studio.production.cancelled",
+  unknown: "studio.production.unknown",
+  rejected: "studio.production.rejected",
+  "invalid-result": "studio.production.invalidResult",
+  "incomplete-take": "studio.production.incompleteTake",
+  "audio-too-long": "studio.production.audioTooLong",
+  "key-in-content": "studio.production.keyInContent",
+  "callback-failed": "studio.production.callbackFailed",
+} as const satisfies Record<string, MessageKey>;
+
+type BrowserJob = Job & { unknownPaidOutcome?: true };
+
+// Older checkpoints have only display text. Keep recognizing them after a locale change.
+const unknownOutcomeMessages = new Set(
+  locales.map((locale) => createTranslator(locale)(messages.unknown)),
+);
+
+function isUnknownOutcome(job: BrowserJob | undefined) {
+  return (
+    job?.unknownPaidOutcome === true ||
+    (job?.message !== undefined && unknownOutcomeMessages.has(job.message))
+  );
+}
 
 export class BrowserProductionError extends Error {
   declare code: keyof typeof messages;
 
   constructor(code: keyof typeof messages, cancelled = false) {
-    super(messages[code]);
+    super(t(messages[code]));
     this.name =
       cancelled || code === "cancelled"
         ? "AbortError"
@@ -370,7 +389,7 @@ export function createBrowserProduction({
     let assets = { ...saved?.assets };
     checkRecord({ episode, assets, stamp: "" }, key);
     if (
-      episode.job?.message === messages.unknown &&
+      isUnknownOutcome(episode.job) &&
       (starting || options.retryUnknown !== true)
     )
       throw new BrowserProductionError("unknown");
@@ -410,7 +429,7 @@ export function createBrowserProduction({
       }
     };
 
-    async function save(job?: Job, received = false) {
+    async function save(job?: BrowserJob, received = false) {
       if (job) episode.job = job;
       else delete episode.job;
       episode.updated = new Date(now()).toISOString();
@@ -437,7 +456,12 @@ export function createBrowserProduction({
       checkCancelled(signal);
       await notify(() => onProgress?.({ episodeId: id, stage, index, total }));
       // A reload after dispatch cannot tell whether the provider completed the request.
-      await save({ stage, status: "running", message: messages.unknown });
+      await save({
+        stage,
+        status: "running",
+        message: t(messages.unknown),
+        unknownPaidOutcome: true,
+      });
       try {
         checkCancelled(signal);
         await work();
@@ -453,6 +477,7 @@ export function createBrowserProduction({
           stage,
           status: signal.aborted ? "cancelled" : "failed",
           message: failure.message,
+          ...(failure.code === "unknown" && { unknownPaidOutcome: true }),
         });
         throw failure;
       }
@@ -623,7 +648,7 @@ export function createBrowserProduction({
         error instanceof BrowserProductionError &&
         error.code === "cancelled" &&
         job?.status === "running" &&
-        job.message !== messages.unknown
+        !isUnknownOutcome(job)
       ) {
         episode = structuredClone(saved!.episode);
         assets = { ...saved!.assets };

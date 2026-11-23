@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { limits } from "../../shared/factory";
+import { useI18n, type MessageKey } from "../i18n";
 import { WorkspaceLink, type WorkspaceNavigation } from "./navigation";
 import type {
   BrowserEstimate,
@@ -10,26 +11,43 @@ import type {
 import "./studio-intake.css";
 
 const availabilityCopy = {
-  offline: ["当前离线", "可以先填写主题。联网后再提交。"],
+  offline: ["studio.availability.offline", "studio.availability.offlineHint"],
   "no-worker": [
-    "尚未设置浏览器密钥",
-    "请在设置中添加浏览器密钥。也可选择运行本机制作进程。",
+    "studio.availability.browserKeyMissing",
+    "studio.availability.browserKeyMissingHint",
   ],
   locked: [
-    "需要登录制作进程",
-    "请在设置中添加浏览器密钥，或登录本机制作进程。",
+    "studio.availability.workerLocked",
+    "studio.availability.workerLockedHint",
   ],
   "no-key": [
-    "需要 OpenAI 密钥",
-    "请在设置中添加浏览器密钥，或为本机制作进程配置密钥。",
+    "studio.availability.keyMissing",
+    "studio.availability.keyMissingHint",
   ],
-  working: ["制作进程正忙", "当前任务结束后即可制作新节目。"],
-  ready: ["可以开始制作", "制作进程与 OpenAI 密钥已就绪。"],
+  working: [
+    "studio.availability.workerBusy",
+    "studio.availability.workerBusyHint",
+  ],
+  ready: [
+    "studio.availability.workerReady",
+    "studio.availability.workerReadyHint",
+  ],
   "ready-browser": [
-    "可以在浏览器制作",
-    "此标签页会直接连接 OpenAI 并保存制作进度。",
+    "studio.availability.browserReady",
+    "studio.availability.browserReadyHint",
   ],
-} satisfies Record<StudioAvailability, readonly [string, string]>;
+} as const satisfies Record<
+  StudioAvailability,
+  readonly [MessageKey, MessageKey]
+>;
+
+const continuationStatus = {
+  offline: "studio.continuation.offline",
+  "no-worker": "studio.continuation.workerUnavailable",
+  locked: "studio.continuation.workerLocked",
+  "no-key": "studio.continuation.keyMissing",
+  working: "studio.continuation.workerBusy",
+} as const satisfies Record<Exclude<WorkerAvailability, "ready">, MessageKey>;
 
 export function BrowserCost({
   estimate,
@@ -40,14 +58,32 @@ export function BrowserCost({
   id?: string;
   wholeEpisode?: boolean;
 }) {
+  const { t, formatters } = useI18n();
+  const seconds = Math.ceil(estimate.transcriptionAudioSeconds);
+
   return (
     <div id={id} className="muted">
-      <strong>费用预估{wholeEpisode ? "（按整集用量）" : "（按用量）"}</strong>
+      <strong>
+        {t(wholeEpisode ? "studio.cost.wholeEpisode" : "studio.cost.usage")}
+      </strong>
       <div>
-        输出约 {estimate.maxOutputTokens.toLocaleString("zh-CN")} 个词元，
-        网页搜索最多 {estimate.maxWebSearchCalls} 次，转录约{" "}
-        {Math.ceil(estimate.transcriptionAudioSeconds)} 秒。
-        输入和工具调用也可能计费，实际费用以 OpenAI 账单为准。
+        {t("studio.cost.disclosure", {
+          output: formatters.plural(
+            "studio.cost.output",
+            estimate.maxOutputTokens,
+          ),
+          searches: formatters.plural(
+            "studio.cost.searches",
+            estimate.maxWebSearchCalls,
+          ),
+          transcription: formatters.plural(
+            "studio.cost.transcription",
+            seconds,
+            {
+              displayCount: formatters.number(seconds, { useGrouping: false }),
+            },
+          ),
+        })}
       </div>
     </div>
   );
@@ -68,27 +104,23 @@ export function BrowserContinuation({
   navigation: WorkspaceNavigation;
   onResume: () => void;
 }) {
+  const { t } = useI18n();
   const [consent, setConsent] = useState(false);
   return (
     <section className="factory-panel" aria-labelledby="browser-resume-title">
-      <h2 id="browser-resume-title">继续浏览器制作</h2>
+      <h2 id="browser-resume-title">{t("studio.continuation.title")}</h2>
       <p id="browser-resume-warning" className="muted">
-        将从已保存的进度继续。若上次请求的结果未知，手动继续可能再次计费。
+        {t("studio.continuation.warning")}
       </p>
-      {workerAvailability === "offline" ? (
-        <p className="muted">当前离线，联网后才能继续制作。</p>
-      ) : !keySet && workerAvailability !== "ready" ? (
-        <p className="muted">
-          {workerAvailability === "no-worker"
-            ? "未连接本机制作进程。"
-            : `${availabilityCopy[workerAvailability][0]}。`}
-        </p>
-      ) : null}
+      {workerAvailability !== "ready" &&
+        (workerAvailability === "offline" || !keySet) && (
+          <p className="muted">{t(continuationStatus[workerAvailability])}</p>
+        )}
       {!keySet && (
         <p>
-          请在设置中添加浏览器密钥，以使用此标签页继续制作。{" "}
+          {t("studio.continuation.keyHint")}{" "}
           <WorkspaceLink page="settings" navigation={navigation}>
-            前往设置
+            {t("studio.availability.openSettings")}
           </WorkspaceLink>
         </p>
       )}
@@ -106,7 +138,7 @@ export function BrowserContinuation({
             disabled={disabled}
             onChange={(event) => setConsent(event.target.checked)}
           />
-          我同意本次继续制作的 OpenAI 请求可能计费。
+          {t("studio.continuation.consent")}
         </label>
         <button
           className="primary"
@@ -116,7 +148,7 @@ export function BrowserContinuation({
             onResume();
           }}
         >
-          继续浏览器制作
+          {t("studio.continuation.title")}
         </button>
       </div>
     </section>
@@ -154,6 +186,7 @@ export function StudioIntake({
   onHostsChange: (count: 2 | undefined) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const { t, formatters } = useI18n();
   const [status, guidance] = availabilityCopy[availability];
   const ready = availability === "ready" || availability === "ready-browser";
 
@@ -163,13 +196,15 @@ export function StudioIntake({
         className="factory-panel studio-intake-form"
         aria-labelledby="studio-intake-title"
       >
-        <h2 id="studio-intake-title">从主题制作</h2>
+        <h2 id="studio-intake-title">{t("studio.intake.title")}</h2>
         <form className="factory-create" onSubmit={onSubmit}>
           <div className="field">
             <div className="studio-topic-label">
-              <label htmlFor="studio-topic">播客主题</label>
+              <label htmlFor="studio-topic">{t("studio.intake.topic")}</label>
               <small className="muted">
-                {topic.length} / {limits.topic}
+                {formatters.plural("studio.intake.topicCount", topic.length, {
+                  limit: limits.topic,
+                })}
               </small>
             </div>
             <textarea
@@ -179,12 +214,12 @@ export function StudioIntake({
               rows={4}
               maxLength={limits.topic}
               value={topic}
-              placeholder="例如：新加坡的组屋为何能容纳不同族群？"
+              placeholder={t("studio.intake.topicExample")}
               onChange={(event) => onChange(event.target.value)}
             />
           </div>
           <label className="field">
-            主持人数
+            {t("studio.intake.hosts")}
             <select
               value={exactHosts ?? "auto"}
               disabled={busy}
@@ -192,13 +227,15 @@ export function StudioIntake({
                 onHostsChange(event.target.value === "2" ? 2 : undefined)
               }
             >
-              <option value="auto">自动安排</option>
-              <option value="2">恰好两位主持人</option>
+              <option value="auto">{t("studio.intake.autoHosts")}</option>
+              <option value="2">
+                {formatters.plural("studio.intake.twoHosts", 2)}
+              </option>
             </select>
           </label>
           {chooseMode && (
             <label className="field">
-              制作位置
+              {t("studio.intake.location")}
               <select
                 value={mode}
                 disabled={busy}
@@ -208,15 +245,15 @@ export function StudioIntake({
                   )
                 }
               >
-                <option value="browser">此浏览器</option>
-                <option value="worker">本机制作进程</option>
+                <option value="browser">{t("studio.intake.browser")}</option>
+                <option value="worker">{t("studio.intake.worker")}</option>
               </select>
             </label>
           )}
           <div className="studio-availability" id="studio-availability">
             <div role="status">
-              <strong>{status}</strong>
-              <span>{guidance}</span>
+              <strong>{t(status)}</strong>
+              <span>{t(guidance)}</span>
             </div>
             {!ready && availability !== "offline" && (
               <WorkspaceLink
@@ -224,7 +261,7 @@ export function StudioIntake({
                 page="settings"
                 navigation={navigation}
               >
-                前往设置
+                {t("studio.availability.openSettings")}
               </WorkspaceLink>
             )}
           </div>
@@ -239,14 +276,14 @@ export function StudioIntake({
               checked={consent}
               onChange={(event) => onConsent(event.target.checked)}
             />
-            同意本次 OpenAI 研究、写稿、配音和转录请求可能计费。
+            {t("studio.intake.consent")}
           </label>
           <button
             className="primary"
             aria-describedby="studio-availability"
             disabled={!ready || busy || !consent || !topic.trim()}
           >
-            制作整集播客
+            {t("studio.intake.submit")}
           </button>
         </form>
       </section>
@@ -254,19 +291,19 @@ export function StudioIntake({
         className="factory-panel studio-intake-flow"
         aria-labelledby="studio-flow-title"
       >
-        <h2 id="studio-flow-title">制作流程</h2>
+        <h2 id="studio-flow-title">{t("studio.workflow.title")}</h2>
         <ol>
           <li>
-            <strong>研究与核对来源</strong>
-            <span>交叉检索，保留主张和出处。</span>
+            <strong>{t("studio.workflow.research")}</strong>
+            <span>{t("studio.workflow.researchHint")}</span>
           </li>
           <li>
-            <strong>编排大纲与脚本</strong>
-            <span>按偏好安排语言、主持与时长。</span>
+            <strong>{t("studio.workflow.script")}</strong>
+            <span>{t("studio.workflow.scriptHint")}</span>
           </li>
           <li>
-            <strong>生成配音与转录</strong>
-            <span>在资料库试听，对照原稿核验。</span>
+            <strong>{t("studio.workflow.narration")}</strong>
+            <span>{t("studio.workflow.narrationHint")}</span>
           </li>
         </ol>
       </aside>

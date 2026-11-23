@@ -1,3 +1,4 @@
+import { t, type MessageKey } from "../i18n/index.ts";
 import { studioBase, voices, type Voice } from "../../shared/factory.ts";
 import { MAX_INSTRUCTIONS_LENGTH, MAX_SEGMENT_LENGTH } from "../limits.ts";
 import type { AudioProvenance } from "../model.ts";
@@ -8,9 +9,6 @@ const SAMPLE_RATE = 24_000;
 const MAX_OUTPUT_TOKENS = 1024;
 const MAX_CAPTURE_SAMPLES = SAMPLE_RATE * 125;
 const PROCESSOR = "podcast-pcm-capture";
-const AUDIO_UNSUPPORTED = "此浏览器不支持实时音频采集，请尝试最新版 Chrome。";
-const NO_AUDIO = "未收到可听见的音频，请检查连接。可能已经产生费用。";
-const CAPTURE_FAILED = "浏览器音频采集失败；可能已经产生费用。";
 
 type ResponseStatus = "completed" | "incomplete";
 
@@ -66,14 +64,16 @@ export async function generateNarration({
   const key = apiKey.trim();
   const cleanup: (() => void)[] = [];
   const run = new AbortController();
-  const fail = (message: string) => run.abort(new Error(message));
-  const cancel = () => run.abort(new DOMException("已取消。", "AbortError"));
+  const fail = (key: MessageKey) => run.abort(new Error(t(key)));
+  const cancel = () =>
+    run.abort(new DOMException(t("studio.narration.cancelled"), "AbortError"));
 
   try {
     const texts = typeof text === "string" ? [text] : [...text];
     if (consentGranted !== true)
-      throw new Error("请先确认本次生成的预估费用并同意继续。");
-    if (typeof onTake !== "function") throw new Error("请先设置音频保存方式。");
+      throw new Error(t("studio.narration.noConsent"));
+    if (typeof onTake !== "function")
+      throw new Error(t("studio.narration.saveRequired"));
     if (
       !key ||
       texts.length < 1 ||
@@ -85,20 +85,29 @@ export async function generateNarration({
       !voices.includes(voice)
     )
       throw new Error(
-        `请检查 API key、声音、片段长度（最多 ${MAX_SEGMENT_LENGTH} 字符）和旁白指令（最多 ${MAX_INSTRUCTIONS_LENGTH} 字符）。`,
+        t("studio.narration.invalidInput", {
+          segmentLimit: t("studio.narration.characterLimit", {
+            count: MAX_SEGMENT_LENGTH,
+            displayCount: String(MAX_SEGMENT_LENGTH),
+          }),
+          instructionsLimit: t("studio.narration.characterLimit", {
+            count: MAX_INSTRUCTIONS_LENGTH,
+            displayCount: String(MAX_INSTRUCTIONS_LENGTH),
+          }),
+        }),
       );
     if (
       instructions.includes(key) ||
       texts.some((segment) => segment.includes(key))
     )
-      throw new Error("请从脚本和旁白指令中移除 API key。");
+      throw new Error(t("studio.narration.keyInContent"));
     if (
       !Number.isInteger(maxOutputTokens) ||
       maxOutputTokens < 1 ||
       maxOutputTokens > MAX_OUTPUT_TOKENS
     )
       throw new Error(
-        `输出 token 上限必须为 1 至 ${MAX_OUTPUT_TOKENS} 的整数。`,
+        t("studio.narration.tokenLimit", { limit: String(MAX_OUTPUT_TOKENS) }),
       );
     if (
       typeof globalThis.RTCPeerConnection !== "function" ||
@@ -107,7 +116,7 @@ export async function generateNarration({
       typeof globalThis.Audio !== "function" ||
       typeof globalThis.MediaStream !== "function"
     )
-      throw new Error(AUDIO_UNSUPPORTED);
+      throw new Error(t("studio.narration.unsupported"));
 
     signal.addEventListener("abort", cancel, { once: true });
     cleanup.push(() => signal.removeEventListener("abort", cancel));
@@ -119,8 +128,8 @@ export async function generateNarration({
       if (context.state !== "closed") void context.close().catch(() => {});
     });
     if (typeof context.audioWorklet?.addModule !== "function")
-      throw new Error(AUDIO_UNSUPPORTED);
-    const startupError = "无法启动浏览器音频采集；没有发起 OpenAI 请求。";
+      throw new Error(t("studio.narration.unsupported"));
+    const startupError = "studio.narration.startupFailed";
     let capture: AudioWorkletNode;
     try {
       await withDeadline(run.signal, 8_000, startupError, async (active) => {
@@ -132,7 +141,7 @@ export async function generateNarration({
       });
       run.signal.throwIfAborted();
       if (context.state !== "running" || context.sampleRate !== SAMPLE_RATE)
-        throw new Error(startupError);
+        throw new Error(t(startupError));
       capture = new AudioWorkletNode(context, PROCESSOR, {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -146,7 +155,7 @@ export async function generateNarration({
       capture.connect(context.destination);
     } catch {
       run.signal.throwIfAborted();
-      throw new Error(startupError);
+      throw new Error(t(startupError));
     }
 
     const sink = new Audio();
@@ -197,21 +206,21 @@ export async function generateNarration({
         channelReady = true;
         checkReady();
       };
-      channel.onerror = () => fail("Realtime 连接中断；可能已经产生费用。");
-      channel.onclose = () => fail("Realtime 连接提前关闭；可能已经产生费用。");
+      channel.onerror = () => fail("studio.narration.channelError");
+      channel.onclose = () => fail("studio.narration.channelClosed");
       peer.onconnectionstatechange = () => {
         if (
           peer.connectionState === "failed" ||
           peer.connectionState === "closed"
         )
-          fail("Realtime 连接失败；可能已经产生费用。");
+          fail("studio.narration.peerFailed");
       };
-      capture.onprocessorerror = () => fail(CAPTURE_FAILED);
+      capture.onprocessorerror = () => fail("studio.narration.captureFailed");
 
       peer.ontrack = (event) => {
         if (track || run.signal.aborted || event.track.kind !== "audio") return;
         track = event.track;
-        const onEnded = () => fail("Realtime 音轨提前结束；可能已经产生费用。");
+        const onEnded = () => fail("studio.narration.trackEnded");
         cleanup.push(
           () => event.track.stop(),
           () => event.track.removeEventListener("ended", onEnded),
@@ -229,10 +238,10 @@ export async function generateNarration({
               trackReady = true;
               checkReady();
             },
-            () => fail("浏览器无法启动远端音频；可能已经产生费用。"),
+            () => fail("studio.narration.playbackFailed"),
           );
         } catch {
-          fail("此浏览器无法采集远端音频；可能已经产生费用。");
+          fail("studio.narration.remoteCaptureFailed");
         }
       };
 
@@ -243,13 +252,11 @@ export async function generateNarration({
           event = JSON.parse(String(data));
           if (!event || typeof event.type !== "string") throw new Error();
         } catch {
-          fail("Realtime 响应格式错误；可能已经产生费用。");
+          fail("studio.narration.malformedEvent");
           return;
         }
         if (event.type === "error") {
-          fail(
-            "OpenAI 请求失败，请检查 key、模型权限和用量。可能已经产生费用。",
-          );
+          fail("studio.narration.providerFailed");
         } else if (event.type === "session.created" && !sessionReady) {
           const model = event.session?.model;
           const voice = event.session?.audio?.output?.voice;
@@ -274,7 +281,7 @@ export async function generateNarration({
     });
 
     const timer = setTimeout(
-      () => fail("请求超时；请检查网络和模型权限。可能已经产生费用。"),
+      () => fail("studio.narration.sessionTimeout"),
       120_000,
     );
     cleanup.push(() => clearTimeout(timer));
@@ -315,13 +322,15 @@ export async function generateNarration({
   } catch (error) {
     // Rebuild the public error without the original stack, cause, or custom fields.
     const redact = (message: string) =>
-      key ? message.replaceAll(key, "[已隐藏]") : message;
+      key
+        ? message.replaceAll(key, () => t("studio.narration.redacted"))
+        : message;
     const message =
       error instanceof Error
         ? error.message
         : typeof error === "string"
           ? error
-          : "旁白生成或保存失败。";
+          : t("studio.narration.saveFailed");
     if (error instanceof DOMException)
       throw new DOMException(redact(message), redact(error.name));
     const publicError = new Error(redact(message));
@@ -344,13 +353,12 @@ async function negotiate(
   key: string,
   signal: AbortSignal,
 ) {
-  const offerError = "无法建立浏览器音频连接。";
-  const connectionError =
-    "OpenAI 连接失败；请检查网络和模型权限。可能已经产生费用。";
+  const offerError = "studio.narration.offerFailed";
+  const connectionError = "studio.narration.connectionFailed";
   await withDeadline(
     signal,
     30_000,
-    "连接超时；可能已经产生费用。",
+    "studio.narration.connectionTimeout",
     async (active) => {
       let offer: RTCSessionDescriptionInit;
       try {
@@ -359,10 +367,10 @@ async function negotiate(
         await peer.setLocalDescription(offer);
       } catch {
         active.throwIfAborted();
-        throw new Error(offerError);
+        throw new Error(t(offerError));
       }
       active.throwIfAborted();
-      if (!offer.sdp) throw new Error(offerError);
+      if (!offer.sdp) throw new Error(t(offerError));
       const form = new FormData();
       form.set("sdp", offer.sdp);
       form.set("session", JSON.stringify(session));
@@ -380,13 +388,14 @@ async function negotiate(
         });
       } catch {
         active.throwIfAborted();
-        throw new Error(connectionError);
+        throw new Error(t(connectionError));
       }
       active.throwIfAborted();
-      if (response.status === 401) throw new Error("API key 无效或已过期。");
+      if (response.status === 401)
+        throw new Error(t("studio.narration.invalidKey"));
       if (response.status === 429)
-        throw new Error("OpenAI 额度或速率受限；请检查账户。");
-      if (!response.ok) throw new Error(connectionError);
+        throw new Error(t("studio.narration.rateLimited"));
+      if (!response.ok) throw new Error(t(connectionError));
       try {
         const answer = await response.text();
         active.throwIfAborted();
@@ -394,7 +403,7 @@ async function negotiate(
         await peer.setRemoteDescription({ type: "answer", sdp: answer });
       } catch {
         active.throwIfAborted();
-        throw new Error("OpenAI 返回的连接信息无法使用；可能已经产生费用。");
+        throw new Error(t("studio.narration.invalidAnswer"));
       }
     },
   );
@@ -418,7 +427,7 @@ async function recordTake(
       let sampleCount = 0;
       let lastSoundAt: number | undefined;
       const chunks: Float32Array[] = [];
-      const fail = (message: string) => reject(new Error(message));
+      const fail = (key: MessageKey) => reject(new Error(t(key)));
 
       setResponseHandler((event) => {
         if (
@@ -434,7 +443,7 @@ async function recordTake(
             status = reported;
             responseId = event.response?.id;
           } else {
-            fail("语音生成未完成；可能已经产生费用。");
+            fail("studio.narration.incomplete");
           }
         }
         if (event.type !== "output_audio_buffer.stopped") return;
@@ -442,7 +451,7 @@ async function recordTake(
           !status ||
           (responseId && event.response_id && responseId !== event.response_id)
         ) {
-          fail("音频结束事件顺序异常，无法确认结果；可能已经产生费用。");
+          fail("studio.narration.unexpectedEvent");
           return;
         }
         if (phase !== "recording") return;
@@ -452,7 +461,7 @@ async function recordTake(
         const drain = () => {
           const now = performance.now();
           if (lastSoundAt === undefined && now - stoppedAt >= 8_000) {
-            fail(NO_AUDIO);
+            fail("studio.narration.noAudio");
           } else if (
             lastSoundAt !== undefined &&
             now - Math.max(stoppedAt, lastSoundAt) >= 2_000
@@ -461,10 +470,10 @@ async function recordTake(
             try {
               capture.port.postMessage("stop");
             } catch {
-              fail(CAPTURE_FAILED);
+              fail("studio.narration.captureFailed");
             }
           } else if (now - stoppedAt >= 15_000) {
-            fail("无法确认音频已完整接收；可能已经产生费用。");
+            fail("studio.narration.undrainedAudio");
           } else {
             drainTimer = setTimeout(drain, 200);
           }
@@ -496,7 +505,7 @@ async function recordTake(
               }),
             );
           } catch {
-            fail("无法启动音频生成；可能已经产生费用。");
+            fail("studio.narration.requestFailed");
           }
         } else if (
           data.type === "data" &&
@@ -505,7 +514,7 @@ async function recordTake(
         ) {
           sampleCount += data.samples.length;
           if (sampleCount > MAX_CAPTURE_SAMPLES) {
-            fail("生成音频过长；可能已经产生费用。");
+            fail("studio.narration.captureTooLong");
             return;
           }
           chunks.push(data.samples);
@@ -513,7 +522,7 @@ async function recordTake(
             lastSoundAt = performance.now();
         } else if (data.type === "done") {
           if (phase !== "flushing" || !status || !sampleCount) {
-            fail("未收到完整音频；可能已经产生费用。");
+            fail("studio.narration.truncatedAudio");
             return;
           }
           try {
@@ -555,12 +564,12 @@ async function abortable<T>(
 async function withDeadline<T>(
   signal: AbortSignal,
   ms: number,
-  message: string,
+  message: MessageKey,
   work: (active: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const timeout = new AbortController();
   const active = AbortSignal.any([signal, timeout.signal]);
-  const timer = setTimeout(() => timeout.abort(new Error(message)), ms);
+  const timer = setTimeout(() => timeout.abort(new Error(t(message))), ms);
   try {
     return await abortable(active, () => work(active));
   } finally {

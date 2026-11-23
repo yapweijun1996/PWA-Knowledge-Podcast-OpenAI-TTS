@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.ts";
+
 const maxKeyLength = 512;
 const listeners = new Set<() => void>();
 let currentKey: string | undefined;
@@ -12,7 +14,7 @@ export function set(key: string): void {
   const trimmed = typeof key === "string" ? key.trim() : "";
   if (!trimmed || trimmed.length > maxKeyLength || /\s/.test(trimmed)) {
     throw new Error(
-      redact(`请输入不含空白且最多 ${maxKeyLength} 个字符的 API 密钥。`),
+      redact(t("settings.browserKey.invalid", { count: maxKeyLength })),
     );
   }
   update(trimmed);
@@ -39,7 +41,10 @@ export function subscribe(listener: () => void): () => void {
 
 export function redact(text: string): string {
   if (!currentKey) return text;
-  const redacted = text.replaceAll(currentKey, "[REDACTED]");
+  const redacted = text.replaceAll(
+    currentKey,
+    t("settings.browserKey.redacted"),
+  );
   return redacted.includes(currentKey) ? "" : redacted;
 }
 
