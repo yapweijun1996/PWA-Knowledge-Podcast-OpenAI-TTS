@@ -85,3 +85,17 @@ render receipt. Browsers that cannot initialize WebGL2 use waveform and show
 the substitution in the receipt. The spike measurements above describe the
 standalone harness. Integrated render timing and decoded-frame hashes need a
 Chromium run. [Scene interface](VIDEO-RENDER-DECISION.md#scene-interface)
+
+## Art direction (T60)
+
+Studio 3D uses the shared design palettes and a 38° camera. Its smooth,
+single-band host and faceted, double-band host sit above beveled pedestals
+with radial contact shadows. The portrait camera centers the stage at x=.43
+and uses .55× ring depth and .65× camera excursion.
+
+The scene analyzes centered 40 ms PCM windows and precomputes per-frame
+envelopes before drawing. Each draw reads its envelope by frame index.
+The default profile is aurora, drift, calm, and .55 intensity. Reduced motion
+selects the static camera and holds halo opacity. The [visual design spec](VISUAL-DESIGN-SPEC.md#5-studio-3d-art-direction-and-motion)
+defines the motion limits. Run `node scripts/studio3d-bench.mjs` on the
+pinned Chromium and SwiftShader profile to qualify both aspects.
