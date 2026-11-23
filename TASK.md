@@ -494,7 +494,7 @@ agent never ships code to run in the page). Godot stays an optional local export
 - [ ] **T53 — Library adapters** (S, only if the owner confirms what "67JS" is).
 Known visual follow-up: at some moments the waveform renders as a flat dotted
 line with bars only at its right end; review the amplitude window in T50.
-- [ ] **T55 — Three.js studio scene in the app** (L). Add `three` 0.187.0 as a
+- [x] **T55 — Three.js studio scene in the app** (L). _(done 2026-11-23: lazy chunk 135.6 kB gzip, main bundle 195.7 to 189.1 kB gzip, WebGL2 fallback to waveform, presets and receipt; real 124 s render at 1080p in Chromium works, 13.8 MiB; 41 of 41 browser tests pass. Design polish follows from the visual design spec.)_ Add `three` 0.187.0 as a
   dependency, a lazily loaded `studio3d` scene registered through the T50
   registry, WebGL layer compositing under the shared overlay, capability check
   and automatic fallback to the waveform, parametrised by preset ids (palette,
