@@ -286,10 +286,22 @@ Product goal: a "Podcast Studio" similar in spirit to YouTube Studio. An AI agen
 researches a topic, writes the script, produces the audio, animates a video and,
 after a human review, publishes it to YouTube. V1 and browser BYOK were removed
 in `71a53da`; the older constraints above about browser-only BYOK and T05/T06
-(narration continuity experiment) are historical. Keys now live only in the
-trusted local worker. Nothing here may upload or spend money without an explicit
+(narration continuity experiment) are historical. The owner decided on 2026-11-23: browser first, IndexedDB, BYOK (T24 restores the
+browser-direct mode); the worker is optional. Until T24 lands, keys live only
+in the trusted local worker. Nothing here may upload or spend money without an explicit
 owner approval for that run. Effort is an estimate (S/M/L).
 
+- [ ] **T24 — Restore browser BYOK generation in the Studio** (effort: L; risk:
+  high). Decision in [docs/PRODUCT-DIRECTION.md](docs/PRODUCT-DIRECTION.md):
+  browser first, BYOK, worker optional. Bring the V1 browser-direct path (see
+  `src/browser-tts.ts`, history at `636fae0`) into the Studio so research,
+  script and audio can run with no worker. Reuse the V1 protections: key held
+  in memory only and cleared on page exit, per-run cost disclosure and consent,
+  save-before-next-segment, completeness checks, no automatic retry of an
+  ambiguous paid request, 4,000-unit segment limit preflight. Acceptance: tests
+  intercept every provider request by default; key never appears in
+  IndexedDB, backups, caches or logs; worker mode still works. Do this before
+  T22.
 - [ ] **T17 — Decide the video render path** (effort: S). Compare (a) Three.js
   scene rendered in headless Chromium and captured with frame stepping, (b)
   Godot headless movie writer, (c) simple waveform plus captions through ffmpeg.
@@ -324,4 +336,4 @@ owner approval for that run. Effort is an estimate (S/M/L).
   `docs/V2-PRODUCTION-CHECKLIST.md` with render, review and upload checks,
   including YouTube content and licensing review for AI-generated media.
 
-Suggested order: T17 → T18 → T19 → T20 → T22 → T21 → T23.
+Suggested order: T24 → T17 → T18 → T19 → T20 → T22 → T21 → T23.

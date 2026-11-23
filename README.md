@@ -1,6 +1,6 @@
 # Knowledge Podcast Studio
 
-V2 is a browser-local Podcast Library with an optional trusted production worker. The worker can discover topics, cross-check citations, plan one to three hosts and an adaptive runtime, generate audio, and compare a separate audio transcript to the script. The browser stores the resulting episodes, research, scripts and playable audio for offline use.
+Podcast Studio is a browser-first podcast studio: a browser-local Library (IndexedDB) with an optional trusted production worker. The project direction is browser-first, bring-your-own-key (BYOK), and eventually AI-made podcast video published to YouTube. See [Product direction](docs/PRODUCT-DIRECTION.md) for the decisions, current state and run modes. Browser-direct BYOK generation was removed with V1 and is planned again (T24); until then, generation needs the worker. The worker can discover topics, cross-check citations, plan one to three hosts and an adaptive runtime, generate audio, and compare a separate audio transcript to the script. The browser stores the resulting episodes, research, scripts and playable audio for offline use.
 
 ## Pocket Frequency animation
 
