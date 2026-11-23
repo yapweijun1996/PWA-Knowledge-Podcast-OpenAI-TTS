@@ -26,14 +26,11 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run build:private
-      - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run e2e
-      - run: npx playwright test tests/offline-demo.spec.ts --browser=webkit
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run e2e:factory
       - run: npm run e2e:factory
         env:
           PLAYWRIGHT_FACTORY_BROWSER: webkit
-      - run: npx playwright test --config playwright.firefox.config.ts
       - name: Package and start the private worker
         run: |
           node scripts/package-worker.mjs "$RUNNER_TEMP/knowledge-podcast-worker.tar.gz"

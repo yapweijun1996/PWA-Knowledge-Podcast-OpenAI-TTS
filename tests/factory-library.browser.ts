@@ -579,22 +579,6 @@ test("one engine keeps playing across navigation and new details until explicit 
   expect(await player.evaluate((node, prior) => node === prior, element)).toBe(true);
   expect(await page.evaluate(async (url) => (await fetch(url)).ok, original)).toBe(true);
 
-  await page.getByRole("link", { name: "本地编辑器" }).click();
-  await expect(page.getByRole("link", { name: "打开播客制作台" })).toBeVisible();
-  await expect(player).toHaveAttribute("src", original);
-  expect(await paused(page)).toBe(false);
-  await page.getByLabel("片段 1 脚本").fill("Local demo audio.");
-  await page.getByRole("button", { name: "模拟片段 1" }).click();
-  const localAudio = page.locator(".local-studio audio").first();
-  await expect(localAudio).toHaveAttribute("src", /^blob:/);
-  await localAudio.evaluate((audio: HTMLAudioElement) => audio.play());
-  await expect.poll(() => paused(page)).toBe(true);
-  await page.getByRole("link", { name: "打开播客制作台" }).click();
-  await expect(player).toHaveAttribute("src", original);
-  await expect(bar).toContainText(first.topic);
-  await bar.getByRole("button", { name: "播放", exact: true }).click();
-  await expect.poll(() => paused(page)).toBe(false);
-
   await page.getByRole("button", { name: "0:12 · Main story" }).click();
   await expect(bar).toContainText(second.topic);
   await expect.poll(() => playbackTime(page)).toBeGreaterThanOrEqual(12);

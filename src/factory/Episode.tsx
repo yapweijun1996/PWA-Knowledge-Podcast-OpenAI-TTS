@@ -53,7 +53,6 @@ export function EpisodeWorkspace({
   onCancel,
   onEdit,
   onDelete,
-  onCopy,
   onBackup,
   onDirty,
 }: {
@@ -70,7 +69,6 @@ export function EpisodeWorkspace({
   onCancel: () => void;
   onEdit: (revision: number, edit: Edit) => Promise<boolean>;
   onDelete: () => void;
-  onCopy: () => void;
   onBackup: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
@@ -581,13 +579,6 @@ export function EpisodeWorkspace({
               }
             >
               导出制作记录
-            </button>
-            <button
-              className="outline"
-              disabled={working || !!draft}
-              onClick={onCopy}
-            >
-              复制脚本到本地编辑器
             </button>
           </>
         )}

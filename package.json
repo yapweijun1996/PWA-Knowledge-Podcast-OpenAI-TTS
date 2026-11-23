@@ -10,7 +10,6 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "typecheck": "tsc -b",
-    "e2e": "playwright test",
     "e2e:factory": "playwright test --config playwright.factory.config.ts"
   },
   "repository": {

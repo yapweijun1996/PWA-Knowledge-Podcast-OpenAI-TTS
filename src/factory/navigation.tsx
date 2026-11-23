@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useRef,
   useState,
   type ComponentPropsWithoutRef,
 } from "react";
@@ -13,7 +12,7 @@ export const factoryPages = {
 };
 
 export type FactoryPage = keyof typeof factoryPages;
-type Page = FactoryPage | "local";
+type Page = FactoryPage;
 export const privateBuild = import.meta.env.MODE === "private";
 
 function factoryPage(url: URL): FactoryPage {
@@ -24,62 +23,35 @@ function factoryPage(url: URL): FactoryPage {
 }
 
 function currentPage(): Page {
-  const url = new URL(location.href);
-  const mode = url.searchParams.get("studio");
-  return mode === "factory" || (privateBuild && mode !== "local")
-    ? factoryPage(url)
-    : "local";
+  return factoryPage(new URL(location.href));
 }
 
 export function useWorkspaceNavigation() {
-  const localHash = useRef("");
-  const [state, setState] = useState(() => {
-    const page = currentPage();
-    return {
-      page,
-      visitedLocal: page === "local",
-      visitedFactory: page !== "local",
-    };
-  });
-
-  function sync() {
-    const page = currentPage();
-    setState((previous) => ({
-      page,
-      visitedLocal: previous.visitedLocal || page === "local",
-      visitedFactory: previous.visitedFactory || page !== "local",
-    }));
-  }
+  const [page, setPage] = useState(currentPage);
 
   useEffect(() => {
+    const sync = () => setPage(currentPage());
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
   }, []);
 
-  function href(page: Page) {
+  function href(target: Page) {
     const url = new URL(location.href);
-    if (page === currentPage()) return url.pathname + url.search + url.hash;
-    url.hash = page === "local" ? localHash.current : "";
-    url.searchParams.set("studio", page === "local" ? "local" : "factory");
-    if (page === "library") url.searchParams.delete("view");
-    else if (page !== "local") url.searchParams.set("view", page);
+    if (target === currentPage()) return url.pathname + url.search + url.hash;
+    url.hash = "";
+    url.searchParams.set("studio", "factory");
+    if (target === "library") url.searchParams.delete("view");
+    else url.searchParams.set("view", target);
     return url.pathname + url.search + url.hash;
   }
 
-  function go(page: Page) {
-    const previous = currentPage();
-    if (page === previous) return;
-    if (previous === "local") localHash.current = location.hash;
-    history.pushState(null, "", href(page));
-    sync();
+  function go(target: Page) {
+    if (target === currentPage()) return;
+    history.pushState(null, "", href(target));
+    setPage(currentPage());
   }
 
-  return {
-    ...state,
-    returnPage: factoryPage(new URL(location.href)),
-    href,
-    go,
-  };
+  return { page, href, go };
 }
 
 export type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;

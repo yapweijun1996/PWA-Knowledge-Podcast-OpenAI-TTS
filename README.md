@@ -25,7 +25,7 @@ npm run start:private
 
 Open [the loopback workspace](http://127.0.0.1:8787/) to see the Library (**资料库**). Set the worker's OpenAI API key under Settings (**设置**), enter a topic in Studio (**制作台**), or save interests and scheduling preferences in Automation (**自动化**). The worker must stay awake and running.
 
-The **本地编辑器** link opens V1. The Pages build also offers the Library from its workspace link. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
+The V1 local editor has been removed; the Podcast Studio (Library, Studio, Automation, Settings) is the only interface, in both the Pages and private builds. The Pages build has no worker, so it offers the Library and playback only. Browser storage belongs to each origin, so use episode backups to transfer between origins or browsers. See the [V2 runbook](docs/V2-FACTORY.md) for storage, recovery, limits and verification.
 
 For the current release decision, tested environments, open gates and rollback steps, see the [project production readiness checklist](docs/PRODUCTION-READINESS.md).
 
@@ -39,7 +39,9 @@ The Library now offers local Unicode search, status/language filters, sorting an
 
 For the complete local worker and offline recovery procedures, use the [V2 runbook](docs/V2-FACTORY.md). A GitHub `main` push does **not** confirm GitHub Pages deployment or worker availability; verify Actions/Pages separately.
 
-## Run the V1 local editor and Pages demo
+## Run the Pages build
+
+> **Note:** the V1 local editor, its browser BYOK mode and its V1 tests were removed. Sections below that describe V1 (admin workspace, demo tones, BYOK, V1 recovery, V1 provider migration) are historical and no longer match the app.
 
 Use Node.js 24 LTS or newer (CI uses Node 24), then:
 
@@ -50,7 +52,7 @@ npm test
 npm run build
 npm run preview
 npx playwright install chromium
-npm run e2e
+npm run e2e:factory
 npm audit
 ```
 

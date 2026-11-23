@@ -42,9 +42,6 @@ export function FactoryShell({
             <span className="factory-status" role="status">
               {connection}
             </span>
-            <WorkspaceLink page="local" navigation={navigation}>
-              本地编辑器
-            </WorkspaceLink>
           </div>
         </header>
         <nav className="factory-nav" aria-label="播客工作区导航">

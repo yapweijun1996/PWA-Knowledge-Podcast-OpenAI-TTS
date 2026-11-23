@@ -58,7 +58,6 @@ type Props = {
   onUpdate: () => void;
   onUpdateBlockedChange: (blocked: boolean) => void;
   pausePlayback: RefObject<(() => void) | null>;
-  onCopy: (episode: Episode) => Promise<boolean>;
 };
 
 function errorText(reason: unknown) {
@@ -92,7 +91,6 @@ export function Factory({
   onUpdate,
   onUpdateBlockedChange,
   pausePlayback,
-  onCopy,
 }: Props) {
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [reachable, setReachable] = useState(false);
@@ -745,13 +743,6 @@ export function Factory({
                     row.episode.id
                   )
                     select(null);
-                })
-              }
-              onCopy={() =>
-                void perform(async () => {
-                  if (!(await onCopy(row.episode)))
-                    throw new Error("V1 副本未成功保存，可先导出备份。");
-                  setMessage("已复制脚本到本地编辑器。");
                 })
               }
               onBackup={backup}

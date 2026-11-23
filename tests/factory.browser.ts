@@ -201,27 +201,12 @@ test("autonomous worker hands off audio and research, then offline editing and b
   await expect(draft).toHaveValue("An edited opening.");
   await nav.getByRole("link", { name: "设置" }).click();
   await expect(player).toBeHidden();
-  await page.getByRole("link", { name: "本地编辑器" }).click();
-  const localTitle = page.getByRole("textbox", { name: "项目标题" });
-  await localTitle.fill("Local editor draft");
-  const localNode = await localTitle.elementHandle();
-  await page.getByRole("link", { name: "打开播客制作台" }).click();
-  await expect(nav.getByRole("link", { name: "设置" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
   await nav.getByRole("link", { name: "资料库" }).click();
   expect(new URL(page.url()).searchParams.get("episode")).toBe(episodeParam);
   await expect(draft).toHaveValue("An edited opening.");
   expect(
     await draft.evaluate((node, previous) => node === previous, draftNode),
   ).toBe(true);
-  await page.getByRole("link", { name: "本地编辑器" }).click();
-  await expect(localTitle).toHaveValue("Local editor draft");
-  expect(
-    await localTitle.evaluate((node, previous) => node === previous, localNode),
-  ).toBe(true);
-  await page.getByRole("link", { name: "打开播客制作台" }).click();
   await page.getByLabel("主持 B 的声音").selectOption("alloy");
   await page.getByRole("button", { name: "保存脚本" }).click();
   await expect(
@@ -277,8 +262,6 @@ test("autonomous worker hands off audio and research, then offline editing and b
     await rm(path, { recursive: true, force: true });
   }
 
-  await page.getByRole("button", { name: "复制脚本到本地编辑器" }).click();
-  await expect(page.getByText(/已复制脚本到本地编辑器/)).toBeVisible();
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "200%";
   });
@@ -293,14 +276,10 @@ test("autonomous worker hands off audio and research, then offline editing and b
     document.documentElement.style.fontSize = "";
   });
   await context.setOffline(true);
-  await page.getByRole("link", { name: "本地编辑器" }).click();
-  await expect(page.getByLabel("项目标题")).toHaveValue("Fixture episode");
-  await expect(page.getByLabel("片段 1 脚本")).toHaveValue(
-    "An edited opening.",
-  );
+  await expect(library).toBeVisible();
   await expect(
-    page.getByRole("option", { name: "OpenAI · 浏览器 BYOK" }),
-  ).toHaveCount(0);
+    page.getByText("An edited opening.", { exact: true }),
+  ).toBeVisible();
 });
 
 test("manual Studio creation saves an exact two-speaker episode and recovers it offline", async ({
