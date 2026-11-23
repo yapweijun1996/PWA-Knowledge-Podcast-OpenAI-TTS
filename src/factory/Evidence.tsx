@@ -1,6 +1,6 @@
 import type { Episode, Language, Research } from "../../shared/factory";
 import { useI18n } from "../i18n";
-import { cleanSourceUrl } from "../publish/package";
+import { cleanSourceUrl } from "../publish/citations";
 
 const claimStateKeys = {
   supported: "episode.evidence.supported",

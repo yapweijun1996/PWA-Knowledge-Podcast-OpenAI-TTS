@@ -14,7 +14,6 @@ import {
   type ToolResult,
 } from "../agent/bridge.ts";
 import { redactCredentials } from "../agent/runtime.ts";
-import { createPodcastAgentBridge } from "../agent/tools.ts";
 import type { MessageKey } from "../i18n/index.ts";
 import { get as getBrowserKey } from "./browser-key.ts";
 import type * as Library from "./library.ts";
@@ -287,6 +286,8 @@ export function useAgent({
     let outcome: AgentResult;
     try {
       const fetcher = globalThis.fetch.bind(globalThis);
+      const { createPodcastAgentBridge } = await import("../agent/tools.ts");
+      signal.throwIfAborted();
       const tools = createPodcastAgentBridge({
         getKey: getBrowserKey,
         fetcher,

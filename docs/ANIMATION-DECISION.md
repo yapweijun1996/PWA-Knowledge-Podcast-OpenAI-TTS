@@ -75,6 +75,15 @@ Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion toolin
 5. Godot stays out of the browser path; at most an optional local export.
 6. A scene plugin interface (T50) comes first so these can coexist.
 
+## Godot export decision (T40)
+
+Keep WebCodecs as the app's exporter. It already produces the MP4 and its
+review package directly from the Library. The Godot Web export requires
+WebAssembly and WebGL 2. Godot's native Movie Maker can record fixed-rate video
+and audio to a file, which would add a separate editor and file handoff to
+this workflow. A future episode authored in Godot can use Movie Maker as a
+local production tool and deliver an MP4 for human review. [Godot Web export](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html) · [Godot Movie Maker](https://docs.godotengine.org/en/stable/tutorials/animation/creating_movies.html)
+
 ## Integrated (T55)
 
 Studio 3D is available in the Video panel. The registered scene dynamically

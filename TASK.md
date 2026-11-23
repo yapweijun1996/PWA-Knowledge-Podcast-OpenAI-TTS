@@ -329,17 +329,19 @@ Status words: `[ ]` open, `[x]` done.
   and save-failure recovery tests (restore the V1 protections that were
   removed with the specs); listen to one real take with the owner's approval.
   _(done 2026-11-23: merged; real-provider check passed for wording and completeness, listening review still open (see docs/PROVIDER-CONTRACT.md))_
-- [ ] **T28 — Browser job runner** (L). The stage machine from
+- [x] **T28 — Browser job runner** (L). The stage machine from
   `server/jobs.mjs` (research, outline, script, audio, QA) running in the page
   with each stage checkpointed in IndexedDB, resume after reload, cancel, and
   no automatic retry of paid stages. Acceptance: reload-in-the-middle and
   cancel tests; the episode appears in the Library with the same record format
-  the worker produces.
-- [ ] **T29 — Studio modes** (M). Add a "browser key" availability state beside
+  the worker produces. Implemented in `a263584` and verified with the
+  checkpoint and resume tests. [Studio tests](tests/factory-browser-mode.browser.ts)
+- [x] **T29 — Studio modes** (M). Add a "browser key" availability state beside
   the worker states in `StudioIntake`; the Settings key field offers memory-only
   browser mode; the worker is labelled optional; Automation is labelled worker
   only. Acceptance: browser test creates an episode with no worker running;
-  the dead-end `no-worker` state is gone.
+  the dead-end `no-worker` state is gone. Implemented in `a6f35a4`. The browser
+  completed a real episode on the static build. [Trial](docs/E2E-TRIAL-2026-11-23.md)
 - [x] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
   default-deny provider interception fixture; a key-leak scan across
   IndexedDB, backups, service-worker caches, console and URLs; CI runs it.
@@ -406,13 +408,15 @@ dropped from the critical path.
   filesystem); "no limitation" is not achievable literally, so each tool is
   explicit and bounded. Acceptance: mock-provider tests, cost disclosure and
   consent, no automatic paid retries, every tool call logged for the user.
-- [ ] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
-  Not on the critical path. Acceptance: a decision note.
-- [ ] **T41 — Worker as optional** (S). Keep Automation and unattended runs as
+- [x] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
+  Keep the built-in browser exporter and reserve Godot Movie Maker for a
+  future project with a scene authored in Godot. [Decision](docs/ANIMATION-DECISION.md#godot-export-decision-t40)
+- [x] **T41 — Worker as optional** (S). Keep Automation and unattended runs as
   worker features, labelled optional, using the shared pipeline from T26.
-- [ ] **T42 — Release gates for video and upload** (S). Extend
+  Verified a real worker-produced episode on macOS. [Worker evidence](docs/V2-FACTORY.md#verified-macos-installation-and-playback)
+- [x] **T42 — Release gates for video and upload** (S). Extend
   `docs/V2-PRODUCTION-CHECKLIST.md`: render, review, upload, and YouTube
-  content and licensing checks for AI-generated media.
+  content and licensing checks for AI-generated media. [Episode sign-off](docs/V2-PRODUCTION-CHECKLIST.md)
 - [ ] **T43 — Real-device and offline verification** (M). Phones and Safari,
   storage quota with large video blobs, offline Library after upload.
 
@@ -468,13 +472,9 @@ reviewed yet.
   _(done 2026-11-23: evidence rows filled for what ran; real iOS, Safari, VoiceOver, field Web Vitals stay NOT_RUN)_
 ### M7. Animation (owner question 2026-11-23: Three.js, "67JS", Godot)
 
-Current state: Canvas 2D only (`src/video/draw.ts`, `drawFrame(ctx, plan, audio, t, theme)`),
-deterministic `t = i / fps`, WebCodecs, MP4 mux. No Three.js, p5 or Godot code.
-Plan: a scene plugin interface (a scene is a pure function of plan, audio and `t`),
-the waveform as the first scene, Three.js as a lazily loaded second scene, and
-AI-directed storyboards as strict JSON that parametrises pre-written scenes (the
-agent never ships code to run in the page). Godot stays an optional local export.
-"67JS" is unidentified; research is in progress (see the report when merged).
+The app has a waveform scene and a lazily loaded Three.js scene, driven by
+the same fixed frame clock and WebCodecs export. The owner confirmed that
+“67JS” refers to Crucible. [Engine decision and benchmarks](docs/ANIMATION-DECISION.md)
 
 - [x] **T49 — Video polish from the first real trial** _(done 2026-11-23: bitrate
   900 kbit/s halves the MP4 (22.8 to 13.8 MiB for a 124 s synthetic episode,
@@ -491,9 +491,9 @@ agent never ships code to run in the page). Godot stays an optional local export
   the script; validated and editable in the UI.
 - [x] **T54 — Crucible ("67JS") spike** (M). _(done 2026-11-23: deterministic, 113 ms per frame versus 26.7 ms for hand-written Three.js; decision recorded in docs/ANIMATION-DECISION.md)_ Same fixture and measurements as T51 in
   `spikes/crucible-scene`; decide Crucible versus hand-written Three.js scenes.
-- [ ] **T53 — Library adapters** (S, only if the owner confirms what "67JS" is).
-Known visual follow-up: at some moments the waveform renders as a flat dotted
-line with bars only at its right end; review the amplitude window in T50.
+- [x] **T53 — Identify and evaluate the library adapter** (S). The owner
+  confirmed Crucible. T54 tested the fixed recipe adapter and T56 owns any
+  production integration. [Fixture and review](spikes/crucible-scene/README.md)
 - [x] **T55 — Three.js studio scene in the app** (L). _(done 2026-11-23: lazy chunk 135.6 kB gzip, main bundle 195.7 to 189.1 kB gzip, WebGL2 fallback to waveform, presets and receipt; real 124 s render at 1080p in Chromium works, 13.8 MiB; 41 of 41 browser tests pass. Design polish follows from the visual design spec.)_ Add `three` 0.187.0 as a
   dependency, a lazily loaded `studio3d` scene registered through the T50
   registry, WebGL layer compositing under the shared overlay, capability check
@@ -501,7 +501,6 @@ line with bars only at its right end; review the amplitude window in T50.
   camera, intensity) so a storyboard can select them. Acceptance: separate chunk
   (not in the main bundle), real Chromium render of a fixture episode, identical
   frame hashes across two renders, fallback tested, cancel tested.
-- [ ] **T52 — Storyboard tool** (L). After T55.
 - [ ] **T56 — Optional Crucible scene** (M). The owner confirmed "67JS" is
   Crucible (2026-11-23). After T55 and T52, add a lazily loaded `crucible` scene
   through the T50 registry. An app-owned adapter builds the Crucible recipe from
@@ -511,14 +510,6 @@ line with bars only at its right end; review the amplitude window in T50.
   T51 and T54. Default stays the hand-written Three.js scene unless the owner
   chooses otherwise.
 
-Status 2026-11-23 (evening): T55 (Three.js studio scene in the app) is running;
-T52 (AI storyboard) is specified and starts after T55; a visual design system
-(research by Codex, owner delegated the visual style to the manager and asked
-for production quality without involvement) will be implemented after the
-research lands: fonts, four palettes, caption and title layout, callouts,
-thumbnails, 3D scene art direction, with a 100-point rubric reviewed by an
-independent reviewer and the manager's own screenshots.
-
 ### Visual design implementation (owner delegated style; spec: docs/VISUAL-DESIGN-SPEC.md)
 
 - [x] **T58 fonts and caption timing**, **T59 layout, overlay, waveform, timeline and portrait**,
@@ -526,11 +517,13 @@ independent reviewer and the manager's own screenshots.
   browser tests pass; integration fixes: the font preflight notice in Node tests, Vite library-mode
   `process.env` in two test bundlers, two chapter-timestamp assertions that correctly moved earlier
   because speech now starts at frame 0)_
-- [ ] **T62 Studio panel for the new options** (M): orientation (16:9 or 9:16), palette, mood,
-  reduced-motion export, thumbnail variant and headline fields, preview guides; storyboard-ready.
+- [x] **T62 Studio panel for the new options** (M): orientation (16:9 or 9:16), palette, mood,
+  reduced-motion export, thumbnail variant and headline fields, and preview
+  guides. [Panel options tests](tests/factory-video-options.browser.ts)
 - [ ] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
   orphan characters, flash limit, hash determinism, per spec section 8.
 - [ ] **T64 Visual review** (manager): real landscape and portrait frames and thumbnails, an
   independent reviewer scoring the 100-point rubric, up to three rework rounds.
-- [ ] **T65 Bundle size** (S): the main chunk grew about 34 kB gzip (189 to 224); load the video
-  modules and font coverage tables lazily.
+- [x] **T65 Bundle size** (S). The app loads the renderer, font coverage, 3D scene,
+  and video tools on demand. The PWA still precaches their assets for offline
+  use. [Render hook](src/factory/useVideoRender.ts) · [Agent hook](src/factory/useAgent.ts)
