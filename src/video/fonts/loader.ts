@@ -196,7 +196,9 @@ export async function ensureVideoFonts({
       loaded[index] ? [] : [`font.shardUnavailable.${id}`],
     );
     try {
-      await runtime.fonts.ready;
+      // Dedicated workers have no layout cycle to resolve the aggregate
+      // ready promise. Each bundled face has already loaded before it is added.
+      if (environment || globalThis.document) await runtime.fonts.ready;
     } catch {
       failures.push("font.apiUnavailable");
     }

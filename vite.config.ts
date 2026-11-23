@@ -7,6 +7,7 @@ import { studioBase } from "./shared/factory.ts";
 // Vite's development server needs its own injected styles and HMR connection.
 export default defineConfig(({ mode }) => ({
   base: studioBase,
+  worker: { format: "es" },
   build: { outDir: mode === "private" ? "dist-private" : "dist" },
   plugins: [
     react(),

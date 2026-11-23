@@ -7,7 +7,7 @@ import {
   type StudioVideoOptions,
 } from "../agent/artifacts.ts";
 import { redactCredentials } from "../agent/runtime.ts";
-import { createTranslator, t, type MessageKey } from "../i18n/index.ts";
+import { createTranslator, resolveLocale, t, type MessageKey } from "../i18n/index.ts";
 import {
   deriveThumbnailHeadline,
   publishLocales,
@@ -787,12 +787,12 @@ export function useVideoRender(
       }
       const [
         planned,
-        { renderVideo },
+        { renderEpisodeVideo },
         { buildPublishPackage },
         { WebglContextLostError },
       ] = await Promise.all([
         planStudioVideo(episode, duration, options, storyboard),
-        import("../video/render.ts"),
+        import("../video/render-client.ts"),
         import("../publish/package.ts"),
         import("../video/scenes/types.ts"),
       ]);
@@ -826,7 +826,8 @@ export function useVideoRender(
         return;
       }
       const theme = options.paletteId === "light" ? "light" : "dark";
-      const { blob: mp4, ...receipt } = await renderVideo({
+      const { blob: mp4, ...receipt } = await renderEpisodeVideo({
+        locale: resolveLocale(),
         plan,
         audio: pcm,
         theme,

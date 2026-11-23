@@ -188,7 +188,11 @@ test("Studio renders a finished episode, persists approval and exports the revie
   await expect(panel.getByLabel(english("video.studio3d.palette"))).toHaveCount(
     0,
   );
+  const worker = page.waitForEvent("worker", {
+    predicate: (value) => value.url().includes("render-worker-"),
+  });
   await render.click();
+  expect((await worker).url()).toContain("/assets/");
   const preview = panel.locator("video");
   await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
   await expect
