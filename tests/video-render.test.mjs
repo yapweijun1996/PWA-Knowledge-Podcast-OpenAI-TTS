@@ -81,7 +81,7 @@ function recordingContext() {
 
 function fakeDependencies({
   videoSupport = (codec) => codec.startsWith("avc1."),
-  audioSupport = true,
+  audioSupport = () => true,
   queued = false,
   bufferVideo = false,
   oversizedChunk = false,
@@ -209,23 +209,39 @@ function fakeDependencies({
 
   class FakeAudioEncoder extends FakeEncoder {
     kind = "audio";
+    audioEnd = 0;
+    opusTimestamp = 0;
+
     static async isConfigSupported(config) {
       trace.audioChecks.push(config);
-      return { supported: audioSupport };
+      return { supported: audioSupport(config) };
     }
     encode(data) {
       assert.ok(!data.closed);
       const { timestamp, numberOfFrames, sampleRate } = data;
-      this.submit(() =>
-        this.init.output(
-          chunk(
-            timestamp,
-            Math.round((numberOfFrames / sampleRate) * 1e6),
-            0x61,
-            "key",
-          ),
-        ),
-      );
+      assert.equal(sampleRate, this.config.sampleRate);
+      const duration = Math.round((numberOfFrames / sampleRate) * 1e6);
+      this.submit(() => {
+        if (this.config.codec === "opus") {
+          this.audioEnd = timestamp + duration;
+          this.emitOpusPackets(
+            this.audioEnd - this.config.opus.frameDuration + 1,
+          );
+        } else {
+          this.init.output(chunk(timestamp, duration, 0x61, "key"));
+        }
+      });
+    }
+    emitOpusPackets(before) {
+      const duration = this.config.opus.frameDuration;
+      while (this.opusTimestamp < before) {
+        this.init.output(chunk(this.opusTimestamp, duration, 0x61, "key"));
+        this.opusTimestamp += duration;
+      }
+    }
+    async flush() {
+      await super.flush();
+      if (this.config.codec === "opus") this.emitOpusPackets(this.audioEnd);
     }
   }
 
@@ -259,6 +275,55 @@ function texts(frame) {
   return frame.calls
     .filter(([method]) => method === "text")
     .map((call) => call[3]);
+}
+
+function mp4Children(bytes, type) {
+  const matches = [];
+  for (let offset = 0; offset < bytes.length;) {
+    const size = bytes.readUInt32BE(offset);
+    assert.ok(size >= 8 && offset + size <= bytes.length);
+    if (bytes.toString("ascii", offset + 4, offset + 8) === type)
+      matches.push(bytes.subarray(offset + 8, offset + size));
+    offset += size;
+  }
+  return matches;
+}
+
+async function assertOpusTrack(blob, expectedDuration, fps) {
+  const bytes = Buffer.from(await blob.arrayBuffer());
+  const [movie] = mp4Children(bytes, "moov");
+  const tracks = mp4Children(movie, "trak").map(
+    (track) => mp4Children(track, "mdia")[0],
+  );
+  const handlers = tracks.map((media) =>
+    mp4Children(media, "hdlr")[0].toString("ascii", 8, 12),
+  );
+  assert.deepEqual(handlers, ["vide", "soun"]);
+  const audioTrack = tracks[1];
+  const [header] = mp4Children(audioTrack, "mdhd");
+  const timescaleOffset = header[0] === 1 ? 20 : 12;
+  const rate = header.readUInt32BE(timescaleOffset);
+  const mediaDuration =
+    header[0] === 1
+      ? Number(header.readBigUInt64BE(timescaleOffset + 4))
+      : header.readUInt32BE(timescaleOffset + 4);
+  assert.equal(rate, 48_000);
+  assert.ok(Math.abs(mediaDuration / rate - expectedDuration) <= 1 / rate);
+
+  const [mediaInfo] = mp4Children(audioTrack, "minf");
+  const [samples] = mp4Children(mediaInfo, "stbl");
+  const [descriptions] = mp4Children(samples, "stsd");
+  const [opus] = mp4Children(descriptions.subarray(8), "Opus");
+  assert.equal(opus.readUInt32BE(24), 48_000 * 65536);
+  assert.equal(mp4Children(opus.subarray(28), "dOps").length, 1);
+
+  const [sampleTimes] = mp4Children(samples, "stts");
+  let sampleDuration = 0;
+  for (let offset = 8; offset < sampleTimes.length; offset += 8) {
+    sampleDuration +=
+      sampleTimes.readUInt32BE(offset) * sampleTimes.readUInt32BE(offset + 4);
+  }
+  assert.ok(Math.abs(sampleDuration / rate - expectedDuration) <= 1 / fps);
 }
 
 test("steps at i/fps and draws the same scene and caption sequence for identical inputs", async () => {
@@ -309,7 +374,7 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
       height: 1080,
       fps: 4,
       videoCodec: "avc1.420028",
-      audioCodec: "mp4a.40.2",
+      audioCodec: "aac",
     },
   );
 });
@@ -492,24 +557,121 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   ]);
 });
 
-test("prefers available H.264 and rejects without encoding if AAC is unavailable", async () => {
-  const { deps, trace } = fakeDependencies({
-    videoSupport: () => true,
-    audioSupport: false,
+test("prefers H.264 and AAC when the encoder supports both codec choices", async () => {
+  const { deps, trace } = fakeDependencies({ videoSupport: () => true });
+  const result = await renderVideo({
+    plan: { ...plan, allowVp9: true },
+    audio,
+    theme: "dark",
+    deps,
   });
-  await assert.rejects(
-    renderVideo({
-      plan: { ...plan, allowVp9: true },
-      audio,
-      theme: "dark",
-      deps,
-    }),
-    /AAC/,
-  );
+  assert.equal(result.videoCodec, "avc1.420028");
+  assert.equal(result.audioCodec, "aac");
   assert.deepEqual(
     trace.videoChecks.map(({ codec }) => codec),
     ["avc1.420028"],
   );
+  assert.deepEqual(
+    trace.audioChecks.map(({ codec }) => codec),
+    ["mp4a.40.2"],
+  );
+});
+
+test("falls back to Opus at the source rate when AAC is unavailable", async () => {
+  const { deps, trace } = fakeDependencies({
+    audioSupport: ({ codec }) => codec === "opus",
+  });
+  const result = await renderVideo({ plan, audio, theme: "dark", deps });
+  assert.equal(result.videoCodec, "avc1.420028");
+  assert.equal(result.audioCodec, "opus");
+  assert.deepEqual(
+    trace.audioChecks.map(({ codec, sampleRate }) => [codec, sampleRate]),
+    [
+      ["mp4a.40.2", sampleRate],
+      ["opus", sampleRate],
+    ],
+  );
+  assert.ok(trace.audio.every((block) => block.sampleRate === sampleRate));
+  await assertOpusTrack(result.blob, plan.duration, plan.fps);
+});
+
+test("resamples to 48 kHz with linear interpolation and keeps Opus in sync", async () => {
+  const { deps, trace } = fakeDependencies({
+    audioSupport: ({ codec, sampleRate }) =>
+      codec === "opus" && sampleRate === 48_000,
+  });
+  const fastPlan = { ...plan, duration: 2.453, fps: 30 };
+  const left = source.slice();
+  left[1] = 0.625;
+  left[sampleRate + 1] = -0.375;
+  const right = Int16Array.from(left, (sample) => sample * -32768);
+  const result = await renderVideo({
+    plan: fastPlan,
+    audio: { sampleRate, channels: [left, right] },
+    theme: "dark",
+    deps,
+  });
+  assert.equal(result.audioCodec, "opus");
+  assert.deepEqual(
+    trace.audioChecks.map(({ codec, sampleRate }) => [codec, sampleRate]),
+    [
+      ["mp4a.40.2", sampleRate],
+      ["opus", sampleRate],
+      ["opus", 48_000],
+    ],
+  );
+  const planes = [[], []];
+  for (const block of trace.audio) {
+    assert.equal(block.sampleRate, 48_000);
+    assert.equal(
+      block.timestamp,
+      Math.round((planes[0].length / 48_000) * 1e6),
+    );
+    for (const [index, plane] of planes.entries()) {
+      plane.push(
+        ...block.data.subarray(
+          index * block.numberOfFrames,
+          (index + 1) * block.numberOfFrames,
+        ),
+      );
+    }
+  }
+  for (const [index, samples] of planes.entries()) {
+    const direction = index === 0 ? 1 : -1;
+    assert.equal(samples.length, Math.round(fastPlan.duration * 48_000));
+    assert.equal(samples[24_000], 0.25 * direction);
+    assert.equal(samples[24_001], 0.3125 * direction);
+    assert.equal(samples[24_006], 0.625 * direction);
+    assert.equal(samples[59_999], 0.25 * direction);
+    assert.equal(samples[84_001], -0.6875 * direction);
+    assert.equal(samples[112_799], -0.75 * direction);
+    for (const [start, end] of [
+      [0, 24_000],
+      [60_000, 84_000],
+      [112_800, samples.length],
+    ])
+      assert.ok(samples.slice(start, end).every((sample) => sample === 0));
+  }
+  await assertOpusTrack(result.blob, fastPlan.duration, fastPlan.fps);
+});
+
+test("rejects with a clear error before rendering if AAC and Opus are unsupported", async () => {
+  const { deps, trace } = fakeDependencies({
+    audioSupport: () => false,
+  });
+  await assert.rejects(
+    renderVideo({ plan, audio, theme: "dark", deps }),
+    /AAC.*Opus/,
+  );
+  assert.deepEqual(
+    trace.audioChecks.map(({ codec, sampleRate }) => [codec, sampleRate]),
+    [
+      ["mp4a.40.2", sampleRate],
+      ["opus", sampleRate],
+      ["opus", 48_000],
+    ],
+  );
+  assert.deepEqual(trace.closed, []);
   assert.deepEqual(trace.frames, []);
   assert.deepEqual(trace.audio, []);
   assert.deepEqual(trace.digests, []);

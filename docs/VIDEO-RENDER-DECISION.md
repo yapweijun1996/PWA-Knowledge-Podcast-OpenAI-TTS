@@ -68,3 +68,18 @@ Chromium and Safari fixture runs below.
   under the deployed CSP. Measure the same fixture and check cross-origin
   isolation requirements if using a threaded build. If testing local worker
   ffmpeg, confirm installation and media handoff with the same fixture.
+
+## Real browser findings 2026-11-23
+
+On the owner's Mac, Chrome 158 (headed and headless) and Playwright Chromium
+156 reported H.264, VP9, and AV1 video encoding and Opus audio encoding. The
+AAC-LC (`mp4a.40.2`) and FLAC encoding checks were unsupported. The renderer
+prefers AAC-LC when available and falls back to Opus in MP4. It keeps the source
+PCM rate if Opus accepts it and resamples to 48 kHz otherwise.
+
+**UNVERIFIED:** YouTube Studio acceptance of Opus-in-MP4 uploads. If Studio
+rejects the audio, transcode it to AAC-LC locally and copy the video stream:
+
+```sh
+ffmpeg -i input.mp4 -map 0:v:0 -map 0:a:0 -c:v copy -c:a aac -profile:a aac_low -b:a 128k -movflags +faststart output-aac.mp4
+```

@@ -47,7 +47,8 @@ const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
 const maxEncodedBytes = 128 * 1024 * 1024;
 const audioBlockSize = 4096;
-const audioCodec = "mp4a.40.2";
+const opusSampleRate = 48_000;
+const opusFrameDuration = 20_000;
 const micros = (seconds: number) => Math.round(seconds * 1_000_000);
 
 function getPcm(audio: VideoAudio): PcmAudio {
@@ -119,12 +120,29 @@ function waitForQueue(encoder: EncoderQueue, signal: AbortSignal) {
   });
 }
 
-/** Map source PCM onto the video timeline, leaving cards and gaps silent. */
-function audioBlocks(plan: TimelinePlan, audio: PcmAudio) {
-  const { channels, sampleRate } = audio;
+/** Map source PCM onto the output sample clock, leaving cards and gaps silent. */
+function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
+  const { channels, sampleRate: sourceRate } = audio;
+  const resample = sourceRate !== sampleRate;
   const turns = plan.scenes
     .filter((scene) => scene.kind === "turn")
-    .map((scene) => turnSampleRange(scene, sampleRate));
+    .map((scene) => {
+      const input = turnSampleRange(scene, sourceRate);
+      const { start, end } = turnSampleRange(scene, sampleRate);
+      const sourceEnd = Math.min(
+        channels[0].length,
+        input.source + input.end - input.start,
+      );
+      const available = Math.ceil(
+        ((sourceEnd - input.source) * sampleRate) / sourceRate,
+      );
+      return {
+        start,
+        end: Math.min(end, start + available),
+        source: input.source,
+        sourceEnd,
+      };
+    });
   let current = 0;
   return (offset: number, count: number) => {
     const data = new Float32Array(count * channels.length);
@@ -134,24 +152,25 @@ function audioBlocks(plan: TimelinePlan, audio: PcmAudio) {
       const turn = turns[index];
       if (turn.start >= blockEnd) break;
       const start = Math.max(turn.start, offset);
-      const source = turn.source + start - turn.start;
-      const length = Math.min(
-        blockEnd - start,
-        turn.end - start,
-        channels[0].length - source,
-      );
+      const turnOffset = start - turn.start;
+      const length = Math.min(blockEnd, turn.end) - start;
       if (length <= 0) continue;
       channels.forEach((channel, plane) => {
         const destination = plane * count + start - offset;
-        if (channel instanceof Float32Array) {
+        if (!resample && channel instanceof Float32Array) {
+          const source = turn.source + turnOffset;
           data.set(channel.subarray(source, source + length), destination);
-        } else {
-          for (let sample = 0; sample < length; sample++) {
-            data[destination + sample] = sampleAmplitude(
-              channel,
-              source + sample,
-            );
-          }
+          return;
+        }
+        for (let sample = 0; sample < length; sample++) {
+          const position =
+            turn.source + ((turnOffset + sample) * sourceRate) / sampleRate;
+          const left = Math.floor(position);
+          const first = sampleAmplitude(channel, left);
+          const right = Math.min(left + 1, turn.sourceEnd - 1);
+          data[destination + sample] =
+            first +
+            (sampleAmplitude(channel, right) - first) * (position - left);
         }
       });
     }
@@ -198,11 +217,7 @@ export async function renderVideo({
     throw new RangeError("视频时长、帧率或分辨率无效。");
   }
   const pcm = getPcm(audio);
-  const { sampleRate, channels } = pcm;
-  const totalSamples = Math.round(duration * sampleRate);
-  if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
-    throw new RangeError("音频时长无效。");
-  }
+  const numberOfChannels = pcm.channels.length;
 
   const VideoEncoderClass = deps.VideoEncoder ?? globalThis.VideoEncoder;
   const AudioEncoderClass = deps.AudioEncoder ?? globalThis.AudioEncoder;
@@ -247,18 +262,42 @@ export async function renderVideo({
     throw new Error("此浏览器不支持此视频所需的 H.264 或获准的 VP9 编码。");
 
   const videoConfig = hasAvc ? h264 : vp9;
-  const audioConfig = {
-    codec: audioCodec,
-    sampleRate,
-    numberOfChannels: channels.length,
-    bitrate: channels.length === 1 ? 64_000 : 128_000,
+  let audioConfig: AudioEncoderConfig = {
+    codec: "mp4a.40.2",
+    sampleRate: pcm.sampleRate,
+    numberOfChannels,
+    bitrate: numberOfChannels === 1 ? 64_000 : 128_000,
   };
-  const hasAac = await waitFor(
-    isSupported(() => AudioEncoderClass.isConfigSupported(audioConfig)),
-    stop,
-  );
-  if (!hasAac) throw new Error("此浏览器不支持此音频所需的 AAC 编码。");
+  let audioCodec: "aac" | "opus" = "aac";
+  const supportsAudio = (config: AudioEncoderConfig) =>
+    waitFor(
+      isSupported(() => AudioEncoderClass.isConfigSupported(config)),
+      stop,
+    );
+  if (!(await supportsAudio(audioConfig))) {
+    audioCodec = "opus";
+    audioConfig = {
+      ...audioConfig,
+      codec: "opus",
+      opus: { frameDuration: opusFrameDuration },
+    };
+    if (!(await supportsAudio(audioConfig))) {
+      audioConfig = { ...audioConfig, sampleRate: opusSampleRate };
+      if (
+        pcm.sampleRate === opusSampleRate ||
+        !(await supportsAudio(audioConfig))
+      )
+        throw new Error("此浏览器不支持此音频所需的 AAC 或 Opus 编码。");
+    }
+  }
   stop.throwIfAborted();
+  const { sampleRate } = audioConfig;
+  const totalSamples = Math.round(duration * sampleRate);
+  if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
+    throw new RangeError("音频时长无效。");
+  }
+  const defaultAudioDuration =
+    audioCodec === "opus" ? opusFrameDuration : micros(1024 / sampleRate);
 
   const canvas = deps.createCanvas
     ? deps.createCanvas(width, height)
@@ -275,10 +314,15 @@ export async function renderVideo({
   const muxer = new Muxer({
     target,
     video: { codec: hasAvc ? "avc" : "vp9", width, height },
-    audio: { codec: "aac", sampleRate, numberOfChannels: channels.length },
+    audio: {
+      codec: audioCodec,
+      // Opus in MP4 uses a 48 kHz track clock, even with lower-rate PCM input.
+      sampleRate: audioCodec === "opus" ? opusSampleRate : sampleRate,
+      numberOfChannels,
+    },
     fastStart: false,
   });
-  const getAudioBlock = audioBlocks(plan, pcm);
+  const getAudioBlock = audioBlocks(plan, pcm, sampleRate);
   let encodedBytes = 0;
   let encodedVideoFrames = 0;
   let hasVideoConfig = false;
@@ -343,7 +387,7 @@ export async function renderVideo({
           const timestamp = chunk.timestamp - audioOrigin;
           if (timestamp >= endTimestamp) return;
           const length = Math.min(
-            chunk.duration ?? micros(1024 / sampleRate),
+            chunk.duration ?? defaultAudioDuration,
             endTimestamp - timestamp,
           );
           muxer.addAudioChunkRaw(
@@ -405,7 +449,7 @@ export async function renderVideo({
         const data = new AudioDataClass({
           format: "f32-planar",
           sampleRate,
-          numberOfChannels: channels.length,
+          numberOfChannels,
           numberOfFrames: count,
           timestamp: micros(audioOffset / sampleRate),
           data: getAudioBlock(audioOffset, count),
