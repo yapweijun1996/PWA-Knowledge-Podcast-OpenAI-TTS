@@ -617,6 +617,18 @@ function podcastFixture() {
         blob: new Blob(["fixture MP4"], { type: "video/mp4" }),
         sha256: "fixture-hash",
         durationSeconds: plan.duration,
+        captionTrack: {
+          videoSha256: "fixture-hash",
+          locale: "en",
+          cues: [
+            {
+              startMs: 0,
+              endMs: 250,
+              speaker: "Host A",
+              lines: ["Fixture captions"],
+            },
+          ],
+        },
       };
     },
     makeThumbnail: async () =>
@@ -703,9 +715,15 @@ test("concrete tools isolate paid stages, save each result and export a revision
   assert.equal(zip.type, "application/zip");
   assert.ok(
     exported.data.files.includes("video.mp4") &&
-      exported.data.files.includes("thumbnail.png"),
+      exported.data.files.includes("thumbnail.png") &&
+      exported.data.files.includes("captions.srt"),
   );
-  assert.match(await zip.text(), /fixture MP4/u);
+  const contents = await zip.text();
+  assert.match(contents, /fixture MP4/u);
+  assert.match(
+    contents,
+    /00:00:00,000 --> 00:00:00,250\nHost A: Fixture captions/u,
+  );
   artifacts.get(video.data.id).sourceStamp = "older";
   assert.equal(
     (await bridge.callTool("export_publish_package", byId)).status,

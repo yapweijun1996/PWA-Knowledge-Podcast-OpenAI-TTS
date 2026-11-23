@@ -514,7 +514,20 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
   assert.ok(progress.slice(1).every((value, index) => value > progress[index]));
   assert.deepEqual(first.trace.closed, ["video", "audio"]);
   assert.deepEqual(
-    { ...result, blob: undefined, sha256: undefined },
+    result.captionTrack,
+    {
+      videoSha256: result.sha256,
+      locale: "en",
+      cues: [
+        { startMs: 500, endMs: 750, speaker: "Host A", lines: ["你好，世界。"] },
+        { startMs: 750, endMs: 1250, speaker: "Host A", lines: ["Now in English"] },
+        { startMs: 1750, endMs: 2450, speaker: "Host B", lines: ["谢谢！"] },
+      ],
+    },
+  );
+  const { captionTrack: _track, ...video } = result;
+  assert.deepEqual(
+    { ...video, blob: undefined, sha256: undefined },
     {
       blob: undefined,
       sha256: undefined,

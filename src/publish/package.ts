@@ -5,6 +5,7 @@ import {
   t,
 } from "../i18n/index.ts";
 import type { ensureVideoFonts } from "../video/fonts/loader.ts";
+import { captionFileName, encodeCaptionTrack, type CaptionTrack } from "../video/caption-track.ts";
 import type { TimelinePlan } from "../video/timeline.ts";
 import { themePalette } from "../video/themes.ts";
 import {
@@ -30,6 +31,7 @@ type PublishInput = {
   episode: Episode;
   plan: TimelinePlan;
   videoBlob?: Blob;
+  captionTrack?: CaptionTrack;
   thumbnailBlob?: Blob;
   thumbnail?: Omit<ThumbnailOptions, "title" | "language">;
   thumbnailCanvas?: ThumbnailCanvas;
@@ -125,6 +127,7 @@ function uploadChecklist(
   estimated: boolean,
   fileNames: Record<string, string>,
   variant: ThumbnailVariant,
+  captions: boolean,
 ) {
   const variantNames = {
     "topic-graphic": "publish.thumbnail.variantTopicGraphic",
@@ -139,6 +142,7 @@ function uploadChecklist(
     t("publish.checklist.upload", fileNames),
     t("publish.checklist.audience"),
     t("publish.checklist.aiDisclosure"),
+    ...(captions ? [t("publish.checklist.captions", { captionFile: captionFileName })] : []),
     t("publish.checklist.thumbnail", { ...fileNames, variant: t(variantNames[variant]) }),
     t("publish.checklist.portraitCover"),
     t("publish.checklist.visibility"),
@@ -158,6 +162,7 @@ export function buildPublishPackage({
   episode,
   plan,
   videoBlob,
+  captionTrack,
   thumbnailBlob,
   thumbnail,
   thumbnailCanvas,
@@ -234,6 +239,7 @@ export function buildPublishPackage({
     .slice(0, 5)
     .join(", ");
 
+  const captions = videoBlob && !plan.estimated && captionTrack?.cues.length ? captionTrack : undefined;
   const files: PublishFile[] = [
     { name: fileNames.titleFile, text: title, mime: plainText },
     { name: fileNames.descriptionFile, text: description, mime: plainText },
@@ -245,7 +251,7 @@ export function buildPublishPackage({
     },
     {
       name: fileNames.checklistFile,
-      text: uploadChecklist(plan.estimated, fileNames, variant),
+      text: uploadChecklist(plan.estimated, fileNames, variant, !!captions),
       mime: "text/markdown;charset=utf-8",
     },
   ];
@@ -255,6 +261,11 @@ export function buildPublishPackage({
       files.push({ name: fileNames.thumbnailFile, blob: png, mime: "image/png" });
     }
     if (videoBlob) files.push({ name: fileNames.videoFile, blob: videoBlob, mime: "video/mp4" });
+    if (captions) files.push({
+      name: captionFileName,
+      text: encodeCaptionTrack(captions, "srt"),
+      mime: "application/x-subrip;charset=utf-8",
+    });
 
     return {
       files,

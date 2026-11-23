@@ -418,7 +418,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
         throw new ToolFailure("prerequisite_required");
       const audio = await savedAudio(row);
       signal.throwIfAborted();
-      const { blob, sha256, durationSeconds } = await deps.render({
+      const { blob, sha256, durationSeconds, captionTrack } = await deps.render({
         plan,
         audio,
         theme: "dark",
@@ -435,6 +435,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
             revision: episode.revision,
             sourceStamp: row.stamp,
             blob,
+            ...(captionTrack ? { metadata: { captionTrack } } : {}),
           },
           signal,
         );
@@ -475,6 +476,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
         episode,
         plan: buildTimeline(episode, { storyboard }),
         videoBlob: video.blob,
+        captionTrack: video.metadata?.captionTrack,
         thumbnailBlob,
       });
       const blob = await result.zip();

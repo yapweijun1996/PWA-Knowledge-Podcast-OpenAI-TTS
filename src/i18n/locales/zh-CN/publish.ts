@@ -118,4 +118,8 @@ export default [
   ["publish.review.thumbnailKey", "请移除缩略图标题中的 API 密钥，然后继续。"],
   ["publish.review.landscapeOrientation", "- 视频方向：横向 16:9（1920 × 1080）。"],
   ["publish.review.portraitOrientation", "- 视频方向：纵向 9:16（1080 × 1920）。"],
+  ["publish.checklist.captions", "- [ ] 检查 `{captionFile}` 中的发言者标签和语音时间，再按带时间轴的字幕上传。开启原生字幕检查画面是否重叠。"],
+  ["publish.review.previewCaptions", "预览原生字幕"],
+  ["publish.review.captionsPreviewFailed", "无法加载原生字幕预览。"],
+  ["publish.review.captionReceipt", "发布包包含 {count} 条按视频帧和已保存片段时长生成的字幕。批准前请核对字幕与语音是否同步。"],
 ] as const;

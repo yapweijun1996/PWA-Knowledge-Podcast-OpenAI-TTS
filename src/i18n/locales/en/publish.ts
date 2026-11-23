@@ -130,4 +130,8 @@ export default [
   ["publish.review.thumbnailKey", "Remove the API key from the thumbnail headline to continue."],
   ["publish.review.landscapeOrientation", "- Video orientation: landscape, 16:9 (1920 × 1080)."],
   ["publish.review.portraitOrientation", "- Video orientation: portrait, 9:16 (1080 × 1920)."],
+  ["publish.checklist.captions", "- [ ] Review the speech timing and speaker labels in `{captionFile}`, then upload it with timing. Check the video with native captions on for overlap."],
+  ["publish.review.previewCaptions", "Preview native captions"],
+  ["publish.review.captionsPreviewFailed", "The native caption preview could not load."],
+  ["publish.review.captionReceipt", "The package includes {count} timed cues from the video frames and saved turn timings. Check their alignment against the speech before approving."],
 ] as const;

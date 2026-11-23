@@ -130,4 +130,8 @@ export default [
   ["publish.review.thumbnailKey", "Alih keluar kunci API daripada tajuk imej kecil untuk meneruskan."],
   ["publish.review.landscapeOrientation", "- Orientasi video: landskap, 16:9 (1920 × 1080)."],
   ["publish.review.portraitOrientation", "- Orientasi video: potret, 9:16 (1080 × 1920)."],
+  ["publish.checklist.captions", "- [ ] Semak masa pertuturan dan label penutur dalam `{captionFile}`, kemudian muat naik fail berserta masa. Hidupkan sari kata asal dan semak pertindihan pada video."],
+  ["publish.review.previewCaptions", "Pratonton sari kata asal"],
+  ["publish.review.captionsPreviewFailed", "Pratonton sari kata asal tidak dapat dimuatkan."],
+  ["publish.review.captionReceipt", "Pakej mengandungi {count} sari kata mengikut bingkai video dan masa giliran yang disimpan. Semak padanan dengan pertuturan sebelum meluluskan."],
 ] as const;

@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
+import { encodeCaptionTrack } from "../src/video/caption-track.ts";
 
 test.use({ serviceWorkers: "block" });
 
@@ -225,6 +227,41 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     },
   });
 
+  expect(receipt?.captionTrack?.videoSha256).toBe(receipt?.studioVideo?.sha256);
+  const track = receipt?.captionTrack;
+  expect(track?.cues.length).toBeGreaterThan(0);
+  expect(track!.cues[0].startMs).toBe(0);
+  expect(
+    track!.cues.every(
+      ({ speaker, endMs }) => speaker === "Host A" && endMs <= duration * 1000,
+    ),
+  ).toBe(true);
+  const previewCaptions = panel.getByLabel(
+    english("publish.review.previewCaptions"),
+  );
+  await previewCaptions.check();
+  await expect
+    .poll(() =>
+      video.evaluate((element: HTMLVideoElement) =>
+        Array.from(element.textTracks[0]?.cues ?? []).map((cue) => [
+          cue.id,
+          Math.round(cue.startTime * 1000),
+          Math.round(cue.endTime * 1000),
+          (cue as VTTCue).text,
+        ]),
+      ),
+    )
+    .toEqual(
+      track!.cues.map(({ startMs, endMs, speaker, lines }, index) => [
+        String(index + 1),
+        startMs,
+        endMs,
+        `${speaker}: ${lines.join("\n")}`,
+      ]),
+    );
+  await previewCaptions.uncheck();
+  await expect(video.locator("track")).toHaveCount(0);
+
   const guides = panel.getByLabel(english("video.panel.options.guides"));
   const guideLayer = panel.locator(".video-preview-guides");
   await expect(guideLayer).toHaveCount(0);
@@ -237,6 +274,13 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   await expect(video).toBeVisible();
   await approve.click();
   await expect(exportPackage).toBeEnabled();
+  const zipped = page.waitForEvent("download");
+  await exportPackage.click();
+  const buffer = await readFile((await (await zipped).path())!);
+  expect(buffer.includes(Buffer.from("captions.srt"))).toBe(true);
+  expect(buffer.includes(Buffer.from(encodeCaptionTrack(track!, "srt")))).toBe(
+    true,
+  );
   await page.reload();
   await expect(video).toBeVisible();
   await expect(orientation).toHaveValue("portrait");

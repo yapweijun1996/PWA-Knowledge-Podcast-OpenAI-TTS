@@ -336,6 +336,11 @@ test("approved edits enter the package with episode-language description and UI-
   assert.equal(files.get("tags.txt"), "science, podcasts");
   assert.equal(files.get("video.mp4"), artifact.blob);
   assert.equal(files.get("thumbnail.png"), png);
+  assert.equal(
+    files.has("captions.srt"),
+    false,
+    "legacy approved versions keep exporting",
+  );
   const chapterText = "0:00 A new opening\n0:06 Evidence\n0:13 Conclusion";
   assert.equal(files.get("chapters.txt"), chapterText);
   assert.ok(files.get("description.txt").startsWith(review.summary));
@@ -365,6 +370,46 @@ test("approved edits enter the package with episode-language description and UI-
     files
       .get("checklist.md")
       .startsWith(createTranslator("en")("publish.checklist.heading")),
+  );
+
+  artifact.metadata.studioVideo.sha256 = "fixture-hash";
+  artifact.metadata.studioVideo.timeline.estimated = false;
+  const captionTrack = {
+    videoSha256: "another-video",
+    locale: "ms",
+    cues: [
+      {
+        startMs: 100,
+        endMs: 1800,
+        speaker: "Hos A",
+        lines: ["Berita ringkas."],
+      },
+    ],
+  };
+  artifact.metadata.captionTrack = captionTrack;
+  const wrongTrack = await buildReviewedPublishPackage(episode, artifact, png);
+  assert.equal(
+    wrongTrack.files.some(({ name }) => name === "captions.srt"),
+    false,
+  );
+  captionTrack.videoSha256 = artifact.metadata.studioVideo.sha256;
+  const currentTrack = await buildReviewedPublishPackage(
+    episode,
+    artifact,
+    png,
+  );
+  assert.equal(
+    currentTrack.files.find(({ name }) => name === "captions.srt")?.text,
+    "1\n00:00:00,100 --> 00:00:01,800\nHos A: Berita ringkas.\n",
+  );
+  await assert.rejects(
+    () =>
+      buildReviewedPublishPackage(
+        { ...episode, revision: episode.revision + 1 },
+        artifact,
+        png,
+      ),
+    /approval required/,
   );
 
   const cited = {

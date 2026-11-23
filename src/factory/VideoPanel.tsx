@@ -9,6 +9,7 @@ import {
   isCjkHeadline,
   thumbnailHeadlineLimits,
 } from "../publish/thumbnail-headline.ts";
+import { encodeCaptionTrack } from "../video/caption-track.ts";
 import type { Orientation } from "../video/design/tokens.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
 import { episodeLanguageTags } from "./Evidence";
@@ -171,10 +172,17 @@ function VideoPreview({
   const [errorUrl, setErrorUrl] = useState("");
   const [copy, setCopy] = useState<MessageKey>();
   const [guides, setGuides] = useState(false);
+  const [nativeCaptions, setNativeCaptions] = useState(false);
+  const [captionError, setCaptionError] = useState("");
+  const [subtitle, setSubtitle] = useState<{ sha: string; url: string }>();
   const {
     blob,
-    metadata: { studioVideo: receipt },
+    metadata: { studioVideo: receipt, captionTrack },
   } = artifact;
+  const captions =
+    captionTrack?.videoSha256 === receipt.sha256 ? captionTrack : undefined;
+  const captionUrl =
+    captions && subtitle?.sha === receipt.sha256 ? subtitle.url : undefined;
   const url = preview?.blob === blob ? preview.url : undefined;
   const notices = new Set(receipt.sceneNotices?.map(({ reason }) => reason));
 
@@ -183,6 +191,17 @@ function VideoPreview({
     setPreview({ blob, url });
     return () => URL.revokeObjectURL(url);
   }, [blob]);
+
+  useEffect(() => {
+    if (!captions || !nativeCaptions) return;
+    const url = URL.createObjectURL(
+      new Blob([encodeCaptionTrack(captions, "vtt")], {
+        type: "text/vtt;charset=utf-8",
+      }),
+    );
+    setSubtitle({ sha: captions.videoSha256, url });
+    return () => URL.revokeObjectURL(url);
+  }, [captions, nativeCaptions]);
 
   async function copyCommand() {
     try {
@@ -205,6 +224,16 @@ function VideoPreview({
             />
             {t("video.panel.options.guides")}
           </label>
+          {captions && (
+            <label className="video-panel-check">
+              <input
+                type="checkbox"
+                checked={nativeCaptions}
+                onChange={(event) => setNativeCaptions(event.target.checked)}
+              />
+              {t("publish.review.previewCaptions")}
+            </label>
+          )}
           <div className="video-preview-frame" data-orientation={orientation}>
             <video
               key={url}
@@ -214,7 +243,20 @@ function VideoPreview({
               src={url}
               aria-label={t("video.panel.preview")}
               onError={() => setErrorUrl(url)}
-            />
+            >
+              {nativeCaptions && captionUrl && (
+                <track
+                  kind="captions"
+                  ref={(element) => {
+                    if (element) element.track.mode = "showing";
+                  }}
+                  label={t("publish.review.previewCaptions")}
+                  srcLang={captions?.locale}
+                  src={captionUrl}
+                  onError={() => setCaptionError(captionUrl)}
+                />
+              )}
+            </video>
             {guides && errorUrl !== url && (
               <div className="video-preview-guides" aria-hidden="true">
                 <span
@@ -247,6 +289,9 @@ function VideoPreview({
       )}
       <div role="status" className="video-panel-status">
         {url && errorUrl === url ? t("video.panel.previewFailed") : ""}
+        {nativeCaptions && captionUrl && captionError === captionUrl
+          ? t("publish.review.captionsPreviewFailed")
+          : ""}
       </div>
       <p className="muted">
         {t("video.panel.receipt", {
@@ -264,6 +309,13 @@ function VideoPreview({
           checksum: receipt.sha256.slice(0, 12),
         })}
       </p>
+      {captions && (
+        <p className="muted">
+          {t("publish.review.captionReceipt", {
+            count: formatters.number(captions.cues.length),
+          })}
+        </p>
+      )}
       {[...notices].map((reason) => (
         <p className="muted" key={reason}>
           {t(sceneNoticeLabels[reason])}

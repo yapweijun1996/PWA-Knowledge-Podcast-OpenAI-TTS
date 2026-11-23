@@ -1,4 +1,5 @@
-import { t } from "../i18n/index.ts";
+import { createTranslator, t } from "../i18n/index.ts";
+import { recordCaptionTrack } from "./caption-track.ts";
 import { ensureVideoFonts } from "./fonts/loader.ts";
 import { overlayCopy, prepareOverlay } from "./overlay.ts";
 import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
@@ -471,6 +472,25 @@ export async function renderVideo({
   stop.throwIfAborted();
   const textLayouts = new Map<string, string[]>();
   const overlay = prepareOverlay(context, plan, copy, textLayouts);
+  const captionLocale = plan.wordmarkLocale ?? copy.episodeLocale;
+  const translateCaption = createTranslator(captionLocale);
+  const captionRecorder = plan.estimated
+    ? undefined
+    : recordCaptionTrack(
+        captionLocale,
+        {
+          A:
+            plan.hostNames?.A ||
+            translateCaption("video.caption.speaker", { name: "A" }),
+          B:
+            plan.hostNames?.B ||
+            translateCaption("video.caption.speaker", { name: "B" }),
+          C:
+            plan.hostNames?.C ||
+            translateCaption("video.caption.speaker", { name: "C" }),
+        },
+        endTimestamp,
+      );
 
   let webgl2: boolean | undefined;
   async function initScene(
@@ -724,6 +744,12 @@ export async function renderVideo({
       }
       overlay.draw(overlayFrame, paletteId, labelDrawn);
       const timestamp = micros(time);
+      captionRecorder?.observe(
+        timestamp,
+        turn && overlayFrame.cue
+          ? { cue: overlayFrame.cue, speakerId: turn.speakerId }
+          : undefined,
+      );
       const endTime = Math.min(duration, (index + 1) / fps);
       const frame = new VideoFrameClass(canvas, {
         timestamp,
@@ -793,11 +819,13 @@ export async function renderVideo({
       byte.toString(16).padStart(2, "0"),
     ).join("");
     const blob = new Blob([bytes], { type: "video/mp4" });
+    const captionTrack = captionRecorder?.complete(sha256);
     onProgress?.(1);
     stop.throwIfAborted();
     return {
       blob,
       sha256,
+      ...(captionTrack ? { captionTrack } : {}),
       durationSeconds: duration,
       width,
       height,

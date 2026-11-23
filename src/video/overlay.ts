@@ -352,8 +352,10 @@ export function prepareOverlay(
       distance < halfFade
         ? (1 + Math.cos((Math.PI * distance) / halfFade)) / 2
         : 0;
+    const currentCue = turn && latestStarted(cues.get(turn) ?? [], time);
     return {
       turn,
+      cue: currentCue && beforeEnd(time, currentCue.end) ? currentCue : undefined,
       card,
       chapter,
       chapterIndex,
@@ -500,7 +502,7 @@ export function prepareOverlay(
       hostsDrawn = false,
     ) {
       const palette = palettes[paletteId];
-      const { card, chapter, chapterIndex, turn, time } = frame;
+      const { card, chapter, chapterIndex, turn, time, cue } = frame;
       if (wordmark) {
         context.fillStyle = palette.ink;
         context.font = canvasFont("wordmark");
@@ -672,8 +674,7 @@ export function prepareOverlay(
         );
       }
 
-      const cue = turn && latestStarted(cues.get(turn) ?? [], time);
-      if (cue && beforeEnd(time, cue.end)) {
+      if (cue) {
         rect(context, captionPlate, palette.plate, Math.round(radius.caption));
         context.fillStyle = palette.ink;
         context.font = canvasFont("caption");

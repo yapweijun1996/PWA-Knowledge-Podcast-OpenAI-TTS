@@ -7,7 +7,12 @@ import {
   type StudioVideoOptions,
 } from "../agent/artifacts.ts";
 import { redactCredentials } from "../agent/runtime.ts";
-import { createTranslator, resolveLocale, t, type MessageKey } from "../i18n/index.ts";
+import {
+  createTranslator,
+  resolveLocale,
+  t,
+  type MessageKey,
+} from "../i18n/index.ts";
 import {
   deriveThumbnailHeadline,
   publishLocales,
@@ -33,7 +38,9 @@ type StudioVideo = NonNullable<
   NonNullable<AgentArtifact["metadata"]>["studioVideo"]
 >;
 export type VideoArtifact = AgentArtifact & {
-  metadata: { studioVideo: StudioVideo };
+  metadata: NonNullable<AgentArtifact["metadata"]> & {
+    studioVideo: StudioVideo;
+  };
 };
 export type PublishReview = StudioVideo["review"];
 type Chapters = TimelinePlan["chapters"];
@@ -496,7 +503,12 @@ export async function buildReviewedPublishPackage(
   const receipt = artifact.metadata.studioVideo;
   const { timeline, review, durationSeconds } = receipt;
   const checked = validatePublishReview(review, timeline.chapters);
-  if (!checked.value || review.status !== "approved")
+  if (
+    !checked.value ||
+    review.status !== "approved" ||
+    artifact.episodeId !== episode.id ||
+    artifact.revision !== episode.revision
+  )
     throw new Error("Publish approval required");
   const content = JSON.stringify(episode);
   if (redact(content) !== content)
@@ -538,6 +550,10 @@ export async function buildReviewedPublishPackage(
     episode,
     plan,
     videoBlob: artifact.blob,
+    captionTrack:
+      artifact.metadata.captionTrack?.videoSha256 === receipt.sha256
+        ? artifact.metadata.captionTrack
+        : undefined,
     thumbnailBlob,
     thumbnail,
   });
@@ -826,7 +842,11 @@ export function useVideoRender(
         return;
       }
       const theme = options.paletteId === "light" ? "light" : "dark";
-      const { blob: mp4, ...receipt } = await renderEpisodeVideo({
+      const {
+        blob: mp4,
+        captionTrack,
+        ...receipt
+      } = await renderEpisodeVideo({
         locale: resolveLocale(),
         plan,
         audio: pcm,
@@ -855,6 +875,7 @@ export function useVideoRender(
         kind: "video",
         blob: mp4,
         metadata: {
+          ...(captionTrack ? { captionTrack } : {}),
           studioVideo: {
             ...receipt,
             theme,
@@ -918,7 +939,10 @@ export function useVideoRender(
     activeSave.current = controller;
     const next = {
       ...artifact,
-      metadata: { studioVideo: { ...artifact.metadata.studioVideo, review } },
+      metadata: {
+        ...artifact.metadata,
+        studioVideo: { ...artifact.metadata.studioVideo, review },
+      },
     };
     setReviewEdit({ review, saving: true });
     try {

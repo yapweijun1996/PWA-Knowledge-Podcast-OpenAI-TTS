@@ -1,6 +1,7 @@
 import { openDB, type DBSchema } from "idb";
 import type { ThumbnailVariant } from "../publish/thumbnail.ts";
 import type { Orientation } from "../video/design/tokens.ts";
+import type { CaptionTrack } from "../video/caption-track.ts";
 import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
 import type { VideoPaletteId } from "../video/themes.ts";
@@ -23,6 +24,7 @@ export type AgentArtifact = {
   sourceStamp: string;
   blob: Blob;
   metadata?: {
+    captionTrack?: CaptionTrack;
     studioVideo?: {
       sha256: string;
       durationSeconds: number;
