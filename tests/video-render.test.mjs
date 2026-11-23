@@ -1024,6 +1024,19 @@ test("limits both encoder queues and bounds video frames awaiting output", async
   assert.equal(videoTrace.maxPendingVideo, 24);
   assert.ok(videoTrace.flushes.filter((kind) => kind === "video").length > 1);
   assert.equal(videoTrace.frames.length, 74);
+
+  const eager = fakeDependencies();
+  await renderVideo({
+    plan: { ...plan, fps: 30 },
+    audio,
+    theme: "dark",
+    deps: eager.deps,
+  });
+  assert.deepEqual(videoTrace.keyFrames, eager.trace.keyFrames);
+  assert.equal(
+    videoTrace.flushes.filter((kind) => kind === "video").length,
+    eager.trace.flushes.filter((kind) => kind === "video").length,
+  );
 });
 
 test("rejects when encoded output crosses the in-memory size limit", async () => {

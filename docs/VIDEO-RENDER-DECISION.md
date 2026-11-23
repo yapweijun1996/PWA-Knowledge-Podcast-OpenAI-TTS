@@ -135,6 +135,11 @@ FFmpeg decoded the full export without errors and measured a non-silent
 24 kHz mono AAC-LC track. [Muxing tests](../tests/video-render.test.mjs)
 [W3C AAC WebCodecs registration](https://www.w3.org/TR/webcodecs-aac-codec-registration/#audio-decoder-config-description)
 
+The renderer drains video encoding every 24 submitted frames to bound retained
+frames. Fixed batch boundaries keep output callback timing from changing where
+the renderer requests keyframes. Cards and the four-second interval drive
+those requests. [Queue timing regression test](../tests/video-render.test.mjs)
+
 The Studio prefers a dedicated OffscreenCanvas worker when the browser
 supports its drawing, encoding and font APIs. The existing renderer on the
 page is the fallback for browsers without that combination. Browser tests

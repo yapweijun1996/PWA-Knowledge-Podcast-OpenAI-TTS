@@ -704,11 +704,12 @@ export async function renderVideo({
     );
     for (let index = 0; index < totalFrames; index++) {
       stop.throwIfAborted();
-      if (index - encodedVideoFrames >= maxVideoFramesInFlight) {
+      // Fixed batches bound retained frames and keep encoder flush points
+      // independent of when output callbacks run.
+      if (index > 0 && index % maxVideoFramesInFlight === 0) {
         await waitFor(videoEncoder.flush(), stop);
         if (encodedVideoFrames !== index)
           throw new Error(t("video.render.missingFrames"));
-        keyFrameAt = index;
       }
       if (videoEncoder.encodeQueueSize >= maxQueueSize)
         await waitForQueue(videoEncoder, stop);
