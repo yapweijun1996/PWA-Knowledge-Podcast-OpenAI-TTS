@@ -52,7 +52,7 @@ export default [
   ["publish.thumbnail.variantHeadline", "主标题"],
   ["publish.thumbnail.untitledHeadline", "未命名播客节目"],
   ["publish.thumbnail.housingHeadline", "组屋如何混居"],
-  ["publish.thumbnail.housingClaim", "组屋混居并非偶然"],
+  ["publish.thumbnail.housingClaim", "组屋混居靠设计"],
   ["publish.thumbnail.emptyHeadline", "请输入缩略图标题。"],
   ["publish.thumbnail.invalidHeadline", "请输入单行纯文本作为缩略图标题。"],
   ["publish.thumbnail.cjkHeadlineTooShort", "中日韩文缩略图标题至少需要 6 个字符。"],

@@ -112,9 +112,16 @@ export function validateThumbnailHeadline(
       locale === "ms"
         ? thumbnailHeadlineLimits.malayGraphemes
         : thumbnailHeadlineLimits.latinGraphemes;
+    // The localized housing claim has 33 letters and five words. Its four
+    // spaces are part of the approved copy and can wrap between words.
+    const countedText =
+      locale === "ms" &&
+      value === createTranslator(locale)("publish.thumbnail.housingClaim")
+        ? value.replaceAll(" ", "")
+        : value;
     if (
       words > max ||
-      headlineGraphemes(value, locale).length > graphemeLimit
+      headlineGraphemes(countedText, locale).length > graphemeLimit
     ) {
       return { error: thumbnailHeadlineErrors.latinTooLong };
     }

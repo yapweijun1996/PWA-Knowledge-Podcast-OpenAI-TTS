@@ -12,7 +12,15 @@ const fontFiles = {
   "/fonts/noto-sans-latin-v1.woff2": "PS Noto Sans",
 };
 
-const variants = [
+type ThumbnailCase = ThumbnailOptions & {
+  variant: ThumbnailVariant;
+  ink: string;
+  right: number;
+  expectedBackdrop?: string;
+  expectedHeadline?: string;
+};
+
+const variants: readonly ThumbnailCase[] = [
   {
     variant: "topic-graphic",
     paletteId: "aurora",
@@ -38,6 +46,24 @@ const variants = [
     right: 1160,
   },
   {
+    variant: "host-pair",
+    language: "zh",
+    headline: "邻里怎样共享空间",
+    ink: "#F5F7FC",
+    right: 734,
+    expectedBackdrop: "#0b1220",
+  },
+  {
+    variant: "headline",
+    language: "zh",
+    title: "邻里怎样共享空间",
+    topicKeywords: "住房政策",
+    ink: "#F5F7FC",
+    right: 1160,
+    expectedBackdrop: "#0b1220",
+    expectedHeadline: "组屋混居靠设计",
+  },
+  {
     variant: "headline",
     paletteId: undefined,
     language: "en",
@@ -46,13 +72,9 @@ const variants = [
     ink: "#F5F7FC",
     right: 1160,
   },
-] as const satisfies readonly (ThumbnailOptions & {
-  variant: ThumbnailVariant;
-  ink: string;
-  right: number;
-})[];
+];
 
-test("exports three thumbnail PNGs with clear headlines and a clear duration badge", async ({
+test("exports thumbnail PNGs with clear headlines and a clear duration badge", async ({
   page,
   baseURL,
   browserName,
@@ -128,17 +150,21 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
 
       const reports = [];
       for (const {
-        variant,
-        paletteId,
-        headline,
-        language,
         ink,
         right,
+        expectedBackdrop,
+        expectedHeadline,
+        ...options
       } of cases) {
+        const { variant, language } = options;
+        let headlineForFonts: string | undefined;
         const png = await encodeThumbnail(
           document.createElement("canvas"),
-          { variant, paletteId, headline, language },
-          async () => ({ notices: [], missingCharacters: [] }),
+          options,
+          async ({ texts }) => {
+            headlineForFonts = texts[0];
+            return { notices: [], missingCharacters: [] };
+          },
         );
         const image = await createImageBitmap(png);
         const { width, height } = image;
@@ -163,6 +189,30 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
             (channel, k) => Math.abs(data[i + k] - channel) <= 1,
           );
 
+        let overlapDelta = 0;
+        let sidewallColorDelta = 0;
+        if (variant === "topic-graphic") {
+          // The lit rear window reaches x=979. Sample the forward side past
+          // its own inset windows, then compare with a gap between rear rows.
+          const shadedPlate = fromHex("#345a5b");
+          for (let x = 975; x < 979; x++) {
+            for (let y = 305; y < 309; y++) {
+              const overlap = (y * width + x) * 4;
+              const reference = ((y + 15) * width + x) * 4;
+              for (let channel = 0; channel < 3; channel++) {
+                overlapDelta = Math.max(
+                  overlapDelta,
+                  Math.abs(data[overlap + channel] - data[reference + channel]),
+                );
+                sidewallColorDelta = Math.max(
+                  sidewallColorDelta,
+                  Math.abs(data[reference + channel] - shadedPlate[channel]),
+                );
+              }
+            }
+          }
+        }
+
         let badgeInk = 0;
         for (let y = Math.floor(0.78 * height); y < height; y++) {
           for (let x = Math.floor(0.79 * width); x < width; x++) {
@@ -179,11 +229,13 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
 
         let lowestContrast = 21;
         let headlinePixels = 0;
+        let headlineRight = 0;
         for (let y = 150; y < 540; y++) {
           for (let x = 80; x < right; x++) {
             const i = (y * width + x) * 4;
             if (isInk(i)) {
               headlinePixels++;
+              headlineRight = Math.max(headlineRight, x + 1);
               lowestContrast = Math.min(
                 lowestContrast,
                 thumbnailContrastRatio(
@@ -289,7 +341,7 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
             return { width: end - start, highContrastRows };
           });
           const gap = spans.length === 2 ? spans[1].start - spans[0].end : 0;
-          return { w, gap, visible };
+          return { w, gap, visible, firstHostLeft: spans[0]?.start };
         };
         const hostPair =
           variant === "host-pair" ? [1280, 320, 160].map(scanHostPair) : [];
@@ -306,6 +358,13 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           lowestContrast,
           inkHeights,
           hostPair,
+          headlineRight,
+          expectedBackdrop,
+          backdropStart: toHex(data, lastRow),
+          expectedHeadline,
+          headlineForFonts,
+          overlapDelta,
+          sidewallColorDelta,
         });
       }
       return reports;
@@ -325,6 +384,16 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
     expect(report.badgeInk, report.variant).toBe(0);
     expect(report.headlinePixels, report.variant).toBeGreaterThan(0);
     expect(report.lowestContrast, report.variant).toBeGreaterThanOrEqual(4.5);
+    if (report.expectedBackdrop)
+      expect(report.backdropStart, report.variant).toBe(report.expectedBackdrop);
+    if (report.expectedHeadline)
+      expect(report.headlineForFonts, report.variant).toBe(report.expectedHeadline);
+    if (report.variant === "topic-graphic") {
+      expect(report.sidewallColorDelta, "shaded plate color")
+        .toBeLessThanOrEqual(2);
+      expect(report.overlapDelta, "rear window bleed through foreground wall")
+        .toBeLessThanOrEqual(1);
+    }
     const inkFloor = report.language === "zh" ? 8 : 6;
     expect(report.inkHeights[0], report.variant).toBeGreaterThanOrEqual(
       inkFloor,
@@ -332,12 +401,19 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
     expect(report.inkHeights[1], report.variant).toBeGreaterThanOrEqual(
       2 * inkFloor,
     );
-    for (const { w, gap, visible } of report.hostPair) {
+    for (const { w, gap, visible, firstHostLeft } of report.hostPair) {
       expect(visible, `${w}px host silhouettes`).toHaveLength(2);
       expect(gap, `${w}px host gap`).toBeGreaterThanOrEqual(
         w === 1280 ? 16 : 1,
       );
-      if (w === 1280) expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
+      if (w === 1280) {
+        expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
+        const headlineArtGap = firstHostLeft! - report.headlineRight;
+        expect(headlineArtGap, "headline-to-art gap").toBeGreaterThan(0);
+        expect(headlineArtGap, "headline-to-art gap").toBeLessThanOrEqual(
+          772 - report.headlineRight,
+        );
+      }
       for (const orb of visible) {
         expect(orb.width, `${w}px host width`).toBeGreaterThanOrEqual(
           (18 * w) / 160,

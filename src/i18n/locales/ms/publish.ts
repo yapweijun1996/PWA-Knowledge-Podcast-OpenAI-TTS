@@ -64,7 +64,7 @@ export default [
   ["publish.thumbnail.variantHeadline", "Tajuk utama"],
   ["publish.thumbnail.untitledHeadline", "Episod tanpa tajuk"],
   ["publish.thumbnail.housingHeadline", "Kejiranan Bercampur di HDB"],
-  ["publish.thumbnail.housingClaim", "Kejiranan HDB Dirancang"],
+  ["publish.thumbnail.housingClaim", "Perumahan campuran dengan reka bentuk"],
   ["publish.thumbnail.emptyHeadline", "Masukkan tajuk imej kecil."],
   ["publish.thumbnail.invalidHeadline", "Gunakan teks biasa satu baris untuk tajuk imej kecil."],
   ["publish.thumbnail.cjkHeadlineTooShort", "Gunakan sekurang-kurangnya 6 aksara untuk tajuk imej kecil dalam tulisan Cina, Jepun atau Korea."],
