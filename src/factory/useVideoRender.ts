@@ -4,23 +4,24 @@ import type { Episode } from "../../shared/factory.ts";
 import {
   browserAgentArtifacts,
   type AgentArtifact,
+  type StudioVideoOptions,
 } from "../agent/artifacts.ts";
+import { redactCredentials } from "../agent/runtime.ts";
 import { createTranslator, t, type MessageKey } from "../i18n/index.ts";
-import { buildPublishPackage, publishLocales } from "../publish/package.ts";
-import { probeVideoSupport } from "../video/capabilities.ts";
-import { renderVideo } from "../video/render.ts";
-import { defaultSceneId, getScene } from "../video/scenes/registry.ts";
 import {
-  defaultStudio3dSettings,
-  resolveStudio3dOptions,
-  studio3dSceneId,
-  type Studio3dOptions,
-  type Studio3dSettings,
-} from "../video/scenes/studio3d/presets.ts";
-import { WebglContextLostError } from "../video/scenes/types.ts";
-import type { VideoTheme } from "../video/themes.ts";
-import { buildTimeline, type TimelinePlan } from "../video/timeline.ts";
-import { redact } from "./browser-key.ts";
+  deriveThumbnailHeadline,
+  publishLocales,
+  thumbnailHeadlineErrors,
+  validateThumbnailHeadline,
+} from "../publish/thumbnail-headline.ts";
+import type {
+  ThumbnailOptions,
+  ThumbnailVariant,
+} from "../publish/thumbnail.ts";
+import { probeVideoSupport } from "../video/capabilities.ts";
+import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
+import type { TimelineOptions, TimelinePlan } from "../video/timeline.ts";
+import { get as getBrowserKey, redact } from "./browser-key.ts";
 import type { AudioCheck } from "./library-model.ts";
 
 type StudioVideo = NonNullable<
@@ -32,6 +33,141 @@ export type VideoArtifact = AgentArtifact & {
 export type PublishReview = StudioVideo["review"];
 type Chapters = TimelinePlan["chapters"];
 type Source = Pick<AgentArtifact, "episodeId" | "revision" | "sourceStamp">;
+type DesignTokens = typeof import("../video/design/tokens.ts").designTokens;
+
+const defaultSceneId = "waveform";
+const studio3dSceneId = "studio3d";
+const defaultCamera = { cameraPresetId: "drift", intensity: 0.55 } as const;
+const redactThumbnailText = (text: string) =>
+  redactCredentials(text, getBrowserKey());
+export const videoOrientations = ["landscape", "portrait"] as const;
+export const videoPalettes = [
+  "aurora",
+  "sunset",
+  "mono",
+  "ocean",
+  "light",
+] as const;
+export const videoMoods = [
+  "calm",
+  "curious",
+  "urgent",
+  "warm",
+  "serious",
+] as const;
+export const thumbnailVariants = [
+  "topic-graphic",
+  "host-pair",
+  "headline",
+] as const;
+
+function videoResolution(
+  tokens: DesignTokens,
+  orientation: StudioVideoOptions["orientation"],
+) {
+  const [landscapeWidth, landscapeHeight] = tokens.landscape.frame;
+  const [portraitWidth, portraitHeight] = tokens.portrait.frame;
+  return orientation === "portrait"
+    ? { width: portraitWidth, height: portraitHeight }
+    : { width: landscapeWidth, height: landscapeHeight };
+}
+
+export async function defaultVideoThumbnailVariant(
+  language: Episode["language"],
+  topic: string,
+  title: string,
+) {
+  const { resolveThumbnailVariant } = await import("../publish/thumbnail.ts");
+  return resolveThumbnailVariant({
+    language,
+    topicKeywords: [redactThumbnailText(topic), redactThumbnailText(title)],
+  }).variant;
+}
+
+function optionValue<T>(choices: readonly T[], value: unknown, fallback: T) {
+  return choices.find((choice) => choice === value) ?? fallback;
+}
+
+export function resolveVideoOptions(
+  variant: ThumbnailVariant,
+  receipt?: Partial<StudioVideo>,
+): StudioVideoOptions {
+  const input = receipt?.options;
+  const paletteId = optionValue(
+    videoPalettes,
+    input?.paletteId ??
+      receipt?.paletteId ??
+      (receipt?.sceneId === studio3dSceneId
+        ? receipt.studio3d?.paletteId
+        : receipt?.theme === "light"
+          ? "light"
+          : undefined),
+    "aurora",
+  );
+  return {
+    orientation: optionValue(
+      videoOrientations,
+      input?.orientation ?? receipt?.orientation,
+      "landscape",
+    ),
+    paletteId:
+      receipt?.sceneId === studio3dSceneId && paletteId === "light"
+        ? "aurora"
+        : paletteId,
+    mood: optionValue(
+      videoMoods,
+      input?.mood ?? receipt?.studio3d?.moodId,
+      "calm",
+    ),
+    reducedMotion:
+      (input?.reducedMotion ?? receipt?.studio3d?.reducedMotion) === true,
+    thumbnailVariant: optionValue(
+      thumbnailVariants,
+      input?.thumbnailVariant,
+      variant,
+    ),
+    thumbnailHeadline:
+      typeof input?.thumbnailHeadline === "string"
+        ? input.thumbnailHeadline
+        : "",
+  };
+}
+
+export function videoThumbnailInput(
+  episode: Episode,
+  options: StudioVideoOptions,
+  title = episode.script?.title || episode.topic,
+) {
+  const locale = publishLocales[episode.language];
+  const raw = options.thumbnailHeadline;
+  const sanitizedTitle = redactThumbnailText(title);
+  const containsKey = redactThumbnailText(raw) !== raw;
+  const headline =
+    (raw && !containsKey
+      ? raw
+      : deriveThumbnailHeadline(sanitizedTitle, locale)) ?? "";
+  const validation = validateThumbnailHeadline(headline, locale);
+  const error = containsKey
+    ? "publish.review.thumbnailKey"
+    : (!raw && !headline) ||
+        validation.error === thumbnailHeadlineErrors.cjkTooLong ||
+        validation.error === thumbnailHeadlineErrors.latinTooLong
+      ? "publish.thumbnail.needsShorterHeadline"
+      : validation.error;
+  const input = {
+    title: sanitizedTitle,
+    language: episode.language,
+    locale,
+    topicKeywords: [
+      redactThumbnailText(episode.topic),
+      redactThumbnailText(episode.script?.title ?? ""),
+    ],
+    variant: options.thumbnailVariant,
+    paletteId: options.paletteId,
+    headline,
+  } satisfies ThumbnailOptions;
+  return { input, error } as const;
+}
 
 const artifactPrefix = (episodeId: string) =>
   `studio-video:${JSON.stringify(episodeId)}:`;
@@ -50,8 +186,10 @@ export function isCurrentVideo(
   sceneId?: string,
   studio3d?: Studio3dSettings,
 ) {
-  const saved =
-    artifact.metadata?.studioVideo?.studio3d ?? defaultStudio3dSettings;
+  const saved = artifact.metadata?.studioVideo?.studio3d ?? {
+    ...defaultCamera,
+    paletteId: "aurora",
+  };
   return (
     !!source &&
     artifact.kind === "video" &&
@@ -65,6 +203,20 @@ export function isCurrentVideo(
       (studio3d.paletteId === saved.paletteId &&
         studio3d.cameraPresetId === saved.cameraPresetId &&
         studio3d.intensity === saved.intensity))
+  );
+}
+
+export function sameVideoOptions(
+  left: StudioVideoOptions,
+  right: StudioVideoOptions,
+) {
+  return (
+    left.orientation === right.orientation &&
+    left.paletteId === right.paletteId &&
+    left.mood === right.mood &&
+    left.reducedMotion === right.reducedMotion &&
+    left.thumbnailVariant === right.thumbnailVariant &&
+    left.thumbnailHeadline === right.thumbnailHeadline
   );
 }
 
@@ -128,8 +280,25 @@ export function videoWithinLimits(duration: number, audioDuration: number) {
   );
 }
 
-export function planStudioVideo(episode: Episode, audioDuration: number) {
-  const plan = buildTimeline(episode);
+export async function planStudioVideo(
+  episode: Episode,
+  audioDuration: number,
+  options?: StudioVideoOptions,
+) {
+  const [{ buildTimeline }, { designTokens }] = await Promise.all([
+    import("../video/timeline.ts"),
+    import("../video/design/tokens.ts"),
+  ]);
+  const timelineOptions: TimelineOptions = {
+    resolution: videoResolution(
+      designTokens,
+      options?.orientation ?? "landscape",
+    ),
+    paletteId: options?.paletteId === "light" ? undefined : options?.paletteId,
+    mood: options?.mood,
+    reducedMotion: options?.reducedMotion,
+  };
+  const plan = buildTimeline(episode, timelineOptions);
   const turns = plan.scenes.filter((scene) => scene.kind === "turn");
   const last = turns.at(-1);
   if (!last) throw new Error("Missing timeline turns");
@@ -172,10 +341,10 @@ export function planStudioVideo(episode: Episode, audioDuration: number) {
       };
     }
   }
-  const fitted = buildTimeline({
-    ...episode,
-    render: { revision: episode.revision, model: "", clips },
-  });
+  const fitted = buildTimeline(
+    { ...episode, render: { revision: episode.revision, model: "", clips } },
+    timelineOptions,
+  );
   return {
     ...fitted,
     // A guessed turn boundary may land inside speech. Keep its following
@@ -272,7 +441,14 @@ export function validatePublishReview(
   return { value: { ...review, title, summary, tags, chapterTitles } } as const;
 }
 
-function defaultReview(episode: Episode, plan: TimelinePlan): PublishReview {
+type PublishBuilder =
+  typeof import("../publish/package.ts").buildPublishPackage;
+
+function defaultReview(
+  episode: Episode,
+  plan: TimelinePlan,
+  buildPublishPackage: PublishBuilder,
+): PublishReview {
   const { files } = buildPublishPackage({ episode, plan });
   const read = (name: MessageKey) => {
     const file = files.find((item) => item.name === t(name));
@@ -292,9 +468,10 @@ function defaultReview(episode: Episode, plan: TimelinePlan): PublishReview {
 function reviewAfterRender(
   episode: Episode,
   plan: TimelinePlan,
+  buildPublishPackage: PublishBuilder,
   previous?: StudioVideo,
 ) {
-  if (!previous) return defaultReview(episode, plan);
+  if (!previous) return defaultReview(episode, plan, buildPublishPackage);
   const sameChapters =
     plan.chapters.length === previous.timeline.chapters.length &&
     plan.chapters.every(({ title, start }, index) => {
@@ -306,16 +483,17 @@ function reviewAfterRender(
     status: "pending" as const,
     chapterTitles: sameChapters
       ? previous.review.chapterTitles
-      : defaultReview(episode, plan).chapterTitles,
+      : defaultReview(episode, plan, buildPublishPackage).chapterTitles,
   };
 }
 
-export function buildReviewedPublishPackage(
+export async function buildReviewedPublishPackage(
   episode: Episode,
   artifact: VideoArtifact,
   thumbnailBlob: Blob,
 ) {
-  const { timeline, review, durationSeconds } = artifact.metadata.studioVideo;
+  const receipt = artifact.metadata.studioVideo;
+  const { timeline, review, durationSeconds } = receipt;
   const checked = validatePublishReview(review, timeline.chapters);
   if (!checked.value || review.status !== "approved")
     throw new Error("Publish approval required");
@@ -323,8 +501,27 @@ export function buildReviewedPublishPackage(
   if (redact(content) !== content)
     throw new Error("Current key in episode content");
   const { title, summary, tags, chapterTitles } = checked.value;
-  const plan = {
-    ...buildTimeline(episode),
+  const [{ buildPublishPackage }, defaultVariant, { designTokens }] =
+    await Promise.all([
+      import("../publish/package.ts"),
+      defaultVideoThumbnailVariant(
+        episode.language,
+        episode.topic,
+        episode.script?.title ?? "",
+      ),
+      import("../video/design/tokens.ts"),
+    ]);
+  const options = resolveVideoOptions(defaultVariant, receipt);
+  const { input: thumbnail, error } = videoThumbnailInput(
+    episode,
+    options,
+    title,
+  );
+  if (error) throw new Error(t(error));
+  const plan: TimelinePlan = {
+    fps: 30,
+    resolution: videoResolution(designTokens, options.orientation),
+    scenes: [],
     duration: durationSeconds,
     estimated: timeline.estimated,
     chapters: timeline.chapters.map((chapter, index) => ({
@@ -337,6 +534,7 @@ export function buildReviewedPublishPackage(
     plan,
     videoBlob: artifact.blob,
     thumbnailBlob,
+    thumbnail,
   });
   const translate = createTranslator(publishLocales[episode.language]);
 
@@ -346,6 +544,19 @@ export function buildReviewedPublishPackage(
     if (!("text" in file)) continue;
     if (file.name === t("publish.files.title")) file.text = title;
     if (file.name === t("publish.files.tags")) file.text = tags;
+    if (file.name === t("publish.files.checklist")) {
+      const cover = t("publish.checklist.portraitCover");
+      const orientation = t(
+        options.orientation === "portrait"
+          ? "publish.review.portraitOrientation"
+          : "publish.review.landscapeOrientation",
+      );
+      file.text = file.text.replace(cover, () =>
+        options.orientation === "portrait"
+          ? `${orientation}\n${cover}`
+          : orientation,
+      );
+    }
     if (file.name === t("publish.files.description")) {
       const [, chapters, sources, notice] = file.text.split("\n\n");
       const [heading, ...lines] = sources.split("\n");
@@ -377,9 +588,18 @@ type RenderState =
 
 export function useVideoRender(episode: Episode, audio: AudioCheck) {
   const [support, setSupport] = useState<boolean>();
-  const [theme, setTheme] = useState<VideoTheme>("dark");
+  const [options, setOptions] = useState(() =>
+    resolveVideoOptions("host-pair"),
+  );
   const [sceneId, setSceneId] = useState<string>(defaultSceneId);
-  const [studio3d, setStudio3dSettings] = useState(defaultStudio3dSettings);
+  const [camera, setCamera] =
+    useState<Pick<Studio3dSettings, "cameraPresetId" | "intensity">>(
+      defaultCamera,
+    );
+  const studio3d: Studio3dSettings = {
+    ...camera,
+    paletteId: options.paletteId === "light" ? "aurora" : options.paletteId,
+  };
   const [stored, setStored] = useState<{
     revision: number;
     asset?: string;
@@ -388,6 +608,12 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     artifact?: VideoArtifact;
     stale?: boolean;
     failed?: boolean;
+    defaultVariant?: ThumbnailVariant;
+    scenes?: ReturnType<
+      typeof import("../video/scenes/registry.ts").listScenes
+    >;
+    cameraLabels?: typeof import("../video/scenes/studio3d/presets.ts").cameraLabels;
+    tokens?: DesignTokens;
   }>();
   const [state, setState] = useState<RenderState>({ phase: "idle" });
   const [reviewEdit, setReviewEdit] = useState<{
@@ -411,7 +637,21 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
   const sceneStale =
     !!savedArtifact &&
     !isCurrentVideo(savedArtifact, snapshot?.source, sceneId, studio3d);
-  const artifact = sceneStale ? undefined : savedArtifact;
+  const optionsStale =
+    !!savedArtifact &&
+    !sameVideoOptions(
+      options,
+      resolveVideoOptions(
+        snapshot.defaultVariant ?? "host-pair",
+        savedArtifact.metadata.studioVideo,
+      ),
+    );
+  const artifact = sceneStale || optionsStale ? undefined : savedArtifact;
+  const keyInHeadline =
+    redactThumbnailText(options.thumbnailHeadline) !==
+    options.thumbnailHeadline;
+  const { language, topic } = episode;
+  const scriptTitle = episode.script?.title ?? "";
 
   useEffect(() => {
     const leave = () => activeRender.current?.abort();
@@ -445,6 +685,20 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     if (!loadingAudio)
       void (async () => {
         try {
+          const [registry, presets, defaultVariant, { designTokens }] =
+            await Promise.all([
+              import("../video/scenes/registry.ts"),
+              import("../video/scenes/studio3d/presets.ts"),
+              defaultVideoThumbnailVariant(language, topic, scriptTitle),
+              import("../video/design/tokens.ts"),
+            ]);
+          const panel = {
+            ...input,
+            defaultVariant,
+            scenes: registry.listScenes(),
+            cameraLabels: presets.cameraLabels,
+            tokens: designTokens,
+          };
           const source =
             blob && asset && globalThis.crypto?.subtle
               ? {
@@ -459,15 +713,21 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
           );
           load.signal.throwIfAborted();
           if (saved?.metadata?.studioVideo && isCurrentVideo(saved, source)) {
-            setStored({ ...input, source, artifact: saved as VideoArtifact });
-            setTheme(saved.metadata.studioVideo.theme);
-            setSceneId(getScene(savedVideoSceneId(saved)).id);
-            setStudio3dSettings(
-              resolveStudio3dOptions(saved.metadata.studioVideo.studio3d).settings,
-            );
+            const receipt = saved.metadata.studioVideo;
+            setStored({ ...panel, source, artifact: saved as VideoArtifact });
+            setOptions(resolveVideoOptions(defaultVariant, receipt));
+            setSceneId(registry.getScene(savedVideoSceneId(saved)).id);
+            const { cameraPresetId, intensity } =
+              presets.resolveStudio3dOptions(receipt.studio3d).settings;
+            setCamera({ cameraPresetId, intensity });
           } else {
             const stale = await hasPreviousVideo(id);
-            if (!load.signal.aborted) setStored({ ...input, source, stale });
+            if (!load.signal.aborted) {
+              setStored({ ...panel, source, stale });
+              setOptions(resolveVideoOptions(defaultVariant));
+              setSceneId(defaultSceneId);
+              setCamera(defaultCamera);
+            }
           }
         } catch {
           if (!load.signal.aborted) setStored({ ...input, failed: true });
@@ -480,10 +740,12 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
       activeSave.current?.abort();
       activeSave.current = null;
     };
-  }, [id, revision, asset, blob, loadingAudio]);
+  }, [id, revision, asset, blob, loadingAudio, language, topic, scriptTitle]);
 
-  function setStudio3d(options: Studio3dOptions) {
-    setStudio3dSettings(resolveStudio3dOptions(options).settings);
+  function selectScene(nextSceneId: string) {
+    if (nextSceneId === studio3dSceneId && options.paletteId === "light")
+      setOptions({ ...options, paletteId: "aurora" });
+    setSceneId(nextSceneId);
   }
 
   async function start() {
@@ -493,6 +755,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
       !blob ||
       !duration ||
       !support ||
+      keyInHeadline ||
       activeRender.current ||
       activeSave.current ||
       reviewEdit
@@ -509,7 +772,19 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         setState({ phase: "failed", message: "video.panel.keyInContent" });
         return;
       }
-      const plan = { ...planStudioVideo(episode, duration), allowVp9: true };
+      const [
+        planned,
+        { renderVideo },
+        { buildPublishPackage },
+        { WebglContextLostError },
+      ] = await Promise.all([
+        planStudioVideo(episode, duration, options),
+        import("../video/render.ts"),
+        import("../publish/package.ts"),
+        import("../video/scenes/types.ts"),
+      ]);
+      signal.throwIfAborted();
+      const plan = { ...planned, allowVp9: true };
       if (!videoWithinLimits(plan.duration, duration)) {
         setState({ phase: "failed", message: "video.panel.limit" });
         return;
@@ -537,6 +812,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         setState({ phase: "failed", message: "video.panel.limit" });
         return;
       }
+      const theme = options.paletteId === "light" ? "light" : "dark";
       const { blob: mp4, ...receipt } = await renderVideo({
         plan,
         audio: pcm,
@@ -553,6 +829,10 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
               : previous,
           );
         },
+      }).catch((error: unknown) => {
+        if (error instanceof WebglContextLostError)
+          failure = "video.render.webglContextLost";
+        throw error;
       });
       signal.throwIfAborted();
       const next: VideoArtifact = {
@@ -564,29 +844,35 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
           studioVideo: {
             ...receipt,
             theme,
+            options,
             timeline: { chapters: plan.chapters, estimated: plan.estimated },
             review: reviewAfterRender(
               episode,
               plan,
+              buildPublishPackage,
               savedArtifact?.metadata.studioVideo,
             ),
           },
         },
       };
+      if (
+        redactThumbnailText(options.thumbnailHeadline) !==
+        options.thumbnailHeadline
+      ) {
+        setState({ phase: "failed", message: "publish.review.thumbnailKey" });
+        return;
+      }
       failure = "video.panel.saveFailed";
       await browserAgentArtifacts.put(next, signal);
       signal.throwIfAborted();
       if (receipt.sceneId !== sceneId) setSceneId(receipt.sceneId);
-      setStored({ revision, asset, blob, source, artifact: next });
+      setStored({ ...snapshot, revision, asset, blob, source, artifact: next });
       setState({ phase: "done" });
-    } catch (error) {
+    } catch {
       if (!signal.aborted)
         setState({
           phase: "failed",
-          message:
-            error instanceof WebglContextLostError
-              ? "video.render.webglContextLost"
-              : failure,
+          message: failure,
         });
       else if (activeRender.current === controller)
         setState({ phase: "cancelled" });
@@ -636,13 +922,19 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
 
   return {
     support,
-    theme,
-    setTheme,
+    options,
+    setOptions,
+    keyInHeadline,
     sceneId,
-    setSceneId,
-    studio3d,
-    setStudio3d,
+    setSceneId: selectScene,
+    scenes: snapshot?.scenes ?? [],
+    cameraLabels: snapshot?.cameraLabels,
+    tokens: snapshot?.tokens,
+    hasTopicGraphic: snapshot?.defaultVariant === "topic-graphic",
+    camera,
+    setCamera,
     sceneStale,
+    optionsStale,
     artifact,
     state,
     start,

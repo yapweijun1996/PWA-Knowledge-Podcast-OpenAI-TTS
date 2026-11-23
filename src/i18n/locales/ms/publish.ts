@@ -122,4 +122,13 @@ export default [
   ["publish.review.filename", "publish-package.zip"],
   // native-review
   ["publish.review.keyInContent", "Semakan mengandungi kunci API semasa. Alih keluar kunci sebelum menyimpan. Semakan sebelumnya masih tersimpan."],
+  ["publish.review.thumbnailOptions", "Pilihan imej kecil"],
+  ["publish.review.thumbnailVariant", "Reka letak imej kecil"],
+  ["publish.review.thumbnailHeadline", "Tajuk imej kecil"],
+  ["publish.review.thumbnailHeadlineHint", "Biarkan kosong untuk menggunakan tajuk ringkas berdasarkan tajuk muat naik."],
+  ["publish.review.thumbnailHeadlineCount", "{count} / {limit} aksara"],
+  // native-review
+  ["publish.review.thumbnailKey", "Alih keluar kunci API daripada tajuk imej kecil untuk meneruskan."],
+  ["publish.review.landscapeOrientation", "- Orientasi video: landskap, 16:9 (1920 × 1080)."],
+  ["publish.review.portraitOrientation", "- Orientasi video: potret, 9:16 (1080 × 1920)."],
 ] as const;

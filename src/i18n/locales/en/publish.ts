@@ -122,4 +122,13 @@ export default [
   ["publish.review.filename", "publish-package.zip"],
   // native-review
   ["publish.review.keyInContent", "The review contains the current API key. Remove it before saving. The previous review is still saved."],
+  ["publish.review.thumbnailOptions", "Thumbnail options"],
+  ["publish.review.thumbnailVariant", "Thumbnail layout"],
+  ["publish.review.thumbnailHeadline", "Thumbnail headline"],
+  ["publish.review.thumbnailHeadlineHint", "Leave blank to use a short headline based on the upload title."],
+  ["publish.review.thumbnailHeadlineCount", "{count} / {limit} characters"],
+  // native-review
+  ["publish.review.thumbnailKey", "Remove the API key from the thumbnail headline to continue."],
+  ["publish.review.landscapeOrientation", "- Video orientation: landscape, 16:9 (1920 × 1080)."],
+  ["publish.review.portraitOrientation", "- Video orientation: portrait, 9:16 (1080 × 1920)."],
 ] as const;

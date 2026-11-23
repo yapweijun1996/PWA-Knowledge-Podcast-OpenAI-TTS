@@ -110,4 +110,13 @@ export default [
   ["publish.review.filename", "publish-package.zip"],
   // native-review
   ["publish.review.keyInContent", "审核字段包含当前 API 密钥。请移除密钥后保存。先前保存的审核内容已保留。"],
+  ["publish.review.thumbnailOptions", "缩略图选项"],
+  ["publish.review.thumbnailVariant", "缩略图版式"],
+  ["publish.review.thumbnailHeadline", "缩略图标题"],
+  ["publish.review.thumbnailHeadlineHint", "留空时，根据上传标题自动生成简短标题。"],
+  ["publish.review.thumbnailHeadlineCount", "已用 {count} 个字符，上限 {limit} 个"],
+  // native-review
+  ["publish.review.thumbnailKey", "请移除缩略图标题中的 API 密钥，然后继续。"],
+  ["publish.review.landscapeOrientation", "- 视频方向：横向 16:9（1920 × 1080）。"],
+  ["publish.review.portraitOrientation", "- 视频方向：纵向 9:16（1080 × 1920）。"],
 ] as const;

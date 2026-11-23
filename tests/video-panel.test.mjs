@@ -5,13 +5,17 @@ import { createTranslator, setLocale } from "../src/i18n/index.ts";
 import { turnSampleRange } from "../src/video/draw.ts";
 import {
   buildReviewedPublishPackage,
+  defaultVideoThumbnailVariant,
   isCurrentVideo,
   maxVideoSeconds,
   planStudioVideo,
   renameVideoChapter,
+  resolveVideoOptions,
   reviewLimits,
+  sameVideoOptions,
   validatePublishReview,
   videoArtifactKey,
+  videoThumbnailInput,
   videoWithinLimits,
 } from "../src/factory/useVideoRender.ts";
 
@@ -78,13 +82,115 @@ test("video preflight bounds source and timeline duration", () => {
   assert.equal(videoWithinLimits(1, Number.NaN), false);
 });
 
-test("estimated timelines fit verified WAV duration and use final chapter anchors", () => {
-  const plan = planStudioVideo(
+test("new video options default to a matched topic graphic or the host pair and normalize old receipts", async () => {
+  assert.equal(
+    await defaultVideoThumbnailVariant(
+      "en",
+      "Public housing",
+      "Fixture script",
+    ),
+    "topic-graphic",
+  );
+  assert.equal(
+    await defaultVideoThumbnailVariant("ms", "Fixture", "Fixture script"),
+    "host-pair",
+  );
+  const defaults = resolveVideoOptions("host-pair");
+  assert.deepEqual(defaults, {
+    orientation: "landscape",
+    paletteId: "aurora",
+    mood: "calm",
+    reducedMotion: false,
+    thumbnailVariant: "host-pair",
+    thumbnailHeadline: "",
+  });
+  assert.equal(
+    resolveVideoOptions("topic-graphic", { theme: "light" }).paletteId,
+    "light",
+  );
+  assert.equal(
+    resolveVideoOptions("host-pair", {
+      sceneId: "studio3d",
+      studio3d: { paletteId: "ocean" },
+    }).paletteId,
+    "ocean",
+  );
+  const malformed = {
+    orientation: "square",
+    paletteId: "rainbow",
+    mood: "bright",
+    reducedMotion: "true",
+    thumbnailVariant: "invalid",
+    thumbnailHeadline: false,
+  };
+  assert.deepEqual(
+    resolveVideoOptions("host-pair", { options: malformed }),
+    defaults,
+  );
+  assert.ok(sameVideoOptions(defaults, { ...defaults }));
+  for (const patch of [
+    { orientation: "portrait" },
+    { paletteId: "sunset" },
+    { mood: "serious" },
+    { reducedMotion: true },
+    { thumbnailVariant: "headline" },
+    { thumbnailHeadline: "Custom headline" },
+  ])
+    assert.equal(sameVideoOptions(defaults, { ...defaults, ...patch }), false);
+});
+
+test("thumbnail options derive and validate copy without exposing the active key", (test) => {
+  const defaults = resolveVideoOptions("host-pair");
+  const derived = videoThumbnailInput(episode, defaults);
+  assert.equal(derived.input.headline, "Fixture script");
+  assert.equal(derived.error, undefined);
+  assert.equal(
+    videoThumbnailInput(episode, {
+      ...defaults,
+      thumbnailHeadline: "A far too long thumbnail headline",
+    }).error,
+    "publish.thumbnail.needsShorterHeadline",
+  );
+  assert.equal(
+    videoThumbnailInput(episode, {
+      ...defaults,
+      thumbnailHeadline: "<b>Fixture</b>",
+    }).error,
+    "publish.thumbnail.invalidHeadline",
+  );
+  const fakeKey = "fixture-current-page-key";
+  set(fakeKey);
+  test.after(clear);
+  const blocked = videoThumbnailInput(episode, {
+    ...defaults,
+    thumbnailHeadline: `Fixture ${fakeKey}`,
+  });
+  assert.equal(blocked.error, "publish.review.thumbnailKey");
+  assert.ok(!JSON.stringify(blocked).includes(fakeKey));
+  clear();
+  assert.equal(
+    videoThumbnailInput(episode, {
+      ...defaults,
+      thumbnailHeadline: `Fixture sk-${"fixture-only".repeat(2)}`,
+    }).error,
+    "publish.review.thumbnailKey",
+  );
+});
+
+test("estimated timelines fit verified WAV duration and use final chapter anchors", async () => {
+  const plan = await planStudioVideo(
     {
       ...episode,
       finished: { chapters: [{ start: 0 }, { start: 2.23 }, { start: 5.46 }] },
     },
     9.46,
+    {
+      ...resolveVideoOptions("host-pair"),
+      orientation: "portrait",
+      paletteId: "ocean",
+      mood: "urgent",
+      reducedMotion: true,
+    },
   );
   assert.equal(plan.estimated, true);
   assert.deepEqual(
@@ -97,8 +203,13 @@ test("estimated timelines fit verified WAV duration and use final chapter anchor
   // lasts exactly as long as the verified audio.
   assert.equal(plan.duration, 9.46);
   assert.equal(plan.chapters[0].timestamp, "0:00");
+  assert.deepEqual(plan.resolution, { width: 1080, height: 1920 });
+  assert.equal(plan.paletteId, "ocean");
+  assert.equal(plan.mood, "urgent");
+  assert.equal(plan.reducedMotion, true);
+  assert.equal(plan.transition, "cut");
 
-  const measured = planStudioVideo(
+  const measured = await planStudioVideo(
     {
       ...episode,
       render: {
@@ -113,6 +224,7 @@ test("estimated timelines fit verified WAV duration and use final chapter anchor
     9.46,
   );
   assert.equal(measured.estimated, false);
+  assert.deepEqual(measured.resolution, { width: 1920, height: 1080 });
   assert.deepEqual(measured.chapters, plan.chapters);
   const sourceRanges = plan.scenes
     .filter(({ kind }) => kind === "turn")
@@ -193,7 +305,7 @@ test("the active page key is rejected in editable review fields", (test) => {
   );
 });
 
-test("approved edits enter the package with episode-language description and UI-language checklist", (test) => {
+test("approved edits enter the package with episode-language description and UI-language checklist", async (test) => {
   setLocale("en");
   test.after(() => setLocale("zh-CN"));
   const artifact = {
@@ -206,11 +318,17 @@ test("approved edits enter the package with episode-language description and UI-
         durationSeconds: 18,
         timeline: { chapters, estimated: true },
         review,
+        options: {
+          ...resolveVideoOptions("headline"),
+          orientation: "portrait",
+          paletteId: "sunset",
+          thumbnailHeadline: "Tajuk ringkas",
+        },
       },
     },
   };
   const png = new Blob(["image"], { type: "image/png" });
-  const result = buildReviewedPublishPackage(episode, artifact, png);
+  const result = await buildReviewedPublishPackage(episode, artifact, png);
   const files = new Map(
     result.files.map((file) => [file.name, file.text ?? file.blob]),
   );
@@ -226,6 +344,22 @@ test("approved edits enter the package with episode-language description and UI-
     files
       .get("description.txt")
       .includes(createTranslator("ms")("publish.description.aiNotice")),
+  );
+  const english = createTranslator("en");
+  assert.ok(
+    files
+      .get("checklist.md")
+      .includes(english("publish.review.portraitOrientation")),
+  );
+  assert.ok(
+    files
+      .get("checklist.md")
+      .includes(english("publish.checklist.portraitCover")),
+  );
+  assert.ok(
+    files
+      .get("checklist.md")
+      .includes(english("publish.thumbnail.variantHeadline")),
   );
   assert.ok(
     files
@@ -246,10 +380,8 @@ test("approved edits enter the package with episode-language description and UI-
     ...review,
     summary: "x".repeat(reviewLimits.summary),
   };
-  const longDescription = buildReviewedPublishPackage(
-    cited,
-    artifact,
-    png,
+  const longDescription = (
+    await buildReviewedPublishPackage(cited, artifact, png)
   ).files.find(({ name }) => name === "description.txt").text;
   const content = createTranslator("ms");
   assert.ok(Buffer.byteLength(longDescription) <= 5000);
@@ -258,8 +390,14 @@ test("approved edits enter the package with episode-language description and UI-
   );
   assert.ok(longDescription.endsWith(content("publish.description.aiNotice")));
 
+  artifact.metadata.studioVideo.options.thumbnailHeadline =
+    "This thumbnail headline is much too long";
+  await assert.rejects(
+    () => buildReviewedPublishPackage(episode, artifact, png),
+    /shorter thumbnail headline/,
+  );
   artifact.metadata.studioVideo.review = { ...review, status: "rejected" };
-  assert.throws(
+  await assert.rejects(
     () => buildReviewedPublishPackage(episode, artifact, png),
     /approval required/,
   );
