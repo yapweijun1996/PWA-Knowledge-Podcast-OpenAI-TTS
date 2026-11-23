@@ -511,30 +511,36 @@ test("visual QA retains true exterior crossings beside codec padding", () => {
   const pixels = new Uint8ClampedArray(width * height * 4).fill(60);
   const draw = (x, y, value) =>
     pixels.fill(value, 4 * (y * width + x), 4 * (y * width + x) + 3);
-  for (let y = 0; y < height; y++) draw(width - 1, y, 30);
+  for (let y = 0; y < height; y++) {
+    draw(width - 2, y, 30);
+    draw(width - 1, y, 30);
+  }
   const padding = { right: true, bottom: false };
   const source = safeExterior(pixels, safe, width, height);
-  assert.equal(source.connectedPixels, height - 4);
+  assert.equal(source.connectedPixels, 2 * (height - 4));
   const decoded = safeExterior(pixels, safe, width, height, padding);
-  assert.equal(decoded.codecRimPixels, height - 4);
+  assert.equal(decoded.codecRimPixels, 2 * (height - 4));
   assert.equal(decoded.connectedPixels, 0);
-  // The same shape is a hard failure when connected to inward detail.
-  draw(width - 2, 12, 30);
+  // The two-column signal cannot mask connected, inward foreground detail.
+  draw(width - 3, 12, 30);
   const withArtwork = safeExterior(pixels, safe, width, height, padding);
   assert.equal(withArtwork.codecRimPixels, 0);
   assert.ok(withArtwork.connectedPixels > 0);
 
   pixels.fill(60);
-  for (let x = 0; x < width; x++) draw(x, height - 1, 30);
+  for (let x = 0; x < width; x++) {
+    draw(x, height - 2, 30);
+    draw(x, height - 1, 30);
+  }
   const bottom = safeExterior(pixels, safe, width, height, {
     right: false,
     bottom: true,
   });
-  assert.equal(bottom.codecRimPixels, width - 4);
+  assert.equal(bottom.codecRimPixels, 2 * (width - 4));
   assert.equal(bottom.connectedPixels, 0);
   assert.equal(
     safeExterior(pixels, safe, width, height, padding).connectedPixels,
-    width - 4,
+    2 * (width - 4),
   );
 });
 

@@ -50,12 +50,14 @@ decoded frame elsewhere. A one-frame decoded flash outside these windows can
 fall between samples. The raw pass keeps full-rate coverage.
 
 The framing check scans the full title-safe exterior in the raw and decoded
-frames. It records a separate codec-rim metric for decoded gradients whose
-entire connected component lies on the last sampled row or column beside coded
-padding. The gradient must run across the edge. A component that extends inward
-or has a perpendicular gradient still counts as a framing violation. This
-classification was checked against both PNGs from the GitHub runner.
-[Paired frame evidence](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45195525332)
+frames. Beside confirmed coded padding, it rechecks gradients that touch the
+final 4:2:0 chroma sample with the same four-pixel stencil shifted inward.
+Components confined to the affected edge contribute to a codec-rim metric.
+Any connection to an inward edge or a perpendicular gradient at that rim
+counts in the framing check. The two GitHub frame pairs showed 44 and 166 such
+decoded edge candidates with zero raw foreground crossings.
+[First frame pair](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45195525332)
+· [Second frame pair](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45201453995)
 
 The Studio 3D preview regression compares source-frame SHA-256 values from two
 actual worker exports. It decodes the resulting MP4s at the same presentation

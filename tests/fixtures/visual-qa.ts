@@ -629,12 +629,31 @@ export function safeExterior(
         24;
       if (!horizontal && !vertical) continue;
       edges.add(pixel);
-      // The last stencil can touch a codec-darkened visible edge beside
-      // coded padding. Only a pure across-edge difference is a candidate.
-      if (
-        (padding?.right && x === width - 3 && horizontal && !vertical) ||
-        (padding?.bottom && y === height - 3 && vertical && !horizontal)
-      )
+      // A 4:2:0 chroma sample spans two pixels. At a padded codec edge,
+      // check the same four-pixel stencil just inside the last chroma sample.
+      // Preserve perpendicular differences and any edge still present inside.
+      const innerX = padding?.right && width >= 7 ? Math.min(x, width - 5) : x;
+      const innerY =
+        padding?.bottom && height >= 7 ? Math.min(y, height - 5) : y;
+      const horizontalCenter = (y * width + innerX) * 4;
+      const verticalCenter = (innerY * width + x) * 4;
+      const horizontalPadding =
+        innerX !== x &&
+        colorDistance(
+          pixels,
+          horizontalCenter - 8,
+          pixels,
+          horizontalCenter + 8,
+        ) <= 24;
+      const verticalPadding =
+        innerY !== y &&
+        colorDistance(
+          pixels,
+          verticalCenter - width * 8,
+          pixels,
+          verticalCenter + width * 8,
+        ) <= 24;
+      if ((!horizontal || horizontalPadding) && (!vertical || verticalPadding))
         codecRim.add(pixel);
     }
   }
@@ -656,8 +675,8 @@ export function safeExterior(
         }
       }
     }
-    // Keep the entire component if it extends inward or shows perpendicular
-    // edges. The source scan never receives coded-padding information.
+    // A component that includes evidence from inside the padding stays in
+    // the framing check. Source frames retain the original stencil everywhere.
     if (component.every((point) => codecRim.has(point))) {
       codecRimPixels += component.length;
       total -= component.length;
