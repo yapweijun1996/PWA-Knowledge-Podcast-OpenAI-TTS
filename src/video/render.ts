@@ -571,8 +571,10 @@ export async function renderVideo({
       output: (chunk, metadata) =>
         output(() => {
           const timestamp = micros(encodedVideoFrames / fps);
+          // VideoToolbox can round a microsecond down during conversion to its
+          // media clock. Mux the original frame clock and still reject reordering.
           if (
-            chunk.timestamp !== timestamp ||
+            Math.abs(chunk.timestamp - timestamp) > 1 ||
             encodedVideoFrames >= totalFrames
           ) {
             throw new Error(t("video.render.unexpectedFrameTimestamp"));

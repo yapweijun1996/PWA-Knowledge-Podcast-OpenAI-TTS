@@ -520,6 +520,62 @@ test("renders portrait locally on the same duration clock as the assembled WAV",
   expect(unexpected).toEqual([]);
 });
 
+test("a rejected video write preserves the last approved export", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  test.setTimeout(120_000);
+  const { panel, render, unexpected } = await openFinishedEpisode(
+    page,
+    context,
+    baseURL!,
+  );
+  await render.click();
+  const preview = panel.locator("video");
+  await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
+  const approve = panel.getByRole("button", {
+    name: english("publish.review.approve"),
+    exact: true,
+  });
+  const download = panel.getByRole("button", {
+    name: english("publish.review.downloadPackage"),
+  });
+  await approve.click();
+  await expect(download).toBeEnabled();
+  const title = panel.getByLabel(english("publish.review.title"));
+  const originalTitle = await title.inputValue();
+  const palette = panel.getByLabel(english("video.panel.theme"));
+  const originalPalette = await palette.inputValue();
+  await palette.selectOption(originalPalette === "sunset" ? "aurora" : "sunset");
+  await expect(download).toBeHidden();
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (this.name === "artifacts" && value?.kind === "video") {
+        const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
+        // Roll back the pending transaction as the browser would on quota failure.
+        queueMicrotask(() => this.transaction.abort());
+        return request;
+      }
+      return key === undefined ? put.call(this, value) : put.call(this, value, key);
+    };
+  });
+
+  await render.click();
+  await expect(
+    panel.getByText(english("video.panel.saveFailed")),
+  ).toBeVisible({ timeout: 45_000 });
+  await expect(download).toBeHidden();
+
+  await page.reload();
+  await expect(preview).toHaveAttribute("src", /^blob:/);
+  await expect(title).toHaveValue(originalTitle);
+  await expect(palette).toHaveValue(originalPalette);
+  await expect(download).toBeEnabled();
+  expect(unexpected).toEqual([]);
+});
+
 test("cancelling a real render after frames are submitted leaves no saved video", async ({
   page,
   context,

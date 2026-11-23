@@ -139,6 +139,7 @@ function fakeDependencies({
   queued = false,
   bufferVideo = false,
   oversizedChunk = false,
+  timestampDrift = 0,
 } = {}) {
   const trace = {
     videoChecks: [],
@@ -261,7 +262,13 @@ function fakeDependencies({
           : { codec, colorSpace: { fullRange: false } };
         const length = oversizedChunk ? 129 * 1024 * 1024 : undefined;
         this.init.output(
-          chunk(timestamp, duration, 0x76, keyFrame ? "key" : "delta", length),
+          chunk(
+            timestamp + (timestamp === 0 ? 0 : timestampDrift),
+            duration,
+            0x76,
+            keyFrame ? "key" : "delta",
+            length,
+          ),
           { decoderConfig },
         );
       }, bufferVideo);
@@ -574,6 +581,21 @@ test("storyboard chapter visuals use their own camera clock and the episode PCM 
   assert.ok(frames.every(({ audioStart, paletteId, mood }) =>
     audioStart === 1 && paletteId === "ocean" && mood === "curious"
   ));
+});
+
+test("muxes the original frame clock despite encoder rounding of one microsecond", async () => {
+  const rounded = fakeDependencies({ timestampDrift: -1 });
+  const result = await renderVideo({
+    audio, plan, theme: "dark", deps: rounded.deps,
+  });
+  assert.equal(result.durationSeconds, plan.duration);
+  assert.ok(result.blob.size > 0);
+
+  const outOfOrder = fakeDependencies({ timestampDrift: -250_000 });
+  await assert.rejects(renderVideo({
+    audio, plan, theme: "dark", deps: outOfOrder.deps,
+  }));
+  assert.deepEqual(outOfOrder.trace.closed, ["video", "audio"]);
 });
 
 test("composites a chapter's WebGL scene before its text and reports actual scene IDs", async () => {
