@@ -3,12 +3,29 @@ import {
   useState,
   type ComponentPropsWithoutRef,
 } from "react";
+import { t } from "../i18n";
 
 export const factoryPages = {
-  library: { label: "资料库", title: "播客资料库" },
-  studio: { label: "制作台", title: "播客制作台" },
-  automation: { label: "自动化", title: "自动化" },
-  settings: { label: "设置", title: "设置" },
+  library: {
+    get title() {
+      return t("library.page.library");
+    },
+  },
+  studio: {
+    get title() {
+      return t("library.page.studio");
+    },
+  },
+  automation: {
+    get title() {
+      return t("shell.nav.automation");
+    },
+  },
+  settings: {
+    get title() {
+      return t("shell.nav.settings");
+    },
+  },
 };
 
 export type FactoryPage = keyof typeof factoryPages;

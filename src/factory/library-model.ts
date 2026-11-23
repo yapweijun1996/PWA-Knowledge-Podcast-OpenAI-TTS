@@ -1,25 +1,30 @@
 import { validateAudio } from "../../shared/audio-record.ts";
-import {
-  languages,
-  type Episode,
-  type EpisodeSummary,
-  type Language,
+import type {
+  Episode,
+  EpisodeSummary,
+  Language,
 } from "../../shared/factory.ts";
+import {
+  createTranslator,
+  defaultLocale,
+  t,
+  type MessageKey,
+} from "../i18n/index.ts";
 
 export const episodeStatuses = {
-  ready: "可离线播放",
-  review: "待试听核对",
-  stale: "上一版音频",
-  missing: "音频不可用",
-  running: "制作中",
-  checkpoint: "上次制作进度",
-  interrupted: "已中断",
-  failed: "制作失败",
-  cancelled: "已取消",
-  script: "脚本已保存",
-  draft: "研究草稿",
-  checking: "正在检查音频",
-} as const;
+  ready: "library.status.ready",
+  review: "library.status.review",
+  stale: "library.status.stale",
+  missing: "library.status.missing",
+  running: "library.status.running",
+  checkpoint: "library.status.checkpoint",
+  interrupted: "library.status.interrupted",
+  failed: "library.status.failed",
+  cancelled: "library.status.cancelled",
+  script: "library.status.script",
+  draft: "library.status.draft",
+  checking: "library.status.checking",
+} as const satisfies Record<string, MessageKey>;
 
 export type EpisodeStatus = keyof typeof episodeStatuses;
 export type AudioCheck = { blob: Blob; duration: number } | null | undefined;
@@ -28,13 +33,39 @@ type AudioStatus = Extract<
   "ready" | "review" | "stale" | "missing" | "checking"
 >;
 
+export const stageNameKeys = {
+  research: "library.stage.research",
+  outline: "library.stage.outline",
+  script: "library.stage.script",
+  audio: "library.stage.audio",
+  transcript: "library.stage.transcript",
+} as const satisfies Record<NonNullable<Episode["job"]>["stage"], MessageKey>;
+
+// Keep the string-valued interface for existing Episode view callers.
 export const stageNames = {
-  research: "网页研究",
-  outline: "节目大纲",
-  script: "节目脚本",
-  audio: "节目配音",
-  transcript: "音频转录",
-} as const;
+  get research() {
+    return t(stageNameKeys.research);
+  },
+  get outline() {
+    return t(stageNameKeys.outline);
+  },
+  get script() {
+    return t(stageNameKeys.script);
+  },
+  get audio() {
+    return t(stageNameKeys.audio);
+  },
+  get transcript() {
+    return t(stageNameKeys.transcript);
+  },
+};
+
+export const languageNameKeys = {
+  en: "library.language.english",
+  zh: "library.language.mandarin",
+  ms: "library.language.malay",
+  sg: "library.language.singaporeMixed",
+} as const satisfies Record<Language, MessageKey>;
 
 export const audioClock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
@@ -115,12 +146,13 @@ export const defaultLibraryControls: LibraryControls = {
   sort: "newest",
 };
 
-const languageSearch: Record<Language, string> = {
-  en: "英语 英文",
-  zh: "中文 普通话 汉语 Chinese",
-  ms: "马来语 馬來語 Malay",
-  sg: "新加坡混合語 Singapore mixed",
-};
+const languageSearch = {
+  en: "library.search.english",
+  zh: "library.search.mandarin",
+  ms: "library.search.malay",
+  sg: "library.search.singaporeMixed",
+} as const satisfies Record<Language, MessageKey>;
+const sourceT = createTranslator(defaultLocale);
 const normalize = (value: string) => value.normalize("NFKC").toLowerCase();
 const titles = new Intl.Collator(undefined, {
   sensitivity: "base",
@@ -134,6 +166,7 @@ export function episodeTitle(episode: Episode) {
 export function visibleEpisodes(
   entries: LibraryEntry[],
   controls: LibraryControls,
+  translate: typeof t = t,
 ) {
   const terms = normalize(controls.query).trim().split(/\s+/u).filter(Boolean);
   return entries
@@ -152,8 +185,10 @@ export function visibleEpisodes(
         episodeTitle(episode),
         episode.topic,
         language,
-        languages[language],
-        languageSearch[language],
+        sourceT(languageNameKeys[language]),
+        sourceT(languageSearch[language]),
+        translate(languageNameKeys[language]),
+        translate(languageSearch[language]),
       ].map(normalize);
       return terms.every((term) =>
         fields.some((field) => field.includes(term)),

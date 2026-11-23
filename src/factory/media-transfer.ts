@@ -1,4 +1,6 @@
 import { validateAudio } from "../../shared/audio-record.ts";
+import { t } from "../i18n/index.ts";
+import { LibraryError } from "./api.ts";
 
 export async function downloadCheckpointAudio(
   url: string,
@@ -9,7 +11,7 @@ export async function downloadCheckpointAudio(
   const controller = new AbortController();
   const timeout = () =>
     controller.abort(
-      new DOMException("音频传输停滞，请重新同步。", "TimeoutError"),
+      new DOMException(t("library.transfer.stalled"), "TimeoutError"),
     );
   let timer = setTimeout(timeout, idleMs);
   try {
@@ -17,7 +19,7 @@ export async function downloadCheckpointAudio(
       cache: "no-store",
       signal: AbortSignal.any([signal, controller.signal]),
     });
-    if (!response.ok) throw new Error("音频检查点已变化或无法下载。");
+    if (!response.ok) throw new LibraryError("library.transfer.unavailable");
     const size = Number(response.headers.get("Content-Length"));
     const limit = type === "audio/wav" ? 24_000_044 : 8_000_000;
     if (
@@ -27,7 +29,7 @@ export async function downloadCheckpointAudio(
       response.headers.get("Content-Type") !== type ||
       !response.body
     )
-      throw new Error("本机进程返回的音频格式或大小无效。");
+      throw new LibraryError("library.transfer.invalid");
     const reader = response.body.getReader();
     const chunks: BlobPart[] = [];
     let received = 0;
@@ -36,12 +38,12 @@ export async function downloadCheckpointAudio(
       if (done) break;
       if (!value.byteLength) continue;
       received += value.byteLength;
-      if (received > size) throw new Error("音频超过预期大小。");
+      if (received > size) throw new LibraryError("library.transfer.oversized");
       chunks.push(value);
       clearTimeout(timer);
       timer = setTimeout(timeout, idleMs);
     }
-    if (received !== size) throw new Error("音频接收不完整。");
+    if (received !== size) throw new LibraryError("library.transfer.incomplete");
     const blob = new Blob(chunks, { type });
     await validateAudio(blob, type);
     return blob;

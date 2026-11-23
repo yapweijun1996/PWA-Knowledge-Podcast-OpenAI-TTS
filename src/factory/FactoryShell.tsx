@@ -1,10 +1,5 @@
 import { Children, type ReactNode } from "react";
-import {
-  createTranslator,
-  defaultLocale,
-  useI18n,
-  type MessageKey,
-} from "../i18n";
+import { useI18n, type MessageKey } from "../i18n";
 import {
   factoryPages,
   WorkspaceLink,
@@ -22,18 +17,10 @@ const navigationKeys = {
   settings: "shell.nav.settings",
 } as const satisfies Record<FactoryPage, MessageKey>;
 
-// Factory still passes source-locale status text. Replace this lookup when it
-// can pass a connection state directly.
-const sourceT = createTranslator(defaultLocale);
-const connectionKeys = new Map(
-  (
-    [
-      "shell.status.offline",
-      "shell.status.workerOnline",
-      "shell.status.browserLocal",
-    ] as const
-  ).map((key) => [sourceT(key), key]),
-);
+type ConnectionKey =
+  | "shell.status.offline"
+  | "shell.status.workerOnline"
+  | "shell.status.browserLocal";
 
 export function FactoryShell({
   page,
@@ -46,12 +33,11 @@ export function FactoryShell({
   page: FactoryPage;
   visible: boolean;
   navigation: WorkspaceNavigation;
-  connection: string;
+  connection: ConnectionKey;
   player: ReactNode;
   children: ReactNode;
 }) {
   const { t } = useI18n();
-  const connectionKey = connectionKeys.get(connection);
 
   return (
     <div className="factory-shell" hidden={!visible}>
@@ -70,7 +56,7 @@ export function FactoryShell({
           </WorkspaceLink>
           <div className="factory-bar-actions">
             <span className="factory-status" role="status">
-              {connectionKey ? t(connectionKey) : connection}
+              {t(connection)}
             </span>
           </div>
         </header>

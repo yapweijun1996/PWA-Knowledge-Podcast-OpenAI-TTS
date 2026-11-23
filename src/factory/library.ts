@@ -1,21 +1,28 @@
 import { openDB, type DBSchema } from "idb";
+import { createTranslator, defaultLocale } from "../i18n/index.ts";
 import {
   blobStorageFailed,
   encodeStoredAudio,
   readStoredAudio,
   type StoredAudio,
-} from "../stored-audio";
+} from "../stored-audio.ts";
 import {
   defaultPreferences,
   type Edit,
   type Episode,
   type EpisodeSummary,
   type Preferences,
-} from "../../shared/factory";
-import { downloadCheckpointAudio } from "./media-transfer";
-import { editEpisode } from "../../shared/edit";
-import { episodeAssets, readEpisode } from "../../shared/episode-record";
-import { media, studio, StudioError } from "./api";
+} from "../../shared/factory.ts";
+import { downloadCheckpointAudio } from "./media-transfer.ts";
+import { editEpisode } from "../../shared/edit.ts";
+import { episodeAssets, readEpisode } from "../../shared/episode-record.ts";
+import { LibraryError, media, studio, StudioError } from "./api.ts";
+
+export const missingWorkerMessageKey = "library.sync.workerMissing";
+// Keep the checkpoint format stable across locales and older backups.
+export const missingWorkerMessage = createTranslator(defaultLocale)(
+  missingWorkerMessageKey,
+);
 
 export type Record = {
   episode: Episode;
@@ -146,11 +153,11 @@ async function commit(
 
 export async function localEdit(row: Record, revision: number, edit: Edit) {
   if (row.episode.syncToken && row.episode.job?.status === "running")
-    throw new Error("制作进行中，请先取消。");
+    throw new LibraryError("library.edit.productionRunning");
   const episode = editEpisode(row.episode, revision, edit);
   episode.updated = new Date().toISOString();
   if (!(await commit(episode.id, row.stamp, { ...row, episode, edited: true })))
-    throw new Error("这期节目已在另一标签页更新，请重新打开后再试。");
+    throw new LibraryError("library.edit.concurrentUpdate");
 }
 
 export async function localDelete(row: Record, remotePossible: boolean) {
@@ -163,7 +170,7 @@ export async function localDelete(row: Record, remotePossible: boolean) {
       remotePossible ? tombstone : null,
     ))
   )
-    throw new Error("节目已变化，请重新打开后再试。");
+    throw new LibraryError("library.delete.concurrentUpdate");
 }
 
 export async function addImported(episode: Episode, assets: Record["assets"]) {
@@ -237,8 +244,7 @@ export async function syncLibrary(
             record.episode.job = {
               stage: row.episode.job.stage,
               status: "interrupted",
-              message:
-                "制作进程已无此任务，已保留本地进度。可编辑或手动继续制作。",
+              message: missingWorkerMessage,
             };
             await commit(id, row.stamp, record);
           } else issue ??= error;

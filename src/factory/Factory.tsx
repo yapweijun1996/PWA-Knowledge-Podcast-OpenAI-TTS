@@ -17,8 +17,12 @@ import {
 } from "../../shared/factory";
 import { readPreferences } from "../../shared/preferences";
 import { download } from "../audio";
-import { StudioError, studio } from "./api";
-import { estimateBrowserProduction } from "./browser-production";
+import { useI18n, type MessageKey } from "../i18n";
+import { LibraryError, localizePublicError, StudioError, studio } from "./api";
+import {
+  BrowserProductionError,
+  estimateBrowserProduction,
+} from "./browser-production";
 import { EpisodeWorkspace, type Kind } from "./Episode";
 import { FactoryShell } from "./FactoryShell";
 import { LibraryWorkspace } from "./LibraryWorkspace";
@@ -29,13 +33,15 @@ import {
   loadPrefs,
   localDelete,
   localEdit,
+  missingWorkerMessage,
+  missingWorkerMessageKey,
   receive,
   savePrefs,
   subscribe,
   syncLibrary,
   type Record as LibraryRecord,
 } from "./library";
-import { stageNames } from "./library-model";
+import { stageNameKeys } from "./library-model";
 import type { FactoryPage, WorkspaceNavigation } from "./navigation";
 import { readIntakeDraft, writeIntakeDraft, type IntakeDraft } from "./intake-draft";
 import { PlaybackBar } from "./PlaybackBar";
@@ -75,10 +81,13 @@ type Props = {
   pausePlayback: RefObject<(() => void) | null>;
 };
 
-function errorText(reason: unknown) {
+function errorText(reason: unknown, { locale, t }: ReturnType<typeof useI18n>) {
+  if (reason instanceof StudioError) return reason.localized(t, locale);
+  if (reason instanceof LibraryError) return t(reason.key);
+  if (reason instanceof BrowserProductionError) return reason.message;
   if (reason instanceof DOMException) {
     if (reason.name === "QuotaExceededError")
-      return "浏览器存储空间不足。请备份并释放空间；本机进程仍保留未接收的文件。";
+      return t("library.error.storageQuota");
     if (
       [
         "AbortError",
@@ -87,10 +96,16 @@ function errorText(reason: unknown) {
         "InvalidStateError",
       ].includes(reason.name)
     )
-      return "读取或保存中断。请检查浏览器存储和本机进程后重试。";
+      return t("library.error.storageInterrupted");
   }
-  return reason instanceof Error ? reason.message : "操作未完成，请重试。";
+  return (
+    (reason instanceof Error
+      ? localizePublicError(reason.message, t)
+      : undefined) ?? t("library.error.unfinished")
+  );
 }
+
+type Failure = { reason: unknown };
 
 export function Factory({
   page,
@@ -107,6 +122,8 @@ export function Factory({
   onUpdateBlockedChange,
   pausePlayback,
 }: Props) {
+  const i18n = useI18n();
+  const { t, formatters } = i18n;
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [reachable, setReachable] = useState(false);
   const [remote, setRemote] = useState<EpisodeSummary[]>([]);
@@ -118,9 +135,9 @@ export function Factory({
     new URL(location.href).searchParams.get("episode"),
   );
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [syncIssue, setSyncIssue] = useState("");
+  const [message, setMessage] = useState<MessageKey>();
+  const [failure, setFailure] = useState<Failure>();
+  const [syncFailure, setSyncFailure] = useState<Failure>();
   const [intake, setIntake] = useState(readIntakeDraft);
   const { topic, exactHosts } = intake;
   const [consentFor, setConsentFor] = useState<StudioMode | null>(null);
@@ -128,7 +145,10 @@ export function Factory({
   const [dirty, setDirty] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
-  const [usage, setUsage] = useState("");
+  const [storageStatus, setStorageStatus] = useState<{
+    estimate?: StorageEstimate;
+    persisted?: boolean;
+  }>();
   const [detailFocus, setDetailFocus] = useState<{
     target: "episode-title" | "audio-title";
   }>();
@@ -184,10 +204,40 @@ export function Factory({
     blocked: busy || dirty,
   });
   const episode = row?.episode;
+  const job = episode?.job;
+  const isBrowserCheckpoint = resumable && job?.status === "running";
+  const isMissingWorkerJob = job?.message === missingWorkerMessage;
   const displayedEpisode =
-    resumable && episode?.job?.status === "running"
-      ? { ...episode, job: { ...episode.job, status: "interrupted" as const } }
+    episode && job && (isBrowserCheckpoint || isMissingWorkerJob)
+      ? {
+          ...episode,
+          job: {
+            ...job,
+            status: isBrowserCheckpoint ? ("interrupted" as const) : job.status,
+            message: isMissingWorkerJob ? t(missingWorkerMessageKey) : job.message,
+          },
+        }
       : episode;
+  const error = failure ? errorText(failure.reason, i18n) : "";
+  const syncIssue = syncFailure ? errorText(syncFailure.reason, i18n) : "";
+  const estimate = storageStatus?.estimate;
+  const megabytes = (bytes: number) =>
+    formatters.number(Math.round(bytes / 1_048_576), { useGrouping: false });
+  const usage = storageStatus
+    ? t("library.storage.usage", {
+        space: estimate?.quota
+          ? t("library.storage.estimate", {
+              used: megabytes(estimate.usage ?? 0),
+              quota: megabytes(estimate.quota),
+            })
+          : t("library.storage.noEstimate"),
+        persistence: t(
+          storageStatus.persisted
+            ? "library.storage.granted"
+            : "library.storage.temporary",
+        ),
+      })
+    : "";
 
   useEffect(() => {
     if (page !== "studio") setConsentFor(null);
@@ -239,7 +289,7 @@ export function Factory({
       const url = new URL(location.href);
       const id = url.searchParams.get("episode");
       if (id === selected) return;
-      if (dirty && !window.confirm("放弃尚未保存的脚本修改？")) {
+      if (dirty && !window.confirm(t("library.selection.discardChanges"))) {
         if (selected) url.searchParams.set("episode", selected);
         else url.searchParams.delete("episode");
         history.replaceState(history.state, "", url);
@@ -252,22 +302,13 @@ export function Factory({
     }
     window.addEventListener("popstate", restoreSelection);
     return () => window.removeEventListener("popstate", restoreSelection);
-  }, [dirty, selected]);
+  }, [dirty, selected, t]);
 
   const refreshStorage = useCallback(async () => {
     const storage = navigator.storage;
     const estimate = await storage?.estimate?.().catch(() => undefined);
     const persisted = await storage?.persisted?.().catch(() => false);
-    const mb = (bytes: number) => Math.round(bytes / 1_048_576);
-    const space = estimate?.quota
-      ? `本来源约用 ${mb(estimate.usage ?? 0)} / ${mb(estimate.quota)} MB。`
-      : "浏览器未提供可用空间估算。";
-    setUsage(
-      space +
-        (persisted
-          ? " 浏览器已授予持久存储。"
-          : " 临时存储可能因空间不足被清理。"),
-    );
+    setStorageStatus({ estimate, persisted });
   }, []);
   const refresh = useCallback(async () => {
     const loaded = await listRecords();
@@ -289,7 +330,7 @@ export function Factory({
     function pull() {
       void refresh().catch((reason) => {
         setLibraryState((state) => (state === "ready" ? state : "unavailable"));
-        setError(errorText(reason));
+        setFailure({ reason });
       });
     }
     pull();
@@ -298,7 +339,7 @@ export function Factory({
         setPreferences(loaded);
         setConsentFor(null);
       })
-      .catch((reason) => setError(errorText(reason)));
+      .catch((reason) => setFailure({ reason }));
     return subscribe(pull);
   }, [refresh]);
 
@@ -346,11 +387,11 @@ export function Factory({
             ? 1400
             : 5000;
         await syncLibrary(episodes, signal, !!runtime.localProduction);
-        if (!controller.signal.aborted) setSyncIssue("");
+        if (!controller.signal.aborted) setSyncFailure(undefined);
       } catch (reason) {
         if (!controller.signal.aborted) {
           if (!detected) setReachable(false);
-          setSyncIssue(detected ? errorText(reason) : "");
+          setSyncFailure(detected ? { reason } : undefined);
         }
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(poll, next);
@@ -364,7 +405,11 @@ export function Factory({
   }, [online, pending]);
 
   function select(id: string | null, startNew = false) {
-    if (selected !== id && dirty && !window.confirm("放弃尚未保存的脚本修改？"))
+    if (
+      selected !== id &&
+      dirty &&
+      !window.confirm(t("library.selection.discardChanges"))
+    )
       return false;
     if (startNew) navigation.go("studio");
     if (selected === id) return true;
@@ -382,14 +427,14 @@ export function Factory({
     if (inFlight.current || updating) return false;
     inFlight.current = true;
     setPending(true);
-    setError("");
-    setMessage("");
+    setFailure(undefined);
+    setMessage(undefined);
     try {
       await work();
       await refresh();
       return true;
     } catch (reason) {
-      setError(errorText(reason));
+      setFailure({ reason });
       return false;
     } finally {
       inFlight.current = false;
@@ -414,7 +459,7 @@ export function Factory({
         setConsentFor(null);
         await browser.run({ id, topic, production: bounds, consent });
         changeIntake({ topic: "", exactHosts });
-        setMessage("浏览器制作完成，节目已保存到资料库。");
+        setMessage("library.production.complete");
       });
       return;
     }
@@ -439,7 +484,7 @@ export function Factory({
     if (!canResumeInBrowser) return;
     void perform(async () => {
       await browser.run({ id, consent: true, retryUnknown: true });
-      setMessage("浏览器制作完成，节目已保存到资料库。");
+      setMessage("library.production.complete");
     });
   }
 
@@ -450,7 +495,9 @@ export function Factory({
       const path = episodePath(episode.id);
       if (row.edited || !workerRow) {
         if (kind === "transcript" && workerRow)
-          throw new Error("制作检查点已变化，请同步后再转录。");
+          throw new LibraryError(
+            "library.production.transcriptionCheckpointChanged",
+          );
         const updated =
           kind === "transcript"
             ? await studio<Episode>(
@@ -488,15 +535,18 @@ export function Factory({
     return perform(async () => {
       if (!row) return;
       await localEdit(row, revision, draft);
-      setMessage("脚本已保存到此浏览器。");
+      setMessage("library.edit.saved");
     });
   }
 
   function backup() {
     if (!row) return;
     void perform(async () => {
-      download(await backupRecord(row), `podcast-${row.episode.id}.kps`);
-      setMessage("已准备节目备份，包含研究、脚本和已保存的音频。");
+      download(
+        await backupRecord(row),
+        t("library.backup.filename", { id: row.episode.id }),
+      );
+      setMessage("library.backup.prepared");
     });
   }
 
@@ -506,7 +556,11 @@ export function Factory({
       visible={visible}
       navigation={navigation}
       connection={
-        !online ? "离线" : connected ? "制作进程在线" : "浏览器本地模式"
+        !online
+          ? "shell.status.offline"
+          : connected
+            ? "shell.status.workerOnline"
+            : "shell.status.browserLocal"
       }
       player={
         <>
@@ -514,7 +568,7 @@ export function Factory({
             ref={audioRef}
             hidden
             preload="metadata"
-            aria-label="成品音频播放器"
+            aria-label={t("library.player.label")}
           />
           <PlaybackBar
             engine={engine}
@@ -526,25 +580,26 @@ export function Factory({
     >
       {updateReady && (
         <div className="notice update">
-          <span>{updateError || "新版已就绪。"}</span>
+          <span>{updateError || t("library.update.ready")}</span>
           <button disabled={busy || dirty || updateBlocked} onClick={onUpdate}>
-            立即更新
+            {t("library.update.now")}
           </button>
         </div>
       )}
-      {error && (!workspaceVisible || error !== episode?.job?.message) && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error &&
+        (!workspaceVisible || error !== displayedEpisode?.job?.message) && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       {syncIssue && (
         <p className="error" role="alert">
-          节目同步未完成。{syncIssue}
+          {t("library.sync.failed", { detail: syncIssue })}
         </p>
       )}
       {message && (
         <p className="notice" role="status">
-          {message}
+          {t(message)}
         </p>
       )}
       {browser.activeId && (
@@ -552,13 +607,24 @@ export function Factory({
           className="factory-panel factory-production-progress"
           aria-labelledby="browser-progress-title"
         >
-          <h2 id="browser-progress-title">浏览器制作进度</h2>
+          <h2 id="browser-progress-title">{t("library.production.progressTitle")}</h2>
           <p role="status">
             {browser.cancelling
-              ? "正在取消浏览器制作…"
+              ? t("library.production.cancelling")
               : browser.progress
-                ? `${browser.progress.stage === "transcript" ? "音频转录与核对" : stageNames[browser.progress.stage]}（${browser.progress.index} / ${browser.progress.total}）`
-                : "正在读取本地制作进度…"}
+                ? formatters.plural(
+                    "library.production.stageProgress",
+                    browser.progress.total,
+                    {
+                      stage: t(
+                        browser.progress.stage === "transcript"
+                          ? "library.production.transcriptionAndReview"
+                          : stageNameKeys[browser.progress.stage],
+                      ),
+                      index: browser.progress.index,
+                    },
+                  )
+                : t("library.production.loadingProgress")}
           </p>
           {browser.estimate && <BrowserCost estimate={browser.estimate} />}
           <button
@@ -567,13 +633,13 @@ export function Factory({
             disabled={browser.cancelling}
             onClick={browser.cancel}
           >
-            取消浏览器制作
+            {t("library.production.cancel")}
           </button>
         </section>
       )}
       {connected && runtime && !runtime.authenticated && (
         <section className="factory-panel factory-login">
-          <h2>登录制作进程</h2>
+          <h2>{t("library.login.title")}</h2>
           <form
             className="factory-actions"
             onSubmit={(event) => {
@@ -589,7 +655,7 @@ export function Factory({
             }}
           >
             <label className="field">
-              工作空间口令
+              {t("library.login.token")}
               <input
                 ref={token}
                 required
@@ -599,25 +665,25 @@ export function Factory({
               />
             </label>
             <button className="primary" disabled={busy}>
-              登录
+              {t("library.login.submit")}
             </button>
           </form>
         </section>
       )}
       <div hidden={page !== "settings"} className="factory-page-stack">
         <section className="factory-panel">
-          <h2>应用外观</h2>
+          <h2>{t("settings.appearance.title")}</h2>
           <label className="field">
-            外观
+            {t("settings.appearance.theme")}
             <select
               value={theme}
               onChange={(event) =>
                 setTheme(event.target.value as Props["theme"])
               }
             >
-              <option value="system">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
+              <option value="system">{t("settings.appearance.system")}</option>
+              <option value="light">{t("settings.appearance.light")}</option>
+              <option value="dark">{t("settings.appearance.dark")}</option>
             </select>
           </label>
         </section>
@@ -648,7 +714,7 @@ export function Factory({
                 })
               }
             >
-              退出制作进程
+              {t("library.login.signOut")}
             </button>
           </div>
         )}
@@ -673,15 +739,11 @@ export function Factory({
                   consent: approved,
                 }),
               );
-              setMessage("偏好和本机排程已保存。");
+              setMessage("library.automation.saved");
             })
           }
           onDiscover={() => {
-            if (
-              confirm(
-                "立即进行一次付费选题检查？选中后会自动研究、配音并转录。",
-              )
-            )
+            if (confirm(t("library.automation.confirmDiscovery")))
               void perform(async () =>
                 setSchedule(
                   await studio<Schedule>("/discover", "POST", {
@@ -720,7 +782,7 @@ export function Factory({
               (item) => !records.some(({ episode }) => episode.id === item.id),
             ) && (
               <small className="muted">
-                正在接收本机进程的节目。请保持资料库打开。
+                {t("library.sync.receiving")}
               </small>
             )}
           <div className="factory-actions">
@@ -729,14 +791,14 @@ export function Factory({
               disabled={busy}
               onClick={() => importInput.current?.click()}
             >
-              恢复节目备份
+              {t("library.backup.restore")}
             </button>
             <input
               hidden
               type="file"
               accept=".kps,application/octet-stream"
               ref={importInput}
-              aria-label="节目备份文件"
+              aria-label={t("library.backup.fileLabel")}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -744,7 +806,7 @@ export function Factory({
                   void perform(async () => {
                     const { episode, assets } = await restoreRecord(file);
                     select(await addImported(episode, assets));
-                    setMessage("备份已恢复为本地副本。");
+                    setMessage("library.backup.restored");
                   });
               }}
             />
@@ -756,17 +818,17 @@ export function Factory({
                   const granted = await navigator.storage.persist();
                   setMessage(
                     granted
-                      ? "浏览器已授予持久存储。"
-                      : "浏览器未授予持久存储，请保留节目备份。",
+                      ? "library.storage.granted"
+                      : "library.storage.denied",
                   );
                 })
               }
             >
-              请求持久存储
+              {t("library.storage.request")}
             </button>
           </div>
           <small className="muted">
-            {usage} 节目按浏览器配置和网址隔离。跨设备可通过备份文件转移。
+            {t("library.storage.info", { usage })}
           </small>
         </LibraryWorkspace>
         <div
@@ -785,7 +847,7 @@ export function Factory({
                 )?.focus()
               }
             >
-              返回节目列表
+              {t("library.selection.backToList")}
             </button>
           )}
           {page === "studio" && selected && (
@@ -794,7 +856,7 @@ export function Factory({
               disabled={busy}
               onClick={() => select(null)}
             >
-              ＋ 新建
+              {t("library.selection.create")}
             </button>
           )}
           {workspaceVisible && row && resumable && !browserSelected && (
@@ -849,14 +911,14 @@ export function Factory({
             />
           ) : selected ? (
             <section className="factory-panel">
-              <h2>接收节目</h2>
+              <h2>{t("library.selection.receiving")}</h2>
               <p role="status" className="muted">
                 {libraryState === "loading"
-                  ? "正在读取这一期的本地记录…"
+                  ? t("library.selection.loading")
                   : (connected && workerRow) ||
                       awaitingCreated.current === selected
-                    ? "等待本机进程同步节目。"
-                    : "尚未在此浏览器找到这一期。可恢复备份，或等待本机同步。"}
+                    ? t("library.selection.waiting")
+                    : t("library.selection.notFound")}
               </p>
             </section>
           ) : (
@@ -887,8 +949,7 @@ export function Factory({
         </div>
       </div>
       <footer>
-        离线可播放、编辑、导出及恢复已保存的节目。联网制作会向 OpenAI
-        提交主题、脚本和音频。
+        {t("library.workspace.footer")}
       </footer>
     </FactoryShell>
   );

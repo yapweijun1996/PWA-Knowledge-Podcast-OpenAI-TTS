@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { EpisodeSummary } from "../../shared/factory";
+import { useI18n } from "../i18n";
 import { EpisodeCard } from "./EpisodeCard";
 import { LibraryEmptyState } from "./LibraryEmptyState";
 import { LibraryToolbar } from "./LibraryToolbar";
@@ -35,6 +36,7 @@ export function LibraryWorkspace({
   onOpen: (id: string, target: "episode-title" | "audio-title") => void;
   children: ReactNode;
 }) {
+  const { locale, t, formatters } = useI18n();
   const [controls, setControls] = useState(defaultLibraryControls);
   const entries = useMemo(() => {
     const workers = new Map(
@@ -51,9 +53,11 @@ export function LibraryWorkspace({
     });
   }, [records, liveEpisodes, getAudio]);
   const results = useMemo(
-    () => visibleEpisodes(entries, controls),
-    [entries, controls],
+    () => visibleEpisodes(entries, controls, t),
+    [entries, controls, t],
   );
+  const displayCount = (count: number) =>
+    formatters.number(count, { useGrouping: locale !== "zh-CN" });
   const resettable =
     controls.query !== "" ||
     !!controls.status ||
@@ -68,14 +72,14 @@ export function LibraryWorkspace({
   return (
     <aside
       className="library-workspace"
-      aria-label="浏览器节目"
+      aria-label={t("library.workspace.label")}
       hidden={hidden}
     >
       {loadState !== "ready" && (
         <p className="library-result-count" role="status">
           {loadState === "loading"
-            ? "正在读取本地节目…"
-            : "暂时无法读取本地节目。"}
+            ? t("library.workspace.loading")
+            : t("library.workspace.unavailable")}
         </p>
       )}
       {loadState === "ready" &&
@@ -94,11 +98,24 @@ export function LibraryWorkspace({
               aria-atomic="true"
             >
               {results.length === records.length
-                ? `${records.length} 期节目`
-                : `${results.length} 期符合条件，共 ${records.length} 期节目`}
+                ? formatters.plural("library.workspace.count", records.length, {
+                    total: displayCount(records.length),
+                  })
+                : formatters.plural(
+                    "library.workspace.filteredCount",
+                    records.length,
+                    {
+                      matched: displayCount(results.length),
+                      total: displayCount(records.length),
+                    },
+                  )}
             </p>
             {results.length ? (
-              <ul className="library-grid" role="list" aria-label="节目列表">
+              <ul
+                className="library-grid"
+                role="list"
+                aria-label={t("library.workspace.list")}
+              >
                 {results.map((entry) => (
                   <li key={entry.episode.id}>
                     <EpisodeCard

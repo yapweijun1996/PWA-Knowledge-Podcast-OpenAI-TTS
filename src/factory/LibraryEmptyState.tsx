@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n";
+
 export function LibraryEmptyState({
   filtered,
   busy,
@@ -7,16 +9,19 @@ export function LibraryEmptyState({
   busy: boolean;
   onAction: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="library-empty">
       <span className="library-empty-mark" aria-hidden="true">
         ▥
       </span>
-      <h2>{filtered ? "找不到符合条件的节目" : "此浏览器尚无节目。"}</h2>
+      <h2>
+        {t(filtered ? "library.empty.noMatches" : "library.empty.noEpisodes")}
+      </h2>
       <p>
-        {filtered
-          ? "试试其他标题、主题或语言，或清除筛选条件。"
-          : "从一个主题开始制作，或恢复已有的节目备份。"}
+        {t(
+          filtered ? "library.empty.changeFilters" : "library.empty.getStarted",
+        )}
       </p>
       <button
         type="button"
@@ -24,7 +29,7 @@ export function LibraryEmptyState({
         disabled={!filtered && busy}
         onClick={onAction}
       >
-        {filtered ? "重置搜索与筛选" : "新建节目"}
+        {t(filtered ? "library.toolbar.reset" : "library.toolbar.create")}
       </button>
     </div>
   );

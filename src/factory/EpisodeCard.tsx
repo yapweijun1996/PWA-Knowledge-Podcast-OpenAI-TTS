@@ -1,13 +1,12 @@
-import { languages } from "../../shared/factory";
+import { useI18n } from "../i18n";
 import {
   audioClock,
   episodeStatuses,
   episodeTitle,
-  stageNames,
+  languageNameKeys,
+  stageNameKeys,
   type LibraryEntry,
 } from "./library-model";
-
-const dates = new Intl.DateTimeFormat("zh", { dateStyle: "medium" });
 
 export function EpisodeCard({
   entry,
@@ -20,9 +19,11 @@ export function EpisodeCard({
   busy: boolean;
   onOpen: (id: string, target: "episode-title" | "audio-title") => void;
 }) {
+  const { t, formatters } = useI18n();
   const { episode, status, audioStatus, stage, audio } = entry;
   const title = episodeTitle(episode);
   const metaId = `episode-card-meta-${episode.id}`;
+  const statusLabel = t(episodeStatuses[status]);
   return (
     <article className="library-card" data-selected={selected}>
       <div className="library-card-mark" aria-hidden="true">
@@ -53,23 +54,31 @@ export function EpisodeCard({
         <div id={metaId} className="library-card-meta">
           <div className="library-card-statuses">
             <span className="library-card-status" data-status={status}>
-              {episodeStatuses[status]}
-              {stage && ` · ${stageNames[stage]}`}
+              {stage
+                ? t("library.card.stageStatus", {
+                    status: statusLabel,
+                    stage: t(stageNameKeys[stage]),
+                  })
+                : statusLabel}
             </span>
             {audioStatus && (
               <span className="library-card-status" data-status={audioStatus}>
-                {episodeStatuses[audioStatus]}
+                {t(episodeStatuses[audioStatus])}
               </span>
             )}
           </div>
           <div className="library-card-facts">
-            <span>{languages[episode.language]}</span>
+            <span>{t(languageNameKeys[episode.language])}</span>
             <time dateTime={episode.updated}>
-              更新于 {dates.format(Date.parse(episode.updated))}
+              {t("library.card.updated", {
+                date: formatters.dateTime(Date.parse(episode.updated), {
+                  dateStyle: "medium",
+                }),
+              })}
             </time>
             {audio && (
               <span>
-                时长{" "}
+                {t("library.card.duration")}{" "}
                 <time dateTime={`PT${audio.duration}S`}>
                   {audioClock(audio.duration)}
                 </time>
@@ -81,12 +90,12 @@ export function EpisodeCard({
           <button
             type="button"
             className="library-card-audio"
-            aria-label={`前往音频 · ${title}`}
+            aria-label={t("library.card.openAudioFor", { title })}
             aria-controls="factory-selection"
             disabled={busy}
             onClick={() => onOpen(episode.id, "audio-title")}
           >
-            前往音频 <span aria-hidden="true">↗</span>
+            {t("library.card.openAudio")} <span aria-hidden="true">↗</span>
           </button>
         )}
       </div>
