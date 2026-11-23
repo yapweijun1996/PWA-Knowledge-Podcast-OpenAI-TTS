@@ -20,7 +20,7 @@ tooling. Checked by the manager on 2026-11-23 against the npm registry:
 `@codepawlhq/67js` 0.19.0 is deprecated with the message "Renamed to
 @codepawlhq/crucible"; `@codepawlhq/crucible` 0.22.0 is MIT, peer-depends on
 `three` 0.187.0, has no install scripts, and was published two days earlier
-(pre-1.0). Which library the owner meant is still the owner's to confirm.
+(pre-1.0). **Confirmed by the owner on 2026-11-23: "67JS" is Crucible.**
 
 ## Measured: Three.js scene spike (T51)
 
@@ -64,9 +64,12 @@ Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion toolin
 2. Three.js is the first 3D scene, lazy loaded, driven by our own clock.
 3. Crucible ("67JS") was evaluated on the same fixture (T54). It is deterministic
    but about four times slower per frame, very new, and its JSON format permits
-   shaders and external assets. **Decision: production scenes are hand-written
-   Three.js; Crucible stays a reference** and can be revisited when it is 1.0 and
-   if its character and motion tooling is needed.
+   shaders and external assets. **Decision (manager, before the owner's confirmation):
+   production scenes are hand-written Three.js and Crucible stays a reference.**
+   Because the owner confirmed Crucible is the library they meant, it is offered
+   as an optional, lazily loaded `crucible` scene (T56) behind the same strict
+   storyboard subset and the same scene interface, never as the only path. The
+   owner can overturn the default.
 4. The AI agent directs scenes through a strict JSON storyboard that selects
    pre-written, parameterised scenes. It never ships code to run in the page.
 5. Godot stays out of the browser path; at most an optional local export.

@@ -502,3 +502,11 @@ line with bars only at its right end; review the amplitude window in T50.
   (not in the main bundle), real Chromium render of a fixture episode, identical
   frame hashes across two renders, fallback tested, cancel tested.
 - [ ] **T52 — Storyboard tool** (L). After T55.
+- [ ] **T56 — Optional Crucible scene** (M). The owner confirmed "67JS" is
+  Crucible (2026-11-23). After T55 and T52, add a lazily loaded `crucible` scene
+  through the T50 registry. An app-owned adapter builds the Crucible recipe from
+  the validated storyboard only (closed ids, no shaders, no asset references, no
+  URLs, no scripts), pinned to an exact version, with the T54 safety review
+  repeated against the installed code and the frame-time and hash gates from
+  T51 and T54. Default stays the hand-written Three.js scene unless the owner
+  chooses otherwise.
