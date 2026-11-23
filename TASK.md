@@ -401,7 +401,7 @@ dropped from the critical path.
 ### M3 to M5
 
   _(done 2026-11-23: publish package exported from the Studio after approval; manual YouTube upload)_
-- [ ] **T39 — In-browser agent and pi bridge** (L). **Decision (manager,
+- [x] **T39 — In-browser agent and local pi bridge spike** (L). **Decision (manager,
   2026-11-23; the owner asked us to decide):** a browser page cannot spawn the
   local `pi` CLI, so there are two layers. (1) A native in-page agent loop on
   the OpenAI Responses API with tools (research, outline, script, narrate,
@@ -410,8 +410,9 @@ dropped from the critical path.
   offers `--mode rpc` and extensions; a small loopback bridge on 127.0.0.1
   would connect pi to the same `AgentBridge`. A no-cost spike on 2026-11-23 proved pi `--mode rpc` plus a loopback
   WebSocket extension can reach a real browser page (see
-  [docs/PI-BRIDGE.md](docs/PI-BRIDGE.md)); model-initiated tool calls over that
-  path are still **UNVERIFIED**. The in-page agent
+  [docs/PI-BRIDGE.md](docs/PI-BRIDGE.md)). A local model fixture also
+  dispatched a registered tool through the same connection. Production
+  tool forwarding remains an optional integration. The in-page agent
   works within browser limits (the BYOK key, the browser sandbox, no
   filesystem); "no limitation" is not achievable literally, so each tool is
   explicit and bounded. Acceptance: mock-provider tests, cost disclosure and

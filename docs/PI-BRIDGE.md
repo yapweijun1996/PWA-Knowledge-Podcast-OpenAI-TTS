@@ -1,58 +1,55 @@
-# pi coding agent bridge (T39 spike), 2026-11-23
+# Pi coding agent bridge experiment (T39)
 
-Question: can the installed pi coding agent drive Podcast Studio running in a
-browser page? Pi (`@earendil-works/pi-coding-agent` 1.5.2, `/opt/homebrew/bin/pi`)
-is a terminal agent. A page cannot spawn it, and its RPC mode speaks JSON lines
-over stdin and stdout (`pi --mode rpc`, see pi's own `docs/rpc.md`).
+Pi is a terminal agent. A browser page communicates with its RPC process
+through an explicitly loaded extension.
 
-## Architecture that works
-
-```
-Podcast Studio page  <-- WebSocket (127.0.0.1, token + Origin checked) -->
-  pi extension (runs inside the pi process)  <-- pi tools and slash commands
+```text
+Local Chromium fixture <-- authenticated loopback WebSocket --> Pi extension
 ```
 
-A small pi extension opens a loopback WebSocket server. The page connects to
-it with a one-time token. Pi tools and commands registered by the extension
-forward requests to the page, and the page runs them through the in-page
-`AgentBridge` (T39) using the user's browser key. Nothing in the page needs a
-server: pi and its extension are optional.
+The extension binds to a random port on `127.0.0.1`. One page may pair using a
+random 256-bit token and the exact allowed origin. The fixture exposes a ping
+only. The browser's production tools continue to use the in-page
+[AgentBridge](AGENT.md).
 
-## What the spike proved (real Chromium, no model, no cost)
+## Run the experiment
 
-`spikes/pi-bridge/ext.ts` plus `spikes/pi-bridge/run.mjs` (spike code, paths are
-absolute to this machine):
+With Node 24, Pi installed on PATH and the repository's Chromium dependency
+installed, run either command from the repository root.
 
-- `pi --mode rpc --no-session --offline -e ext.ts` starts; `get_state` and
-  `get_commands` answer; the extension's command is listed (`podcast-ping`).
-- A real Chromium page on `http://127.0.0.1:<port>` connected to the
-  extension's WebSocket with the token. A connection with a wrong token was
-  **rejected**. Origin is checked against an allow list.
-- Sending `{"type":"prompt","message":"/podcast-ping"}` ran the extension
-  command (response `disposition: "handled"`, no model call). The extension
-  asked the page, the page answered, and pi emitted a `notify` UI record with
-  the page's reply.
+```sh
+node spikes/pi-bridge/run.mjs
+node spikes/pi-bridge/run.mjs --tool
+```
 
-## Not proven (UNVERIFIED)
+The first command verifies Pi's RPC slash command. The second also selects
+Pi's in-memory fixture model and exercises a registered Pi tool. On a clean
+checkout, `npm ci` and `npx playwright install chromium` provide the browser
+dependencies. Set `PODCAST_PI_BIN` to an absolute executable path to select
+another compatible Pi installation. The extension resolves the WebSocket
+dependency through Pi's installed package.
 
-- A model-initiated tool call (`pi.registerTool`) travelling the same path.
-  The call path in the spike is the one a tool would use, but no model was run.
-- Which model pi should use; pi has its own provider settings and credentials,
-  separate from the page's key. Using pi spends pi's provider, not the browser
-  key, unless configured otherwise.
-- Safari, and an HTTPS Pages origin reaching `ws://127.0.0.1` (mixed content
-  and Chrome's Private Network Access rules). Only an `http://127.0.0.1` page
-  was tested.
-- Pi's extension API is version specific (1.5.2 here); pin and re-test on
-  upgrade.
-- Pi extensions run with full user permissions. The bridge must stay on
-  127.0.0.1, require the token and the Origin allow list, and expose only the
-  explicit podcast tools.
+The runner gives Pi temporary settings and working directories, disables
+discovery, skills, project context, built-in tools and MCP, and passes only
+its explicit extension and local fixture configuration. It closes Chromium,
+Pi and both HTTP fixtures and removes the temporary directory.
 
-## Consequence for T39
+## Verified on 2026-11-23
 
-Layer 1 (in-page agent on the OpenAI Responses API behind `AgentBridge`) is
-independent of pi and ships first. Layer 2 is this bridge: a `pi-podcast-bridge`
-extension package with tools such as `podcast_research`, `podcast_script`,
-`podcast_narrate`, `podcast_render`, `podcast_export`, each requiring the page's
-per-run consent and cost disclosure before any paid call.
+Pi 1.4.0, Node 24 and real Chromium on macOS passed the following checks.
+
+- RPC returned the explicitly registered `/podcast-ping` command. Chromium
+  rejected the wrong token, a different loopback origin with the correct
+  token and a second page after pairing.
+- The slash command reached the paired page and returned a Pi notification.
+  RPC marked it `handled` without starting a model.
+- Pi's in-memory model fixture invoked `podcast_bridge_ping` on the same
+  connection. RPC reported a successful tool execution with the expected
+  page origin and the run settled. The fixture made zero provider requests
+  and used zero provider credentials.
+
+Production tool forwarding, real-model prompts, Safari, and connections from
+the HTTPS Pages origin remain unverified. Extensions run with the user's
+local permissions. A future production bridge would keep the loopback and
+pairing boundaries and use the existing consent and cost disclosure for each
+paid browser tool.
