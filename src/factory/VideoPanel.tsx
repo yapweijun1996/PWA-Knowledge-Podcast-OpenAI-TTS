@@ -5,6 +5,12 @@ import { download } from "../audio";
 import { useI18n, type MessageKey } from "../i18n";
 import { drawThumbnail, thumbnailSize } from "../publish/thumbnail.ts";
 import { listScenes } from "../video/scenes/registry.ts";
+import {
+  cameraLabels,
+  paletteLabels,
+  studio3dSceneId,
+} from "../video/scenes/studio3d/presets.ts";
+import type { SceneNotice } from "../video/scenes/types.ts";
 import { redact } from "./browser-key.ts";
 import { episodeLanguageTags } from "./Evidence";
 import type { AudioCheck } from "./library-model.ts";
@@ -20,6 +26,13 @@ import {
 } from "./useVideoRender.ts";
 import "./video-panel.css";
 
+const sceneNoticeLabels = {
+  "unknown-scene": "video.panel.unknownScene",
+  "webgl-unavailable": "video.studio3d.unavailable",
+  "unknown-palette": "video.studio3d.unknownPalette",
+  "unknown-camera": "video.studio3d.unknownCamera",
+} as const satisfies Record<SceneNotice["reason"], MessageKey>;
+
 function VideoPreview({ artifact }: { artifact: VideoArtifact }) {
   const { t, formatters } = useI18n();
   const [preview, setPreview] = useState<{ blob: Blob; url: string }>();
@@ -30,6 +43,7 @@ function VideoPreview({ artifact }: { artifact: VideoArtifact }) {
     metadata: { studioVideo: receipt },
   } = artifact;
   const url = preview?.blob === blob ? preview.url : undefined;
+  const notices = new Set(receipt.sceneNotices?.map(({ reason }) => reason));
 
   useEffect(() => {
     const url = URL.createObjectURL(blob);
@@ -78,6 +92,11 @@ function VideoPreview({ artifact }: { artifact: VideoArtifact }) {
           checksum: receipt.sha256.slice(0, 12),
         })}
       </p>
+      {[...notices].map((reason) => (
+        <p className="muted" key={reason}>
+          {t(sceneNoticeLabels[reason])}
+        </p>
+      ))}
       <div className="video-panel-actions">
         <button
           className="outline"
@@ -393,9 +412,10 @@ export function VideoPanel({
   episode: Episode;
   audio: AudioCheck;
 }) {
-  const { t } = useI18n();
+  const { t, formatters } = useI18n();
   const video = useVideoRender(episode, audio);
-  const { state, artifact } = video;
+  const { state, artifact, studio3d } = video;
+  const isStudio3d = video.sceneId === studio3dSceneId;
   const rendering = state.phase === "rendering" || state.phase === "cancelling";
   const status =
     state.phase === "failed"
@@ -444,6 +464,9 @@ export function VideoPanel({
           <select
             value={video.sceneId}
             disabled={rendering || video.loading || !!video.reviewEdit}
+            aria-describedby={
+              isStudio3d ? "video-studio3d-description" : undefined
+            }
             onChange={(event) => video.setSceneId(event.target.value)}
           >
             {listScenes().map(({ id, label }) => (
@@ -475,6 +498,74 @@ export function VideoPanel({
           {t("video.panel.cancel")}
         </button>
       </div>
+      {isStudio3d && (
+        <>
+          <p className="muted" id="video-studio3d-description">
+            {t("video.studio3d.description")}
+          </p>
+          <fieldset
+            className="video-panel-fields video-studio3d-fields"
+            aria-label={t("video.scene.studio3d")}
+            disabled={rendering || video.loading || !!video.reviewEdit}
+          >
+            <label className="field">
+              {t("video.studio3d.palette")}
+              <select
+                value={studio3d.paletteId}
+                onChange={(event) =>
+                  video.setStudio3d({
+                    ...studio3d,
+                    paletteId: event.target.value,
+                  })
+                }
+              >
+                {Object.entries(paletteLabels).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {t(label)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              {t("video.studio3d.camera")}
+              <select
+                value={studio3d.cameraPresetId}
+                onChange={(event) =>
+                  video.setStudio3d({
+                    ...studio3d,
+                    cameraPresetId: event.target.value,
+                  })
+                }
+              >
+                {Object.entries(cameraLabels).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {t(label)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              {t("video.studio3d.intensity")}
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={studio3d.intensity}
+                aria-valuetext={formatters.number(studio3d.intensity, {
+                  style: "percent",
+                })}
+                onChange={(event) =>
+                  video.setStudio3d({
+                    ...studio3d,
+                    intensity: event.target.valueAsNumber,
+                  })
+                }
+              />
+            </label>
+          </fieldset>
+        </>
+      )}
       <div role="status" className="video-panel-status">
         {video.stale && <p>{t("episode.video.stale")}</p>}
         {video.sceneStale && <p>{t("video.panel.sceneStale")}</p>}

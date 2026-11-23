@@ -66,6 +66,24 @@ on its card in `plan.scenes`, or via `chapterSceneIds` when building the plan.
 Unknown IDs resolve to waveform with a receipt notice. The receipt records
 the resolved default and the scene used for each rendered chapter.
 
+Studio 3D uses a lazy factory and loads Three.js when a render first needs the
+scene. It probes WebGL2 on a disposable canvas before initializing the scene.
+It uses a regular canvas on the page and supports OffscreenCanvas when a DOM
+canvas cannot be created. A failed probe or context startup uses waveform for
+the affected selection and records a notice. A lost rendering context aborts
+the export with a localized error before any new artifact is saved.
+
+Pass `studio3d` options alongside `sceneId` in the render request. The
+supported palettes are `aurora`, `sunset`, `mono`, and `ocean`. Camera
+presets are `drift`, `orbit`, `static`, and `push-in`. An unknown ID uses
+the first preset in its list and records a notice. Intensity is clamped to
+0–1 and controls the audio response. The receipt stores the effective
+settings and scene notices. The Video panel restores those settings on reload
+and marks the saved preview out of date when the scene or its presets change.
+Studio 3D uses light overlay text against its dark palettes. The orbs
+represent hosts A and B. If an episode also has host C, that host's audio
+drives the spectrum and the shared overlay shows the speaker.
+
 ## UNVERIFIED — real-browser spike
 
 - Probe actual Chromium and Safari on the owner's target devices. Record OS,

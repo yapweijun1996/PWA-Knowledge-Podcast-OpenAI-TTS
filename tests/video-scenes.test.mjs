@@ -21,9 +21,10 @@ const turn = {
   captions: [],
 };
 
-test("the built-in registry lists only waveform and resolves an unknown ID", () => {
+test("the built-in registry lists waveform and Studio 3D and resolves an unknown ID", () => {
   assert.deepEqual(listScenes(), [
     { id: "waveform", kind: "2d", label: "video.scene.waveform" },
+    { id: "studio3d", kind: "webgl", label: "video.scene.studio3d" },
   ]);
   assert.equal(getScene("missing"), getScene("waveform"));
   assert.notEqual(getScene("waveform").create(), getScene("waveform").create());
@@ -105,4 +106,17 @@ test("a scene change makes a saved video stale and legacy receipts imply wavefor
   assert.equal(isCurrentVideo(artifact, source, "custom"), false);
   assert.equal(isCurrentVideo(custom, source, "custom"), true);
   assert.equal(isCurrentVideo(custom, source, "waveform"), false);
+});
+
+test("changing a Studio 3D setting invalidates a saved preview", () => {
+  const source = { episodeId: "fixture", revision: 1, sourceStamp: "audio-stamp" };
+  const studio3d = { paletteId: "ocean", cameraPresetId: "orbit", intensity: 0.5 };
+  const artifact = {
+    ...source,
+    kind: "video",
+    id: videoArtifactKey(source),
+    metadata: { studioVideo: { sceneId: "studio3d", studio3d } },
+  };
+  assert.equal(isCurrentVideo(artifact, source, "studio3d", studio3d), true);
+  assert.equal(isCurrentVideo(artifact, source, "studio3d", { ...studio3d, intensity: 1 }), false);
 });

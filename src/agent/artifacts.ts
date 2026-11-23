@@ -1,4 +1,6 @@
 import { openDB, type DBSchema } from "idb";
+import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
+import type { SceneNotice } from "../video/scenes/types.ts";
 
 export type AgentArtifact = {
   id: string;
@@ -15,7 +17,9 @@ export type AgentArtifact = {
       audioCodec: "aac" | "opus";
       theme: "light" | "dark";
       sceneId?: string;
+      studio3d?: Studio3dSettings;
       chapterScenes?: { chapterId: string; sceneId: string }[];
+      sceneNotices?: SceneNotice[];
       timeline: {
         estimated: boolean;
         chapters: { title: string; start: number; timestamp: string }[];

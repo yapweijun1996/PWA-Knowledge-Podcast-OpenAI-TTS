@@ -6,7 +6,7 @@ search): [ANIMATION-RESEARCH-2026-11-23.md](ANIMATION-RESEARCH-2026-11-23.md).
 That report's external claims are the researcher's and were checked only where
 this page says so.
 
-## What exists today
+## Before Studio 3D
 
 `src/video/draw.ts` draws every frame with Canvas 2D at `t = i / fps` (speaker
 label, waveform from real PCM, captions, title cards). WebCodecs encodes and
@@ -74,3 +74,14 @@ Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion toolin
    pre-written, parameterised scenes. It never ships code to run in the page.
 5. Godot stays out of the browser path; at most an optional local export.
 6. A scene plugin interface (T50) comes first so these can coexist.
+
+## Integrated (T55)
+
+Studio 3D is available in the Video panel. The registered scene dynamically
+loads Three.js, drives the orbs and 32 spectrum blocks from turn PCM, and
+steps the camera on the same frame clock as waveform and the shared overlay.
+The palette, camera preset, and audio response intensity are recorded in the
+render receipt. Browsers that cannot initialize WebGL2 use waveform and show
+the substitution in the receipt. The spike measurements above describe the
+standalone harness. Integrated render timing and decoded-frame hashes need a
+Chromium run. [Scene interface](VIDEO-RENDER-DECISION.md#scene-interface)

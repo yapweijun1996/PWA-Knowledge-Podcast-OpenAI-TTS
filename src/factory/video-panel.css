@@ -66,6 +66,10 @@
   margin-block-end: var(--space-2);
 }
 
+.video-studio3d-fields {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
 .video-panel-progress {
   display: grid;
   gap: var(--space-1);

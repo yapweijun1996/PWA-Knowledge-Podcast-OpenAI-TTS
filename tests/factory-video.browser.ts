@@ -177,8 +177,10 @@ test("Studio renders a finished episode, persists approval and exports the revie
   });
   await expect(scene.locator("option")).toHaveText([
     english("video.scene.waveform"),
+    english("video.scene.studio3d"),
   ]);
   await scene.selectOption("waveform");
+  await expect(panel.getByLabel(english("video.studio3d.palette"))).toHaveCount(0);
   await render.click();
   const preview = panel.locator("video");
   await expect(preview).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
