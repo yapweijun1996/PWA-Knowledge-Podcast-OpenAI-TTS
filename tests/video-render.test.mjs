@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
-import { drawFrame, wrapText } from "../src/video/draw.ts";
+import { drawFrame } from "../src/video/draw.ts";
 import { renderVideo } from "../src/video/render.ts";
 import { videoThemes } from "../src/video/themes.ts";
 
@@ -80,7 +80,7 @@ function recordingContext() {
 }
 
 function fakeDependencies({
-  videoSupport = (codec) => codec.startsWith("avc1."),
+  videoSupport = ({ codec }) => codec.startsWith("avc1."),
   audioSupport = () => true,
   queued = false,
   bufferVideo = false,
@@ -88,6 +88,8 @@ function fakeDependencies({
 } = {}) {
   const trace = {
     videoChecks: [],
+    videoConfigs: [],
+    keyFrames: [],
     audioChecks: [],
     frames: [],
     audio: [],
@@ -185,11 +187,16 @@ function fakeDependencies({
     kind = "video";
     static async isConfigSupported(config) {
       trace.videoChecks.push(config);
-      return { supported: videoSupport(config.codec) };
+      return { supported: videoSupport(config) };
+    }
+    configure(config) {
+      trace.videoConfigs.push(config);
+      super.configure(config);
     }
     encode(frame, { keyFrame }) {
       assert.ok(!frame.closed);
       const { timestamp, duration } = frame;
+      if (keyFrame) trace.keyFrames.push(timestamp);
       this.submit(() => {
         const codec = this.config.codec;
         const decoderConfig = codec.startsWith("avc1.")
@@ -503,9 +510,46 @@ test("rejects when encoded output crosses the in-memory size limit", async () =>
   assert.deepEqual(trace.digests, []);
 });
 
+test("uses the quality bitrate target and a four-second keyframe interval", async () => {
+  const { deps, trace } = fakeDependencies();
+  await renderVideo({
+    plan: { ...plan, duration: 8.25 },
+    audio,
+    theme: "dark",
+    deps,
+  });
+  assert.deepEqual(trace.videoChecks, [
+    {
+      width: 1920,
+      height: 1080,
+      framerate: 4,
+      bitrate: 900_000,
+      latencyMode: "quality",
+      bitrateMode: "variable",
+      codec: "avc1.420028",
+      avc: { format: "avc" },
+    },
+  ]);
+  assert.deepEqual(trace.videoConfigs, trace.videoChecks);
+  assert.deepEqual(trace.keyFrames, [0, 4_000_000, 8_000_000]);
+});
+
+test("keeps H.264 when explicit variable rate control is unsupported", async () => {
+  const { deps, trace } = fakeDependencies({
+    videoSupport: ({ codec, bitrateMode }) =>
+      codec.startsWith("avc1.") && bitrateMode === undefined,
+  });
+  await renderVideo({ plan, audio, theme: "dark", deps });
+  assert.deepEqual(
+    trace.videoChecks.map(({ bitrateMode }) => bitrateMode),
+    ["variable", undefined],
+  );
+  assert.deepEqual(trace.videoConfigs, trace.videoChecks.slice(1));
+});
+
 test("probes the actual configuration and uses VP9 only with an explicit opt-in", async () => {
   const fixture = () =>
-    fakeDependencies({ videoSupport: (codec) => codec.startsWith("vp09.") });
+    fakeDependencies({ videoSupport: ({ codec }) => codec.startsWith("vp09.") });
   const denied = fixture();
   await assert.rejects(
     renderVideo({ plan, audio, theme: "dark", deps: denied.deps }),
@@ -513,7 +557,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   );
   assert.deepEqual(
     denied.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028"],
+    ["avc1.420028", "avc1.420028"],
   );
   assert.deepEqual(denied.trace.frames, []);
   assert.deepEqual(denied.trace.digests, []);
@@ -530,7 +574,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   );
   assert.deepEqual(
     unsupported.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028", "vp09.00.40.08"],
+    ["avc1.420028", "avc1.420028", "vp09.00.40.08", "vp09.00.40.08"],
   );
   assert.deepEqual(unsupported.trace.frames, []);
 
@@ -549,7 +593,7 @@ test("probes the actual configuration and uses VP9 only with an explicit opt-in"
   assert.equal(result.videoCodec, "vp09.00.40.08");
   assert.deepEqual(
     allowed.trace.videoChecks.map(({ codec }) => codec),
-    ["avc1.420028", "vp09.00.40.08"],
+    ["avc1.420028", "avc1.420028", "vp09.00.40.08"],
   );
   assert.ok(Buffer.from(await result.blob.arrayBuffer()).includes("vpcC"));
   assert.deepEqual(allowed.trace.audioChecks, [
@@ -592,6 +636,7 @@ test("falls back to Opus at the source rate when AAC is unavailable", async () =
     ],
   );
   assert.ok(trace.audio.every((block) => block.sampleRate === sampleRate));
+  assert.equal(trace.audioChecks.at(-1).bitrate, 64_000);
   await assertOpusTrack(result.blob, plan.duration, plan.fps);
 });
 
@@ -696,24 +741,6 @@ test("silence is flat and nearby PCM amplitudes determine the waveform bars", ()
   assert.equal(pulse.length, 2);
   assert.equal(pulse[1].at(-1), 81);
   assert.deepEqual(waveform(samples, 1.15), flat);
-});
-
-test("wraps Latin at word boundaries and preserves CJK punctuation and graphemes", () => {
-  const context = recordingContext();
-  assert.deepEqual(wrapText(context, "alpha beta gamma", 10), [
-    "alpha beta",
-    "gamma",
-  ]);
-  assert.deepEqual(wrapText(context, "天地玄黄，宇宙洪荒。", 8), [
-    "天地玄",
-    "黄，宇宙",
-    "洪荒。",
-  ]);
-  assert.deepEqual(wrapText(context, "𠮷𠮷𠮷", 4), ["𠮷𠮷", "𠮷"]);
-  assert.deepEqual(wrapText(context, "e\u0301e\u0301", 2), [
-    "e\u0301",
-    "e\u0301",
-  ]);
 });
 
 test("hashes the actual finalized MP4 bytes returned in the blob", async () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { crc32 } from "node:zlib";
 import { readEpisode } from "../shared/episode-record.ts";
-import { buildPublishPackage } from "../src/publish/package.ts";
+import { buildPublishPackage, cleanSourceUrl } from "../src/publish/package.ts";
 import { drawThumbnail, thumbnailSize } from "../src/publish/thumbnail.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
 
@@ -140,6 +140,42 @@ test("limits titles without breaking Unicode characters", () => {
   assert.equal(title, `播客 ${"甲".repeat(96)}`);
   assert.ok(title.length <= 100);
   assert.doesNotMatch(title, /[<>\p{Cc}]/u);
+});
+
+test("exports clean trial-style citation URLs and preserves the research record", () => {
+  const urls = [
+    "https://www.hdb.gov.sg/buying-a-flat/resale-flats/process-for-buying-a-resale-flat/resale-flat-planning/eip-and-spr-quota",
+    "https://www.hdb.gov.sg/cs/infoweb/residential/buying-a-flat?sc_lang=en&hash=A%2fb%20c~",
+    "https://www.gov.sg/explainers/hdb-ethnic-integration-policy/?sc_lang=en",
+  ];
+  const tracked = urls.map((url) =>
+    `${url}${url.includes("?") ? "&" : "?"}utm_source=openai`,
+  );
+  const draft = fixture();
+  draft.research.sources = [...tracked, urls[0]].map((url, index) => ({
+    ...source,
+    id: `S${index + 1}`,
+    url,
+  }));
+  const episode = readEpisode(draft);
+  const { files } = buildPublishPackage({ episode, plan: buildTimeline(episode) });
+  const description = contents(files, "description.txt");
+  assert.deepEqual(description.match(/https:\/\/\S+/gu), urls);
+  assert.deepEqual(episode.research.sources.map(({ url }) => url), [
+    ...tracked,
+    urls[0],
+  ]);
+});
+
+test("cleans provider referrals while preserving functional query bytes and fragments", () => {
+  assert.equal(
+    cleanSourceUrl(
+      "https://www.hdb.gov.sg/search?%55TM_campaign=trial&ref=openai&ref=hdb&source=chatgpt.com&hash=x%20y~&sc_lang=en&hash=&referrer=OpenAI.com#eligibility",
+    ),
+    "https://www.hdb.gov.sg/search?ref=hdb&hash=x%20y~&sc_lang=en&hash=#eligibility",
+  );
+  assert.equal(cleanSourceUrl("javascript:void(0)"), undefined);
+  assert.equal(cleanSourceUrl("https://user:secret@www.hdb.gov.sg/"), undefined);
 });
 
 test("keeps the UTF-8 description within 5000 bytes using whole chapter and citation lines", () => {

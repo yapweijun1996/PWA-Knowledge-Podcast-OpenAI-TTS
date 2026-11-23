@@ -1,5 +1,6 @@
 import type { Episode, Language, Research } from "../../shared/factory";
 import { useI18n } from "../i18n";
+import { cleanSourceUrl } from "../publish/package";
 
 const claimStateKeys = {
   supported: "episode.evidence.supported",
@@ -66,7 +67,7 @@ export function Claims({
                   source && (
                     <a
                       key={sourceId}
-                      href={source.url}
+                      href={cleanSourceUrl(source.url)}
                       rel="noreferrer noopener"
                       target="_blank"
                       data-user-content=""
@@ -187,7 +188,7 @@ export function InlineSources({
         .map((source) => (
           <a
             key={source.id}
-            href={source.url}
+            href={cleanSourceUrl(source.url)}
             rel="noreferrer noopener"
             target="_blank"
             data-user-content=""
