@@ -1,3 +1,12 @@
+:is(
+  .factory-shell .factory-intro h1,
+  .heading h1,
+  .summary-card strong,
+  .card h2
+):is(:lang(zh), :lang(ja)) {
+  letter-spacing: normal;
+}
+
 .factory-shell {
   .factory-layout:not([hidden]) {
     display: grid;

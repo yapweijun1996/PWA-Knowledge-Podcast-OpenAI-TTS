@@ -30,8 +30,12 @@
   --radius-panel: 1rem;
   --radius-pill: 999px;
   --target-size: max(44px, 2.75rem);
+  --type-cjk-fallback:
+    "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Hiragino Sans",
+    "Yu Gothic", "Noto Sans CJK JP";
   --type-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    var(--type-cjk-fallback), sans-serif;
   --type-small: 0.875rem;
   --type-body: 1rem;
   --type-section: 1.25rem;

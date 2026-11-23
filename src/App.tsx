@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Factory } from "./factory/Factory";
 import { useWorkspaceNavigation } from "./factory/navigation";
+import { I18nProvider } from "./i18n";
 
 type Theme = "light" | "dark" | "system";
 
@@ -20,6 +21,14 @@ function savePreference(key: string, value: string) {
 }
 
 export default function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
+  );
+}
+
+function AppContent() {
   const navigation = useWorkspaceNavigation();
   const { page } = navigation;
   const pauseFactoryPlayback = useRef<(() => void) | null>(null);

@@ -1,4 +1,15 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type FormEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import {
   languages,
   type Language,
@@ -6,7 +17,94 @@ import {
   type Runtime,
   type Schedule,
 } from "../../shared/factory";
+import {
+  isLocale,
+  locales,
+  useI18n,
+  type Locale,
+  type MessageKey,
+} from "../i18n";
 import { clear, set } from "./browser-key";
+
+const languageNames = {
+  "zh-CN": "settings.language.zh-CN",
+  en: "settings.language.en",
+  ms: "settings.language.ms",
+} as const satisfies Record<Locale, MessageKey>;
+
+type SelectProps = ComponentPropsWithoutRef<"select">;
+type ContainerProps = { className?: string; children?: ReactNode };
+
+function AppearanceSettings({
+  themeSelect,
+}: {
+  themeSelect: ReactElement<SelectProps>;
+}) {
+  const { locale, setLocale, t } = useI18n();
+
+  return (
+    <section className="factory-panel">
+      <h2>{t("settings.appearance.title")}</h2>
+      <label className="field">
+        {t("settings.appearance.theme")}
+        {cloneElement(
+          themeSelect,
+          undefined,
+          <option value="system">{t("settings.appearance.system")}</option>,
+          <option value="light">{t("settings.appearance.light")}</option>,
+          <option value="dark">{t("settings.appearance.dark")}</option>,
+        )}
+      </label>
+      <label className="field">
+        {t("settings.appearance.language")}
+        <select
+          value={locale}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            if (isLocale(value)) setLocale(value);
+          }}
+        >
+          {locales.map((code) => (
+            <option key={code} value={code} lang={code}>
+              {t(languageNames[code])}
+            </option>
+          ))}
+        </select>
+      </label>
+    </section>
+  );
+}
+
+// Factory owns the theme select. Replace its appearance panel at the shell
+// boundary and keep the select's controlled value and change callback.
+export function withAppearanceSettings(child: ReactNode) {
+  if (
+    !isValidElement<ContainerProps>(child) ||
+    child.type !== "div" ||
+    child.props.className !== "factory-page-stack"
+  )
+    return child;
+
+  const panels = Children.map(child.props.children, (panel, index) => {
+    if (index !== 0 || !isValidElement<ContainerProps>(panel)) return panel;
+    if (panel.type !== "section" || panel.props.className !== "factory-panel")
+      return panel;
+    const [, field] = Children.toArray(panel.props.children);
+    if (!isValidElement<ContainerProps>(field) || field.type !== "label")
+      return panel;
+    const themeSelect = Children.toArray(field.props.children).find(
+      (item): item is ReactElement<SelectProps> =>
+        isValidElement<SelectProps>(item) && item.type === "select",
+    );
+    return themeSelect ? (
+      <AppearanceSettings themeSelect={themeSelect} />
+    ) : (
+      panel
+    );
+  });
+
+  return cloneElement(child, undefined, panels);
+}
 
 export function BrowserCredentials({
   configured,
