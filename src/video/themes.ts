@@ -1,18 +1,14 @@
-export const videoThemes = {
-  dark: {
-    background: "#101826",
-    panel: "#1A283A",
-    text: "#F1F6FC",
-    accent: "#83E2CE",
-    baseline: "#436574",
-  },
-  light: {
-    background: "#F5F1E7",
-    panel: "#EBE4D7",
-    text: "#222B32",
-    accent: "#176B5D",
-    baseline: "#96AFA4",
-  },
-} as const;
+import type { PaletteId } from "./design/palettes.ts";
 
+export const videoThemes = { dark: "aurora", light: "light" } as const;
 export type VideoTheme = keyof typeof videoThemes;
+export type VideoPaletteId = PaletteId | "light";
+
+export function themePalette(
+  theme: VideoTheme,
+  darkPalette?: PaletteId,
+): VideoPaletteId {
+  return theme === "dark" && darkPalette !== undefined
+    ? darkPalette
+    : videoThemes[theme];
+}

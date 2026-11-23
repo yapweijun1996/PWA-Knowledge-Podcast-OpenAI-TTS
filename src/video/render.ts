@@ -1,11 +1,6 @@
-import { hosts } from "../../shared/factory.ts";
 import { t } from "../i18n/index.ts";
-import {
-  drawBackground,
-  drawCaption,
-  drawSpeakerLabel,
-  drawTitleCard,
-} from "./overlay.ts";
+import { ensureVideoFonts } from "./fonts/loader.ts";
+import { overlayCopy, prepareOverlay } from "./overlay.ts";
 import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
 import { defaultSceneId, getScene } from "./scenes/registry.ts";
 import {
@@ -20,8 +15,8 @@ import type {
   VideoScene,
   VideoSceneFrame,
 } from "./scenes/types.ts";
-import type { VideoTheme } from "./themes.ts";
-import { latestStarted, type TimelinePlan } from "./timeline.ts";
+import { themePalette, type VideoTheme } from "./themes.ts";
+import { planOrientation, type TimelinePlan } from "./timeline.ts";
 
 /** VP9 in MP4 is opt-in because playback compatibility differs from H.264. */
 export type VideoRenderPlan = TimelinePlan & { allowVp9?: boolean };
@@ -60,34 +55,23 @@ type EncoderQueue = Pick<
   "encodeQueueSize" | "addEventListener" | "removeEventListener"
 >;
 
-function drawTurnFrame(
+function drawStage(
   context: SceneContext,
   scene: VideoScene,
   frame: Omit<VideoSceneFrame, "kind">,
-  speakerLabel: string,
+  drawSpeakerLabel: () => void,
 ) {
-  const { canvas, plan, theme, textLayouts, turn, time } = frame;
-  const overlayTheme = scene.id === studio3dSceneId ? "dark" : theme;
-  let labelDrawn = false;
-  function drawLabel() {
-    if (labelDrawn) return;
-    drawSpeakerLabel(context, plan, overlayTheme, speakerLabel);
-    labelDrawn = true;
-  }
-  drawBackground(context, plan, theme);
   if (scene.kind === "2d") {
     context.save();
     try {
-      scene.draw({ ...frame, kind: "2d", context, drawSpeakerLabel: drawLabel });
+      scene.draw({ ...frame, kind: "2d", context, drawSpeakerLabel });
     } finally {
       context.restore();
     }
   } else {
     scene.draw({ ...frame, kind: "webgl" });
-    context.drawImage(canvas, 0, 0);
+    context.drawImage(frame.canvas, 0, 0);
   }
-  drawLabel();
-  drawCaption(context, plan, overlayTheme, textLayouts, turn, time);
 }
 
 const maxQueueSize = 4;
@@ -169,7 +153,7 @@ function waitForQueue(encoder: EncoderQueue, signal: AbortSignal) {
   });
 }
 
-/** Map source PCM onto the output sample clock, leaving cards and gaps silent. */
+/** Map source PCM onto the output sample clock, leaving uncovered gaps silent. */
 function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
   const { channels, sampleRate: sourceRate } = audio;
   const resample = sourceRate !== sampleRate;
@@ -269,10 +253,9 @@ export async function renderVideo({
   }
   const pcm = getPcm(audio);
   const numberOfChannels = pcm.channels.length;
-  // Keep the baked-in speaker labels consistent if the locale changes mid-render.
-  const speakerLabels = new Map(
-    hosts.map((name) => [name, t("video.caption.speaker", { name })]),
-  );
+  const copy = overlayCopy(plan);
+  const orientation = planOrientation(plan);
+  const mood = plan.mood ?? "calm";
   const sceneNotices: SceneNotice[] = [];
   function resolveScene(id: string, chapterId?: string) {
     const scene = getScene(id);
@@ -287,20 +270,28 @@ export async function renderVideo({
   }
   const defaultScene = resolveScene(sceneId);
   const chapterOverrides = new Map<string, ReturnType<typeof getScene>>();
-  for (const scene of plan.scenes) {
-    if (scene.kind === "chapter" && scene.sceneId !== undefined)
+  const chapterSelections =
+    plan.chapterWindows ??
+    plan.scenes.filter((scene) => scene.kind === "chapter");
+  for (const chapter of chapterSelections) {
+    if (chapter.sceneId !== undefined)
       chapterOverrides.set(
-        scene.chapterId,
-        resolveScene(scene.sceneId, scene.chapterId),
+        chapter.chapterId,
+        resolveScene(chapter.sceneId, chapter.chapterId),
       );
   }
   const studio = [defaultScene, ...chapterOverrides.values()].some(
     (scene) => scene.id === studio3dSceneId,
   )
-    ? resolveStudio3dOptions(studio3d)
+    ? resolveStudio3dOptions({ paletteId: plan.paletteId, ...studio3d })
     : undefined;
-  if (studio) sceneNotices.push(...studio.notices.map((reason) => ({ reason })));
+  if (studio)
+    sceneNotices.push(...studio.notices.map((reason) => ({ reason })));
   let effectiveSceneId = defaultScene.id;
+  const paletteFor = (id: string) =>
+    id === studio3dSceneId
+      ? themePalette("dark", studio?.settings.paletteId)
+      : themePalette(theme, plan.paletteId ?? studio?.settings.paletteId);
   const chapterScenes = new Map<string, string>();
   const activeScenes = new Map<
     string,
@@ -424,6 +415,13 @@ export async function renderVideo({
   if (!canvas) throw new Error(t("video.render.noCanvas"));
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) throw new Error(t("video.render.noDrawingContext"));
+  const preflight = await waitFor(
+    ensureVideoFonts({ texts: copy.texts, signal: stop }),
+    stop,
+  );
+  stop.throwIfAborted();
+  const textLayouts = new Map<string, string[]>();
+  const overlay = prepareOverlay(context, plan, copy, textLayouts);
 
   async function initScene(
     selected: ReturnType<typeof getScene>,
@@ -450,6 +448,9 @@ export async function renderVideo({
         plan,
         audio: pcm,
         theme,
+        orientation,
+        paletteId: paletteFor(scene.id),
+        mood,
         signal: stop,
         fail: (error) => failure.abort(error),
       });
@@ -492,7 +493,9 @@ export async function renderVideo({
     encodedBytes += chunk.byteLength;
     if (encodedBytes > maxEncodedBytes)
       throw new Error(
-        t("video.render.encodedSizeLimit", { size: maxEncodedBytes / 1024 ** 2 }),
+        t("video.render.encodedSizeLimit", {
+          size: maxEncodedBytes / 1024 ** 2,
+        }),
       );
     const bytes = new Uint8Array(chunk.byteLength);
     chunk.copyTo(bytes);
@@ -511,7 +514,9 @@ export async function renderVideo({
   try {
     videoEncoder = new VideoEncoderClass({
       error: (cause) =>
-        failure.abort(new Error(t("video.render.videoEncodingFailed"), { cause })),
+        failure.abort(
+          new Error(t("video.render.videoEncodingFailed"), { cause }),
+        ),
       output: (chunk, metadata) =>
         output(() => {
           const timestamp = micros(encodedVideoFrames / fps);
@@ -541,7 +546,9 @@ export async function renderVideo({
     });
     audioEncoder = new AudioEncoderClass({
       error: (cause) =>
-        failure.abort(new Error(t("video.render.audioEncodingFailed"), { cause })),
+        failure.abort(
+          new Error(t("video.render.audioEncodingFailed"), { cause }),
+        ),
       output: (chunk, metadata) =>
         output(() => {
           audioOrigin ??= chunk.timestamp;
@@ -571,7 +578,6 @@ export async function renderVideo({
       1,
       Math.round(keyFrameIntervalSeconds * fps),
     );
-    const textLayouts = new Map<string, string[]>();
     for (let index = 0; index < totalFrames; index++) {
       stop.throwIfAborted();
       if (index - encodedVideoFrames >= maxVideoFramesInFlight) {
@@ -585,8 +591,15 @@ export async function renderVideo({
       stop.throwIfAborted();
 
       const time = index / fps;
-      const turn = latestStarted(plan.scenes, time);
-      if (turn?.kind === "turn") {
+      const overlayFrame = overlay.frameAt(time);
+      const { turn, card } = overlayFrame;
+      const liveTurn =
+        turn &&
+        (!card ||
+          (card.kind === "chapter" && card.chapterId === turn.chapterId));
+      let paletteId = paletteFor(effectiveSceneId);
+      let labelDrawn = false;
+      if (liveTurn) {
         const override = chapterOverrides.get(turn.chapterId);
         const selected = override ?? defaultScene;
         const active =
@@ -605,25 +618,36 @@ export async function renderVideo({
           if (!override) effectiveSceneId = active.scene.id;
         }
         chapterScenes.set(turn.chapterId, active.scene.id);
-        drawTurnFrame(
-          context,
-          active.scene,
-          {
-            canvas: active.canvas,
-            plan,
-            audio: pcm,
-            theme,
-            time,
-            index,
-            turn,
-            textLayouts,
-          },
-          speakerLabels.get(turn.speakerId) ??
-            t("video.caption.speaker", { name: turn.speakerId }),
-        );
+        paletteId = paletteFor(active.scene.id);
+        overlay.drawBackground(paletteId);
+        if (!card) {
+          drawStage(
+            context,
+            active.scene,
+            {
+              canvas: active.canvas,
+              plan,
+              audio: pcm,
+              theme,
+              orientation,
+              paletteId,
+              mood,
+              time,
+              index,
+              turn,
+              textLayouts,
+            },
+            () => {
+              if (!labelDrawn) overlay.drawHosts(overlayFrame, paletteId);
+              labelDrawn = true;
+            },
+          );
+          overlay.drawStageFade(overlayFrame, paletteId);
+        }
       } else {
-        drawTitleCard(context, plan, theme, textLayouts, turn?.title);
+        overlay.drawBackground(paletteId);
       }
+      overlay.draw(overlayFrame, paletteId, labelDrawn);
       const timestamp = micros(time);
       const endTime = Math.min(duration, (index + 1) / fps);
       const frame = new VideoFrameClass(canvas, {
@@ -703,6 +727,10 @@ export async function renderVideo({
       videoCodec: videoConfig.codec,
       audioCodec,
       sceneId: effectiveSceneId,
+      orientation,
+      paletteId: paletteFor(effectiveSceneId),
+      fontNotices: preflight?.notices ?? [],
+      captionReviewCount: overlay.captionReviewCount,
       ...(studio ? { studio3d: studio.settings } : {}),
       chapterScenes: [...chapterScenes].map(([chapterId, sceneId]) => ({
         chapterId,

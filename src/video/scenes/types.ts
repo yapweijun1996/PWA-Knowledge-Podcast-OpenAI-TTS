@@ -1,22 +1,37 @@
 import { t } from "../../i18n/index.ts";
+import type { Orientation } from "../design/tokens.ts";
 import type { PcmAudio } from "../pcm.ts";
-import type { VideoTheme } from "../themes.ts";
-import type { TimelinePlan, VideoTurn } from "../timeline.ts";
+import type { VideoPaletteId, VideoTheme } from "../themes.ts";
+import type { TimelinePlan, VideoMood, VideoTurn } from "../timeline.ts";
 import type { Studio3dNotice } from "./studio3d/presets.ts";
 
 export type SceneCanvas = OffscreenCanvas | HTMLCanvasElement;
 export type SceneContext =
   OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-export type DrawingContext = Pick<
-  SceneContext,
-  | "fillStyle"
-  | "font"
-  | "textAlign"
-  | "textBaseline"
-  | "fillRect"
-  | "fillText"
-  | "measureText"
->;
+export type DrawingContext = Partial<
+  Pick<
+    SceneContext,
+    | "beginPath"
+    | "arc"
+    | "roundRect"
+    | "fill"
+    | "stroke"
+    | "strokeStyle"
+    | "lineWidth"
+    | "globalAlpha"
+    | "createLinearGradient"
+  >
+> &
+  Pick<
+    SceneContext,
+    | "fillStyle"
+    | "font"
+    | "textAlign"
+    | "textBaseline"
+    | "fillRect"
+    | "fillText"
+    | "measureText"
+  >;
 export type TextLayoutCache = Map<string, string[]>;
 
 export type SceneNotice =
@@ -39,6 +54,10 @@ type SceneInputs = {
   readonly plan: TimelinePlan;
   readonly audio: PcmAudio;
   readonly theme: VideoTheme;
+  /** Supplied by renderVideo. Optional for existing scene callers and fixtures. */
+  readonly orientation?: Orientation;
+  readonly paletteId?: VideoPaletteId;
+  readonly mood?: VideoMood;
 };
 
 export type VideoSceneEnvironment = SceneInputs & {
@@ -56,7 +75,7 @@ export type VideoSceneFrame = SceneInputs & {
     | {
         readonly kind: "2d";
         readonly context: SceneContext;
-      /** Draw the shared label early when the 2D context uses its default state. */
+        /** Draw the shared label early when the 2D context uses its default state. */
         readonly drawSpeakerLabel: () => void;
       }
     | { readonly kind: "webgl" }

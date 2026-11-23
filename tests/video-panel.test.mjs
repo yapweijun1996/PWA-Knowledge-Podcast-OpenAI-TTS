@@ -93,7 +93,9 @@ test("estimated timelines fit verified WAV duration and use final chapter anchor
       .map(({ audioStart }) => audioStart),
     [0, 2.23, 5.46],
   );
-  assert.equal(plan.duration, 9.46 + 2 + 3 * 1.5);
+  // Speech starts at frame 0 and chapter cards overlay the stage, so the video
+  // lasts exactly as long as the verified audio.
+  assert.equal(plan.duration, 9.46);
   assert.equal(plan.chapters[0].timestamp, "0:00");
 
   const measured = planStudioVideo(

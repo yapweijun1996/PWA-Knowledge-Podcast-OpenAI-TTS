@@ -22,22 +22,22 @@ Chromium and Safari fixture runs below.
   finished audio metadata with total duration and chapter starts.
   [Library](../src/factory/library.ts), [audio assembly](../server/audio.mjs),
   [audio validation](../shared/audio-record.ts), [record types](../shared/factory.ts)
-- T33 creates a deterministic scene plan at 30 fps and 1920×1080 by default,
-  with a 1080×1920 preset. The intro adds two seconds and each spoken chapter
-  adds a 1.5-second card. The renderer can hold the preceding visual over the
-  existing inter-turn pauses. Turn `audioStart` values refer to the original
-  assembly clock. A renderer can use the current clips, or use these offsets to
-  splice the assembled WAV when timing is fully measured. Chapter markers use
-  the video clock, with the opening chapter at `0:00`.
+- T59 plans 30 fps at 1920×1080 by default and also supports 1080×1920.
+  The first turn and its caption start at frame 0. Later chapters replace the
+  stage on their first voiced frame, for 1.6 s landscape or about 1.33 s portrait
+  at 30 fps, capped by the chapter length. Cards leave audio and captions on the
+  assembly clock. The chapter markers retain the opening at `0:00` and use the
+  same starts as the progress HUD. An optional end card extends the plan by
+  2.0 s landscape or 1.5 s portrait.
   [Timeline builder](../src/video/timeline.ts)
 - Current-revision clip durations provide measured turn intervals. Missing,
-  stale, or unusable durations are estimated at four CJK characters or 15 other
-  characters per second, with a 750 ms minimum. Episode-level duration and
-  chapter starts cannot establish individual turn boundaries on their own.
-  `estimated: true` denotes a preview plan with estimated turn times and
-  potentially estimated source offsets. Caption cues divide each turn
-  proportionally by character count, with up to two lines and double width
-  assigned to CJK characters.
+  stale, or unusable durations are estimated at four CJK graphemes or 15 other
+  graphemes per second, with a 750 ms minimum. The planner uses nominal glyph
+  widths and reflows once with measured font widths before encoding. It
+  allocates estimated phrase timings within each turn, snaps internal cue cuts
+  to the frame grid, and can use up to 200 ms of following same-host silence.
+  A timing breach sets `needsReview` on the cue. The render receipt reports
+  `captionReviewCount` after measured reflow.
   [Timeline builder](../src/video/timeline.ts)
 - The injected capability probe checks three 1080p30 video configurations
   (`avc1.420028`, `vp09.00.40.08`, `av01.0.08M.08`) and two mono audio
@@ -59,12 +59,29 @@ independent scene instance per render and disposes it on completion, error or
 cancellation.
 
 Waveform is the default and draws directly into the export canvas in 2D.
-WebGL scenes draw into a private canvas that the renderer composites before
-painting shared labels and captions. Intro and chapter cards use the same
-shared drawing code for every selection. A chapter can specify a `sceneId`
-on its card in `plan.scenes`, or via `chapterSceneIds` when building the plan.
+WebGL scenes draw into a private canvas that the renderer composites under the
+shared overlay. `VideoSceneEnvironment` and `VideoSceneFrame` receive the
+orientation, active palette ID, and mood. These fields are optional for
+existing scene callers. The waveform keeps a fixed idle tick on each rail
+and precomputes the amplitude envelope with 67 ms attack and 220 ms release
+against the clipped 480 ms PCM window. Draws look up the envelope by frame
+index. The overlay uses the matching palette and orientation tokens.
+
+Set `chapterSceneIds` on the builder for scene overrides, including the
+opening chapter. A legacy plan can carry its override on a chapter scene.
 Unknown IDs resolve to waveform with a receipt notice. The receipt records
-the resolved default and the scene used for each rendered chapter.
+the default scene and palette after fallback, the scene used for each rendered
+chapter, the orientation, and font notices. The renderer calls the font
+loader once with its export copy before measuring text. The loader owns
+bundled-face coverage and fallback notices.
+
+`TimelineOptions` can also supply a show name, host names, a dark palette,
+a mood, an end card, or a stage transition. Callout requests use episode time
+in seconds and a chapter ID. The planner schedules them on estimated turn or
+clause boundaries, keeps 3-second slots clear of chapter cards, and caps each
+chapter at three annotations. The default scene transition is a cut.
+The optional dip fades stage art through the palette plate while the shared
+text remains opaque.
 
 Studio 3D uses a lazy factory and loads Three.js when a render first needs the
 scene. It probes WebGL2 on a disposable canvas before initializing the scene.
@@ -80,9 +97,10 @@ the first preset in its list and records a notice. Intensity is clamped to
 0–1 and controls the audio response. The receipt stores the effective
 settings and scene notices. The Video panel restores those settings on reload
 and marks the saved preview out of date when the scene or its presets change.
-Studio 3D uses light overlay text against its dark palettes. The orbs
-represent hosts A and B. If an episode also has host C, that host's audio
-drives the spectrum and the shared overlay shows the speaker.
+The 3D scene uses a dark palette and the light theme uses the light waveform
+palette. Host C has a separate label in the overlay when speaking. The 2D
+stage retains its A and B rails and the 3D scene can use C's PCM for its
+spectrum.
 
 ## UNVERIFIED — real-browser spike
 
@@ -92,8 +110,8 @@ drives the spectrum and the shared overlay shows the speaker.
   exact configurations again for portrait output and any alternate audio rate.
 - Render a 10-second fixture from locally generated frames and audio, using no
   provider calls. Encode and flush both tracks, mux a sample MP4, and play it in
-  both browsers. Check dimensions, frame cadence, duration, and A/V sync after
-  inserting cards. Compare repeated renders and record which output properties
+  both browsers. Check dimensions, frame cadence, duration, and A/V sync across
+  the chapter overlays. Compare repeated renders and record which output properties
   are repeatable.
 - Measure elapsed time, peak memory, output size, and cancellation behavior on
   target desktop and mobile devices. Exercise saving, reloading, and replaying

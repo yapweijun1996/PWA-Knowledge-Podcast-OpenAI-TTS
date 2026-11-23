@@ -101,7 +101,8 @@ test("exports sanitized metadata, timeline chapters and finalized research offli
     "播客, 节目主题, 开场, 研究 证据, 结论",
   );
 
-  const chapters = ["0:00 开场", "0:15 研究 证据", "0:31 结论"];
+  // Chapters start at their first voiced frame: 12 s, then 12 + 14 s of speech.
+  const chapters = ["0:00 开场", "0:12 研究 证据", "0:26 结论"];
   for (const name of ["description.txt", "chapters.txt"]) {
     assert.deepEqual(chapterRows(contents(files, name)), chapters);
   }
