@@ -16,6 +16,25 @@ It defaults to 12 model requests per run and caps the limit at 20. Each request
 uses the current page key and an in-memory conversation with `store: false`.
 A run ends on completion, abort, an error or the step limit.
 
+## Studio
+
+Open the Agent section below the Studio intake. The panel requires a browser
+API key from Settings and an online connection. The goal, events and answer
+stay in page memory. The panel shows the default script model and the
+12-request estimate before the first call. Editing the goal clears run consent.
+The model loop uses the injected Responses fetcher. Approved production tools
+reuse the browser pipeline and its existing OpenAI endpoints.
+Each paid tool opens a separate consent dialog with the validated arguments
+and its own usage estimate. Escape denies the call. The current loop records
+`consent_denied` and stops.
+
+The activity log shows model steps, tool statuses and consent decisions with
+relative timestamps. Cancel stops additional dispatch and allows active tools
+to settle their local checkpoints. The result card lists confirmed saves,
+including partial production checkpoints. Cancellation during a dispatched
+request can leave an unknown paid outcome. Check OpenAI usage and the Library
+before starting another run.
+
 ## Consent and checkpoints
 
 - The host displays the `label: "estimate"` disclosure for `agent_run` and
@@ -42,6 +61,8 @@ A run ends on completion, abort, an error or the step limit.
 | `render_video`           | Free    | Takes an `episodeId` with current WAV audio and measured turn timings and saves an MP4.           |
 | `export_publish_package` | Free    | Takes a rendered `episodeId` and saves a ZIP with the MP4, thumbnail and manual-upload materials. |
 
-**UNVERIFIED** Live model calls, browser codec and IndexedDB behavior through
-this agent, and the later UI and pi integrations. Tests use fake provider
-requests and injected storage and media dependencies.
+Node tests use fake fetches and injected storage and media dependencies.
+Guarded Playwright cases cover the Studio workflow with mocked Responses
+turns, plus the locale and layout sweep. Browser execution, real provider
+usage, browser codec and artifact persistence through the Studio agent,
+and model-initiated pi tool calls remain **UNVERIFIED**.

@@ -422,7 +422,11 @@ export function createPodcastAgentBridge({
   render = renderVideo,
   makeThumbnail: thumbnail = makeThumbnail,
   timeoutMs,
-}: Partial<PodcastDependencies> & { timeoutMs?: number } = {}) {
+  settleOnAbort,
+}: Partial<PodcastDependencies> & {
+  timeoutMs?: number;
+  settleOnAbort?: boolean;
+} = {}) {
   return createAgentBridge(podcastTools, {
     deps: {
       library,
@@ -436,5 +440,6 @@ export function createPodcastAgentBridge({
     },
     getKey,
     timeoutMs,
+    settleOnAbort,
   });
 }

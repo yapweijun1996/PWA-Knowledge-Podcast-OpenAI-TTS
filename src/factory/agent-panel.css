@@ -1,0 +1,113 @@
+.factory-shell {
+  .agent-panel > summary {
+    min-block-size: var(--target-size);
+    align-content: center;
+  }
+
+  .agent-content,
+  .agent-form,
+  .agent-cost,
+  .agent-result,
+  .agent-dialog[open] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .agent-form textarea {
+    inline-size: 100%;
+    resize: vertical;
+  }
+
+  .agent-actions,
+  .agent-model,
+  .agent-key {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .agent-actions button {
+    min-inline-size: min(100%, var(--target-size));
+    white-space: normal;
+  }
+
+  .agent-cost,
+  .agent-result {
+    padding: var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--surface-soft);
+  }
+
+  .agent-panel
+    :is(.agent-form, .agent-cost, .agent-result, .agent-dialog)
+    :is(p, h2, ul, dl) {
+    margin: 0;
+  }
+
+  .agent-cost ul {
+    padding-inline-start: var(--space-5);
+  }
+
+  .agent-consent {
+    min-block-size: var(--target-size);
+    align-items: center;
+  }
+
+  .agent-consent input {
+    margin-block-start: 0;
+  }
+
+  .agent-log ol {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+  }
+
+  .agent-log:empty,
+  .agent-content > [role="status"]:empty {
+    position: absolute;
+  }
+
+  .agent-log li {
+    padding-block: var(--space-1);
+  }
+
+  .agent-time {
+    margin-inline-end: var(--space-2);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agent-answer {
+    white-space: pre-wrap;
+  }
+
+  .agent-dialog {
+    inline-size: min(calc(100% - 16px), 34rem);
+    max-inline-size: none;
+    max-block-size: calc(100% - 16px);
+    padding: var(--space-4);
+    margin: auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+    overflow-wrap: anywhere;
+    border: var(--border-size) solid var(--border);
+    border-radius: var(--radius-panel);
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .agent-dialog::backdrop {
+    background: #100b1a99;
+  }
+
+  .agent-arguments dt {
+    font-weight: var(--weight-strong);
+  }
+
+  .agent-arguments dd {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+}

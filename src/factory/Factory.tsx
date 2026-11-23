@@ -21,6 +21,7 @@ import { download } from "../audio";
 import { useI18n, type MessageKey } from "../i18n";
 import { safeErrorMessage, translateError } from "../i18n/errors";
 import { LibraryError, localizePublicError, StudioError, studio } from "./api";
+import { AgentPanel } from "./AgentPanel";
 import {
   BrowserProductionError,
   estimateBrowserProduction,
@@ -968,6 +969,16 @@ export function Factory({
               onSubmit={create}
             />
           )}
+          <AgentPanel
+            visible={visible && page === "studio"}
+            online={online}
+            keySet={browser.keySet}
+            blocked={busy || dirty || libraryState !== "ready"}
+            library={{ listRecords, receive }}
+            production={bounds}
+            navigation={navigation}
+            perform={perform}
+          />
         </div>
       </div>
       <footer>
