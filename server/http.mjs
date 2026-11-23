@@ -4,7 +4,7 @@ import { extname, resolve } from "node:path";
 import { studioAPI, studioBase } from "../shared/factory.ts";
 import { backupLimit, restoreRecord } from "../shared/episode-backup.ts";
 import { productionBounds, readPreferences } from "../shared/preferences.ts";
-import { PublicError } from "./errors.mjs";
+import { PublicError } from "../shared/pipeline/errors.ts";
 import { ownerBoundary } from "./session.mjs";
 import { episodeId } from "./store.mjs";
 

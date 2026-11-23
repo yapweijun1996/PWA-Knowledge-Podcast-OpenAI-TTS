@@ -1,16 +1,16 @@
-import { limits } from "../shared/factory.ts";
-import { collectEvidence } from "./claims.mjs";
-import { PublicError } from "./errors.mjs";
-import { responseParts } from "./openai.mjs";
+import { limits } from "../factory.ts";
+import { collectEvidence } from "./claims.ts";
+import { PublicError } from "./errors.ts";
+import { responseParts, type OpenAI, type ResponsesResult } from "./openai.ts";
 
 export async function researchTopic(
-  openai,
-  model,
-  topic,
-  signal,
+  openai: OpenAI,
+  model: string,
+  topic: string,
+  signal: AbortSignal,
   deep = false,
 ) {
-  const response = await openai(
+  const response = (await openai(
     "responses",
     {
       model,
@@ -29,7 +29,7 @@ Aim for ${deep ? "6 to 12" : "4 to 8"} claims with citations attached to each cl
       input: JSON.stringify({ topic }),
     },
     signal,
-  );
+  )) as ResponsesResult;
   if (
     !response.output?.some(
       (item) => item.type === "web_search_call" && item.status === "completed",

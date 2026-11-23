@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createNarrator } from "./audio.mjs";
 import { podcastHTTP } from "./http.mjs";
 import { createJobs } from "./jobs.mjs";
-import { createOpenAI, defaults } from "./openai.mjs";
+import { createOpenAI, defaults } from "../shared/pipeline/openai.ts";
 import { createCredential, createProduction } from "./production.mjs";
 import { mp3Encoder } from "./mp3.mjs";
 import { createStore } from "./store.mjs";

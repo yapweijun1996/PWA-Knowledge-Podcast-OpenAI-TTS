@@ -1,11 +1,46 @@
-import { activeHosts, hosts, limits, voices } from "../shared/factory.ts";
-import { PublicError } from "./errors.mjs";
-import { plans } from "./languages.mjs";
-import { structured } from "./openai.mjs";
+import { activeHosts, hosts, limits, voices } from "../factory.ts";
+import type {
+  Chapter,
+  Episode,
+  Host,
+  Language,
+  Research,
+  Script,
+} from "../factory.ts";
+import { PublicError } from "./errors.ts";
+import { plans } from "./languages.ts";
+import { structured, type OpenAI } from "./openai.ts";
+
+type Schema = Record<string, unknown>;
+type OutlineEpisode = Pick<
+  Episode,
+  "language" | "topic" | "production" | "voices" | "plan"
+> & {
+  research: Research;
+};
+type ScriptEpisode = Pick<Episode, "language" | "topic" | "voices" | "plan"> & {
+  research: Research;
+  outline: { chapters: Chapter[] };
+};
+
+type OutlineOutput = {
+  chapters?: { title: unknown; angle: unknown; claimIds: unknown }[];
+  language: Language;
+  hostCount: number;
+  targetSeconds: number;
+  rationale: unknown;
+};
+type ScriptOutput = {
+  title?: unknown;
+  chapters?: {
+    chapterId?: unknown;
+    turns?: { host: Host; text?: unknown; claimIds?: unknown }[];
+  }[];
+};
 
 const text = { type: "string" };
-const array = (items) => ({ type: "array", items });
-const object = (properties) => ({
+const array = (items: Schema) => ({ type: "array", items });
+const object = (properties: Record<string, Schema>) => ({
   type: "object",
   additionalProperties: false,
   required: Object.keys(properties),
@@ -22,7 +57,11 @@ const planSchema = object({
   targetSeconds: { type: "integer" },
   rationale: text,
 });
-function scriptSchema(chapters, cast, turnsPerChapter) {
+function scriptSchema(
+  chapters: Chapter[],
+  cast: Host[],
+  turnsPerChapter: number,
+) {
   return object({
     title: text,
     chapters: {
@@ -52,22 +91,22 @@ const invalid = () =>
   new PublicError(
     "生成内容超出长度限制或引用关系不完整。已保存先前阶段，可以重试。",
   );
-const required = (value, max) => {
+const required = (value: unknown, max: number) => {
   if (typeof value !== "string" || !value.trim() || value.trim().length > max)
     throw invalid();
   return value.trim();
 };
-function validateIds(ids, allowed) {
+function validateIds(ids: unknown, allowed: ReadonlySet<string>) {
   if (!Array.isArray(ids) || ids.some((id) => !allowed.has(id)))
     throw invalid();
-  return [...new Set(ids)];
+  return [...new Set<string>(ids)];
 }
 
-function invalidScript(reason) {
+function invalidScript(reason: string) {
   return new PublicError(`脚本校验失败：${reason}。已保存先前阶段，可以重试。`);
 }
 
-function scriptText(value, max, field) {
+function scriptText(value: unknown, max: number, field: string) {
   if (typeof value !== "string")
     throw invalidScript(`${field}必须是文本`);
   const trimmed = value.trim();
@@ -77,13 +116,18 @@ function scriptText(value, max, field) {
   return trimmed;
 }
 
-export async function makeOutline(openai, model, episode, signal) {
+export async function makeOutline(
+  openai: OpenAI,
+  model: string,
+  episode: OutlineEpisode,
+  signal: AbortSignal,
+) {
   const bounds = episode.production;
   const exactHosts = bounds?.exactHosts;
   const maxChapters = bounds
     ? Math.min(7, Math.max(2, Math.ceil(bounds.maxSeconds / 60)))
     : 4;
-  const { data, model: usedModel } = await structured(
+  const { data: output, model: usedModel } = await structured(
     openai,
     {
       model,
@@ -110,6 +154,7 @@ export async function makeOutline(openai, model, episode, signal) {
     },
     signal,
   );
+  const data = output as OutlineOutput;
   const allowed = new Set(episode.research.claims.map(({ id }) => id));
   if (
     !Array.isArray(data?.chapters) ||
@@ -166,7 +211,12 @@ export async function makeOutline(openai, model, episode, signal) {
   return { chapters, model: usedModel };
 }
 
-export async function makeScript(openai, model, episode, signal) {
+export async function makeScript(
+  openai: OpenAI,
+  model: string,
+  episode: ScriptEpisode,
+  signal: AbortSignal,
+): Promise<Script> {
   const cast = activeHosts(episode);
   const target = episode.plan?.targetSeconds;
   const maxTurns = target
@@ -178,7 +228,7 @@ export async function makeScript(openai, model, episode, signal) {
   const minUnits = target ? Math.floor(target * 1.25) : 0;
   const chapters = episode.outline.chapters;
   const turnsPerChapter = Math.floor(maxTurns / chapters.length);
-  const { data, model: usedModel } = await structured(
+  const { data: output, model: usedModel } = await structured(
     openai,
     {
       model,
@@ -205,6 +255,7 @@ Preserve all material limits or disagreement and attribute sensitive or conteste
     },
     signal,
   );
+  const data = output as ScriptOutput;
   if (!Array.isArray(data?.chapters)) throw invalidScript("章节必须是列表");
   if (data.chapters.length !== chapters.length)
     throw invalidScript(
@@ -240,7 +291,7 @@ Preserve all material limits or disagreement and attribute sensitive or conteste
         chapterId: chapter.id,
         host: turn.host,
         text: spoken,
-        claimIds: [...new Set(turn.claimIds)],
+        claimIds: [...new Set<string>(turn.claimIds)],
       };
     });
     if (!target) {

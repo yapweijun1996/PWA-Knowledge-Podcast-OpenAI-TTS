@@ -1,11 +1,13 @@
 export class PublicError extends Error {
-  constructor(message, status = 422) {
+  declare status: number;
+
+  constructor(message: string, status = 422) {
     super(message);
     this.status = status;
   }
 }
 
-export function providerError(status, code) {
+export function providerError(status: number, code: unknown) {
   if (status === 401)
     return new PublicError("OpenAI 密钥无效。请在服务器更新密钥并重启。");
   if (status === 403 || status === 404 || code === "model_not_found")

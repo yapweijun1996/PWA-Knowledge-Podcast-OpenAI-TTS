@@ -1,5 +1,5 @@
-import { PublicError, providerError } from "./errors.mjs";
-import { plans } from "./languages.mjs";
+import { PublicError, providerError } from "../shared/pipeline/errors.ts";
+import { plans } from "../shared/pipeline/languages.ts";
 
 export const sampleRate = 24_000;
 const bytesPerSecond = sampleRate * 2;

@@ -7,12 +7,12 @@ import { Readable, Writable } from "node:stream";
 import { setTimeout } from "node:timers/promises";
 import test from "node:test";
 import { createNarrator, prepareClip, wave } from "../server/audio.mjs";
-import { collectEvidence } from "../server/claims.mjs";
+import { collectEvidence } from "../shared/pipeline/claims.ts";
 import { podcastHTTP } from "../server/http.mjs";
 import { createJobs } from "../server/jobs.mjs";
-import { createOpenAI, defaults } from "../server/openai.mjs";
+import { createOpenAI, defaults } from "../shared/pipeline/openai.ts";
 import { createCredential, createProduction } from "../server/production.mjs";
-import { makeScript } from "../server/script.mjs";
+import { makeScript } from "../shared/pipeline/script.ts";
 import { createStore } from "../server/store.mjs";
 import { validateAudio } from "../shared/audio-record.ts";
 import { episodeAssets, readEpisode } from "../shared/episode-record.ts";
@@ -1072,7 +1072,7 @@ test("a restored cut retries transcription once with its original media and surv
 });
 
 test("adaptive outline keeps a longer target only with sufficient independent evidence", async () => {
-  const { makeOutline } = await import("../server/script.mjs");
+  const { makeOutline } = await import("../shared/pipeline/script.ts");
   const { textResponse } = await import("./fixtures/podcast-provider.mjs");
   const openai = async () =>
     textResponse(

@@ -1,4 +1,6 @@
-export const plans = {
+import type { Language } from "../factory.ts";
+
+export const plans: Record<Language, { script: string; audio: string }> = {
   en: {
     script:
       "Natural conversational English, with clear explanations and short turns.",
