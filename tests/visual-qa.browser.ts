@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import { build } from "vite";
 import { videoFontManifest } from "../src/video/fonts/manifest.ts";
 import {
@@ -284,7 +285,17 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
               status: "WARNING" as const,
             })),
         );
-        evidence[scope] = result;
+        const { framingCapture, ...fixtureEvidence } = result;
+        const frame = framingCapture?.frame;
+        const point = framingCapture?.point;
+        async function attachFrame(kind: string, png: number[]) {
+          const name = `visual-qa-${scope.replaceAll("/", "-")}-frame-${frame}-${kind}.png`;
+          const path = testInfo.outputPath(name);
+          await writeFile(path, Buffer.from(png));
+          await testInfo.attach(name, { path, contentType: "image/png" });
+        }
+        if (framingCapture) await attachFrame("decoded", framingCapture.png);
+        evidence[scope] = fixtureEvidence;
         const { elapsedMs, decode } = result.metrics;
         timings[scope].video = {
           renderMs: elapsedMs.render,
@@ -297,11 +308,21 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
         await step("reload for fresh draws (frame n/a)", () => page.reload());
         const shuffled = await step("fresh shuffled draws (hash frames)", () =>
           page.evaluate(
-            async ({ moduleURL, options, hashes }) => {
+            async ({ moduleURL, options, hashes, framingSample }) => {
               const harness: Harness = await import(moduleURL);
-              return harness.verifyShuffledDraws(options, hashes);
+              return harness.verifyShuffledDraws(
+                options,
+                hashes,
+                framingSample,
+              );
             },
-            { moduleURL, options, hashes: result.hashes },
+            {
+              moduleURL,
+              options,
+              hashes: result.hashes,
+              framingSample:
+                frame === undefined || !point ? undefined : { frame, point },
+            },
           ),
         );
         add(
@@ -312,7 +333,16 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
             detail: "raw SHA-256 changed on fresh shuffled draw",
           })),
         );
-        evidence[scope] = { ...result, shuffled };
+        const { rawFraming, ...shuffledEvidence } = shuffled;
+        if (framingCapture && rawFraming) {
+          await attachFrame("raw-replay", rawFraming.png);
+          const { png: _decodedPng, ...decodedEvidence } = framingCapture;
+          const { png: _rawPng, ...rawEvidence } = rawFraming;
+          console.log(
+            `${scope} framing evidence ${JSON.stringify({ ...decodedEvidence, rawReplay: rawEvidence })}`,
+          );
+        }
+        evidence[scope] = { ...fixtureEvidence, shuffled: shuffledEvidence };
       });
     }
     await runFixture(

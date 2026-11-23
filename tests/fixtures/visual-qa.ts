@@ -1295,6 +1295,23 @@ export async function runReaderSelfTest() {
   return { indexed: frames.map((frame) => indexed.get(frame)), native };
 }
 
+type FramePoint = { x: number; y: number };
+type FramingSample = { frame: number; point: FramePoint };
+
+function neighborhood(pixels: Pixels, width: number, point: FramePoint) {
+  return Array.from({ length: 5 }, (_, row) =>
+    Array.from({ length: 5 }, (_, column) => {
+      const offset = ((point.y + row - 2) * width + point.x + column - 2) * 4;
+      return Array.from(pixels.subarray(offset, offset + 3));
+    }),
+  );
+}
+
+async function framePng(canvas: OffscreenCanvas) {
+  const blob = await canvas.convertToBlob({ type: "image/png" });
+  return Array.from(new Uint8Array(await blob.arrayBuffer()));
+}
+
 function freeze<T>(value: T): T {
   if (value && typeof value === "object") {
     for (const item of Object.values(value)) freeze(item);
@@ -1312,6 +1329,7 @@ async function shuffledDraws(
   frames: number[],
   theme: "light" | "dark",
   rawHashes: Record<number, string>,
+  framingSample?: FramingSample,
 ) {
   const { width, height } = plan.resolution;
   const output = new OffscreenCanvas(width, height).getContext("2d", {
@@ -1392,7 +1410,22 @@ async function shuffledDraws(
     const mismatches = [];
     for (const frame of shuffled)
       if ((await draw(frame)) !== rawHashes[frame]) mismatches.push(frame);
-    return { frames: shuffled, mismatches };
+    let rawFraming;
+    if (framingSample) {
+      const { frame, point } = framingSample;
+      const hash = await draw(frame);
+      rawFraming = {
+        rgb: neighborhood(
+          output.getImageData(0, 0, width, height).data,
+          width,
+          point,
+        ),
+        matchesObservedRaw:
+          rawHashes[frame] === undefined ? null : hash === rawHashes[frame],
+        png: await framePng(output.canvas),
+      };
+    }
+    return { frames: shuffled, mismatches, rawFraming };
   } finally {
     scene.dispose();
   }
@@ -1409,6 +1442,7 @@ function visualTheme(options: VisualCase) {
 export async function verifyShuffledDraws(
   options: VisualCase,
   hashes: FrameHashes,
+  framingSample?: FramingSample,
 ) {
   const { plan, audio } = fixture(options);
   setLocale(interfaceLocales[options.language]);
@@ -1423,6 +1457,7 @@ export async function verifyShuffledDraws(
     Object.keys(rawHashes).map(Number),
     visualTheme(options),
     rawHashes,
+    framingSample,
   );
 }
 
@@ -1774,6 +1809,14 @@ export async function runVisualCase(options: VisualCase) {
     throw new Error(
       `Expected H.264 for the decoded checks, received ${rendered.videoCodec}`,
     );
+  let framingCapture:
+    | (FramingSample & {
+        coded: [number, number];
+        visible: unknown;
+        decodedRgb: number[][][];
+        png: Promise<number[]>;
+      })
+    | undefined;
   function readExact(image: VideoFrame, frame: number) {
     readback.drawImage(image, 0, 0);
     const { data } = readback.getImageData(0, 0, width, height);
@@ -1792,12 +1835,25 @@ export async function runVisualCase(options: VisualCase) {
       exteriorEdges.decodedLargestComponent,
       decoded.largestComponent,
     );
-    if (raw.total || decoded.connectedPixels)
+    if (raw.total || decoded.connectedPixels) {
+      const point = decoded.first ?? raw.first;
+      const coded: [number, number] = [image.codedWidth, image.codedHeight];
+      const visible = image.visibleRect?.toJSON();
+      if (!framingCapture && point)
+        framingCapture = {
+          frame,
+          point,
+          coded,
+          visible,
+          decodedRgb: neighborhood(data, width, point),
+          png: framePng(readback.canvas),
+        };
       add({
         criterion: "framing",
         frame,
-        detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component)`,
+        detail: `Strong edges outside title-safe: ${raw.total} raw, ${decoded.total} decoded (${decoded.largestComponent} in largest connected component); first candidate ${JSON.stringify(point)}, coded ${coded.join("×")}, visible ${JSON.stringify(visible)}`,
       });
+    }
     const observed = observations.get(frame) ?? [];
     const textEvidence = observed.map(({ role, text, raw, pairs, bounds }) => {
       const decoded = decodedInk(data, pairs);
@@ -2002,6 +2058,9 @@ export async function runVisualCase(options: VisualCase) {
     issues,
     hashes,
     flashDiagnostics: assessment.diagnostics,
+    framingCapture: framingCapture
+      ? { ...framingCapture, png: await framingCapture.png }
+      : undefined,
     metrics: {
       resolution: { width, height },
       fps,
