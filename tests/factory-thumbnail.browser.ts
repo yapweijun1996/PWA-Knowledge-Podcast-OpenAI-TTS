@@ -16,6 +16,7 @@ const variants = [
   {
     variant: "topic-graphic",
     paletteId: "aurora",
+    language: "zh",
     headline: "组屋如何混居",
     ink: "#F5F7FC",
     right: 755,
@@ -23,6 +24,7 @@ const variants = [
   {
     variant: "host-pair",
     paletteId: "sunset",
+    language: "zh",
     headline: "邻里怎样共享空间",
     ink: "#F5F7FC",
     right: 734,
@@ -30,8 +32,18 @@ const variants = [
   {
     variant: "headline",
     paletteId: "light",
+    language: "zh",
     headline: "社区空间人人共享",
     ink: "#172238",
+    right: 1160,
+  },
+  {
+    variant: "headline",
+    paletteId: undefined,
+    language: "en",
+    // Lowercase letters with no ascenders or descenders exercise x-height.
+    headline: "more room",
+    ink: "#F5F7FC",
     right: 1160,
   },
 ] as const satisfies readonly (ThumbnailOptions & {
@@ -115,10 +127,17 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
       await document.fonts.ready;
 
       const reports = [];
-      for (const { variant, paletteId, headline, ink, right } of cases) {
+      for (const {
+        variant,
+        paletteId,
+        headline,
+        language,
+        ink,
+        right,
+      } of cases) {
         const png = await encodeThumbnail(
           document.createElement("canvas"),
-          { variant, paletteId, headline, language: "zh" },
+          { variant, paletteId, headline, language },
           async () => ({ notices: [], missingCharacters: [] }),
         );
         const image = await createImageBitmap(png);
@@ -176,7 +195,7 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           }
         }
 
-        const inkHeights = [160, 320].map((w) => {
+        const previewPixels = (w: number) => {
           const h = (w * 9) / 16;
           const preview = new OffscreenCanvas(w, h);
           const sample = preview.getContext("2d", {
@@ -185,7 +204,12 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           })!;
           sample.imageSmoothingQuality = "high";
           sample.drawImage(image, 0, 0, w, h);
-          const pixels = sample.getImageData(0, 0, w, h).data;
+          return sample.getImageData(0, 0, w, h).data;
+        };
+
+        const inkHeights = [160, 320].map((w) => {
+          const h = (w * 9) / 16;
+          const pixels = previewPixels(w);
           const baseline = (h - 1) * w * 4;
           const scale = w / width;
           let tallest = 0;
@@ -215,9 +239,64 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           }
           return tallest;
         });
+
+        const scanHostPair = (w: number) => {
+          const h = (w * 9) / 16;
+          const pixels = w === width ? data : previewPixels(w);
+          const baseline = (h - 1) * w * 4;
+          const scale = w / width;
+          // Scan only the orb region above the ground shadow, using the
+          // unobstructed last row as the background reference for each column.
+          const top = Math.ceil(210 * scale);
+          const bottom = Math.floor(416 * scale);
+          const spans: { start: number; end: number }[] = [];
+          for (
+            let x = Math.ceil(768 * scale);
+            x < Math.floor(1188 * scale);
+            x++
+          ) {
+            let occupied = false;
+            for (let y = top; y < bottom && !occupied; y++) {
+              const offset = (y * w + x) * 4;
+              occupied = [0, 1, 2].some(
+                (channel) =>
+                  Math.abs(
+                    pixels[offset + channel] -
+                      pixels[baseline + 4 * x + channel],
+                  ) >= 16,
+              );
+            }
+            if (!occupied) continue;
+            const last = spans.at(-1);
+            if (last?.end === x) last.end = x + 1;
+            else spans.push({ start: x, end: x + 1 });
+          }
+          const visible = spans.map(({ start, end }) => {
+            let highContrastRows = 0;
+            for (let y = top; y < bottom; y++) {
+              let ink = 0;
+              for (let x = start; x < end; x++) {
+                if (
+                  thumbnailContrastRatio(
+                    toHex(pixels, (y * w + x) * 4),
+                    toHex(pixels, baseline + x * 4),
+                  ) >= 3
+                )
+                  ink++;
+              }
+              if (ink >= (end - start) / 3) highContrastRows++;
+            }
+            return { width: end - start, highContrastRows };
+          });
+          const gap = spans.length === 2 ? spans[1].start - spans[0].end : 0;
+          return { w, gap, visible };
+        };
+        const hostPair =
+          variant === "host-pair" ? [1280, 320, 160].map(scanHostPair) : [];
         image.close();
         reports.push({
           variant,
+          language,
           width,
           height,
           bytes: png.size,
@@ -226,6 +305,7 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           headlinePixels,
           lowestContrast,
           inkHeights,
+          hostPair,
         });
       }
       return reports;
@@ -245,7 +325,28 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
     expect(report.badgeInk, report.variant).toBe(0);
     expect(report.headlinePixels, report.variant).toBeGreaterThan(0);
     expect(report.lowestContrast, report.variant).toBeGreaterThanOrEqual(4.5);
-    expect(report.inkHeights[0], report.variant).toBeGreaterThanOrEqual(8);
-    expect(report.inkHeights[1], report.variant).toBeGreaterThanOrEqual(16);
+    const inkFloor = report.language === "zh" ? 8 : 6;
+    expect(report.inkHeights[0], report.variant).toBeGreaterThanOrEqual(
+      inkFloor,
+    );
+    expect(report.inkHeights[1], report.variant).toBeGreaterThanOrEqual(
+      2 * inkFloor,
+    );
+    for (const { w, gap, visible } of report.hostPair) {
+      expect(visible, `${w}px host silhouettes`).toHaveLength(2);
+      expect(gap, `${w}px host gap`).toBeGreaterThanOrEqual(
+        w === 1280 ? 16 : 1,
+      );
+      if (w === 1280) expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
+      for (const orb of visible) {
+        expect(orb.width, `${w}px host width`).toBeGreaterThanOrEqual(
+          (18 * w) / 160,
+        );
+        expect(
+          orb.highContrastRows,
+          `${w}px host contrast rows`,
+        ).toBeGreaterThanOrEqual((15 * w) / 160);
+      }
+    }
   }
 });

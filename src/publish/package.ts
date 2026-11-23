@@ -6,6 +6,7 @@ import {
 } from "../i18n/index.ts";
 import type { ensureVideoFonts } from "../video/fonts/loader.ts";
 import type { TimelinePlan } from "../video/timeline.ts";
+import { themePalette } from "../video/themes.ts";
 import {
   assertThumbnailSize,
   encodeThumbnail,
@@ -217,6 +218,9 @@ export function buildPublishPackage({
     language: episode.language,
     topicKeywords: [topic, scriptTitle],
     ...thumbnail,
+    paletteId:
+      thumbnail?.paletteId ??
+      themePalette(thumbnail?.theme ?? "dark", plan.paletteId),
   };
   const { variant } = resolveThumbnailVariant(thumbnailOptions);
   const chapters = plan.chapters.map(({ timestamp, title }, index) => ({

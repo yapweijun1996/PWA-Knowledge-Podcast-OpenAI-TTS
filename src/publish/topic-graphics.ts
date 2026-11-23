@@ -364,10 +364,11 @@ export function drawHostPair(
   reduced = false,
 ) {
   inGraphicBox(ctx, box, () => {
-    const ax = 0.272,
+    // Leave roughly 20 px between silhouettes in the native thumbnail box.
+    const ax = 0.244,
       ay = 0.456,
       ar = 0.22;
-    const bx = 0.715,
+    const bx = 0.743,
       by = 0.523,
       br = 0.231;
     ellipse(ctx, 0.5, 0.791, 0.43, 0.054, palette.track + "40");
@@ -392,7 +393,7 @@ export function drawHostPair(
     ellipse(ctx, ax, ay, ar, ar, smooth);
     ctx.save();
     ctx.clip();
-    orbBand(ctx, ax, ay + ar * 0.1, ar, palette.plate, 0.021);
+    orbBand(ctx, ax, ay + ar * 0.1, ar, palette.plate, 0.029);
     ctx.restore();
 
     const contour: Path = [
