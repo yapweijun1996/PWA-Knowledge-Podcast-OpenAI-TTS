@@ -1,16 +1,18 @@
+import { t } from "./i18n/index.ts";
+
 // Demo audio is an audible signal, not synthesized narration or an OpenAI sample.
 export async function demoAudio(
   text: string,
   signal: AbortSignal,
 ): Promise<Blob> {
-  if (!text.trim()) throw new Error("请先输入脚本");
+  if (!text.trim()) throw new Error(t("studio.demoAudio.missingScript"));
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(resolve, 500);
+    const timer = setTimeout(resolve, 500);
     signal.addEventListener(
       "abort",
       () => {
-        clearTimeout(t);
-        reject(new DOMException("Cancelled", "AbortError"));
+        clearTimeout(timer);
+        reject(new DOMException(t("studio.demoAudio.cancelled"), "AbortError"));
       },
       { once: true },
     );
@@ -55,11 +57,11 @@ export function download(blob: Blob, name: string) {
 
 /** Concatenate compatible PCM mono WAV segments without changing their format. */
 export async function joinDemoWavs(blobs: Blob[], pauseMs = 0): Promise<Blob> {
-  if (!blobs.length) throw new Error("No audio to export");
+  if (!blobs.length) throw new Error(t("studio.demoAudio.noAudio"));
   if (blobs.reduce((sum, blob) => sum + blob.size, 0) > 256 * 1024 * 1024)
-    throw new Error("Joined audio too large");
+    throw new Error(t("studio.demoAudio.tooLarge"));
   if (!Number.isInteger(pauseMs) || pauseMs < 0 || pauseMs > 1000)
-    throw new Error("Invalid pause duration");
+    throw new Error(t("studio.demoAudio.invalidPause"));
   const arrays = await Promise.all(
     blobs.map(async (blob) => new Uint8Array(await blob.arrayBuffer())),
   );
@@ -82,14 +84,15 @@ export async function joinDemoWavs(blobs: Blob[], pauseMs = 0): Promise<Blob> {
       (a.length - 44) % 2 !== 0 ||
       (sampleRate !== undefined && sampleRate !== view.getUint32(24, true))
     )
-      throw new Error("Invalid or incompatible WAV audio");
+      throw new Error(t("studio.demoAudio.invalidWave"));
     sampleRate = view.getUint32(24, true);
   }
   const pauseBytes = Math.round((sampleRate! * pauseMs) / 1000) * 2;
   const bytes =
     arrays.reduce((sum, a) => sum + a.length - 44, 0) +
     pauseBytes * (arrays.length - 1);
-  if (bytes > 256 * 1024 * 1024) throw new Error("Joined audio too large");
+  if (bytes > 256 * 1024 * 1024)
+    throw new Error(t("studio.demoAudio.tooLarge"));
   const result = new Uint8Array(44 + bytes);
   result.set(arrays[0].slice(0, 44));
   let offset = 44;

@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.ts";
+
 export const AUDIBLE_SAMPLE = 0.001;
 
 /** Encode mono PCM as a 16-bit WAV, retaining padding around audible samples. */
@@ -17,8 +19,7 @@ export function pcmToWav(
     }
     offset += chunk.length;
   }
-  if (first === undefined)
-    throw new Error("未收到可听见的音频，请检查连接。可能已经产生费用。");
+  if (first === undefined) throw new Error(t("studio.narration.noAudio"));
 
   first = Math.max(0, first - Math.floor(sampleRate * 0.15));
   last = Math.min(offset - 1, last + Math.floor(sampleRate * 0.25));

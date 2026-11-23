@@ -18,6 +18,8 @@ import {
   type Schedule,
 } from "../../shared/factory";
 import {
+  createTranslator,
+  defaultLocale,
   isLocale,
   locales,
   useI18n,
@@ -31,6 +33,28 @@ const languageNames = {
   en: "settings.language.en",
   ms: "settings.language.ms",
 } as const satisfies Record<Locale, MessageKey>;
+
+const contentLanguageNames = {
+  en: "settings.contentLanguage.english",
+  zh: "settings.contentLanguage.mandarin",
+  ms: "settings.contentLanguage.malay",
+  sg: "settings.contentLanguage.singaporeMixed",
+} as const satisfies Record<Language, MessageKey>;
+
+const scheduleMessageKeys = [
+  "settings.schedule.checkReserved",
+  "settings.schedule.noNewTopic",
+  "settings.schedule.productionStarted",
+  "settings.schedule.checkCancelled",
+  "settings.schedule.checkFailed",
+  "settings.schedule.searchIncomplete",
+  "settings.schedule.invalidTopic",
+  "settings.schedule.connectionFailed",
+] as const satisfies readonly MessageKey[];
+const sourceText = createTranslator(defaultLocale);
+const workerScheduleMessages = new Map(
+  scheduleMessageKeys.map((key) => [sourceText(key), key] as const),
+);
 
 type SelectProps = ComponentPropsWithoutRef<"select">;
 type ContainerProps = { className?: string; children?: ReactNode };
@@ -113,6 +137,7 @@ export function BrowserCredentials({
   configured: boolean;
   working: boolean;
 }) {
+  const { t } = useI18n();
   const key = useRef<HTMLInputElement>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState("");
@@ -138,17 +163,19 @@ export function BrowserCredentials({
       setError("");
     } catch (reason) {
       setError(
-        reason instanceof Error ? reason.message : "无法设置浏览器密钥。",
+        reason instanceof Error
+          ? reason.message
+          : t("settings.browserKey.saveFailed"),
       );
     }
   }
 
   return (
     <section className="factory-panel" aria-labelledby="browser-key-title">
-      <h2 id="browser-key-title">浏览器密钥</h2>
+      <h2 id="browser-key-title">{t("settings.browserKey.title")}</h2>
       <form className="factory-create" autoComplete="off" onSubmit={save}>
         <label className="field">
-          浏览器 OpenAI 密钥
+          {t("settings.browserKey.label")}
           <input
             ref={key}
             required
@@ -166,11 +193,11 @@ export function BrowserCredentials({
             disabled={working}
             onChange={(event) => setAcknowledged(event.target.checked)}
           />
-          我了解页面代码、浏览器扩展和遭入侵的设备都可能读取密钥。我会使用权限受限的密钥。密钥仅保存在此标签页内存中，离开或重新加载页面时清除。
+          {t("settings.browserKey.risk")}
         </label>
         <div className="factory-actions">
           <button className="outline" disabled={working || !acknowledged}>
-            设置浏览器密钥
+            {t("settings.browserKey.set")}
           </button>
           <button
             type="button"
@@ -183,7 +210,7 @@ export function BrowserCredentials({
               setError("");
             }}
           >
-            清除浏览器密钥
+            {t("settings.browserKey.clear")}
           </button>
         </div>
       </form>
@@ -194,8 +221,8 @@ export function BrowserCredentials({
       )}
       <p className="muted factory-setting-group" role="status">
         {configured
-          ? "已设置浏览器密钥。首次请求将验证权限。"
-          : "尚未设置浏览器密钥。设置后即可直接在浏览器制作。"}
+          ? t("settings.browserKey.configured")
+          : t("settings.browserKey.unconfigured")}
       </p>
     </section>
   );
@@ -214,15 +241,14 @@ export function ProductionCredentials({
   running: boolean;
   onKey: (key: string | null) => void;
 }) {
+  const { t } = useI18n();
   const key = useRef<HTMLInputElement>(null);
   return (
     <section className="factory-panel">
-      <h2>本机制作进程与密钥（可选）</h2>
+      <h2>{t("settings.workerKey.title")}</h2>
       {connected && runtime?.localProduction ? (
         <div className="factory-setting-group">
-          <p className="muted">
-            密钥只交给此工作台连接的受信任进程。通过界面输入的密钥驻留在进程内存，关闭网页不影响它，重启进程后需重新输入。浏览器备份不包含密钥。
-          </p>
+          <p className="muted">{t("settings.workerKey.risk")}</p>
           <form
             className="factory-actions"
             onSubmit={(event) => {
@@ -234,7 +260,7 @@ export function ProductionCredentials({
             }}
           >
             <label className="field">
-              OpenAI API 密钥
+              {t("settings.workerKey.label")}
               <input
                 ref={key}
                 required
@@ -245,7 +271,7 @@ export function ProductionCredentials({
               />
             </label>
             <button className="outline" disabled={working || running}>
-              设置密钥
+              {t("settings.workerKey.set")}
             </button>
             {runtime.keyMode === "session" && (
               <button
@@ -254,25 +280,29 @@ export function ProductionCredentials({
                 disabled={working || running}
                 onClick={() => onKey(null)}
               >
-                清除会话密钥
+                {t("settings.workerKey.clear")}
               </button>
             )}
           </form>
           <p className="muted">
-            {runtime.configured
-              ? runtime.keyMode === "environment"
-                ? "已从本机环境载入密钥。首次请求将验证权限。"
-                : "已接收密钥。首次请求将验证权限。"
-              : "尚无密钥。研究、配音和自动排程需要一个 OpenAI API 密钥。"}{" "}
-            {runtime.mp3
-              ? "本机可编码 MP3。"
-              : "本机提供 WAV，安装带 libmp3lame 的 FFmpeg 可生成 MP3。"}
+            {t("settings.workerKey.status", {
+              keyStatus: t(
+                runtime.configured
+                  ? runtime.keyMode === "environment"
+                    ? "settings.workerKey.environment"
+                    : "settings.workerKey.configured"
+                  : "settings.workerKey.unconfigured",
+              ),
+              audioStatus: t(
+                runtime.mp3
+                  ? "settings.workerKey.mp3"
+                  : "settings.workerKey.wav",
+              ),
+            })}
           </p>
         </div>
       ) : (
-        <p className="muted">
-          启动受信任的本机制作进程后，可在同一网址设置密钥。
-        </p>
+        <p className="muted">{t("settings.workerKey.unavailable")}</p>
       )}
     </section>
   );
@@ -301,11 +331,20 @@ export function ProductionSettings({
   onDiscover: () => void;
   onCancelDiscovery: () => void;
 }) {
+  const { locale, t, formatters } = useI18n();
   const consent = useRef<HTMLInputElement>(null);
   const allowed = preferences.allowedLanguages;
   const productionControls =
     connected && runtime?.localProduction && runtime.authenticated;
   const persisted = schedule?.preferences.enabled;
+  const scheduleMessageKey =
+    schedule && workerScheduleMessages.get(schedule.message);
+  const scheduleMessage = scheduleMessageKey
+    ? t(scheduleMessageKey)
+    : schedule?.message &&
+      (locale === defaultLocale
+        ? schedule.message
+        : t("settings.schedule.checkFailed"));
   function setLanguage(language: Language, checked: boolean) {
     const next = checked
       ? [...allowed, language]
@@ -331,23 +370,23 @@ export function ProductionSettings({
       <section className="factory-panel">
         <p className="muted">
           {connected && runtime?.localProduction
-            ? "请先登录本机制作进程，再设置自动化。"
-            : "请连接本机制作进程后再设置自动化。可在制作台直接用浏览器密钥手动制作。"}
+            ? t("settings.schedule.signIn")
+            : t("settings.schedule.connect")}
         </p>
       </section>
     );
 
   return (
     <section className="factory-panel">
-      <h2>制作偏好与排程</h2>
+      <h2>{t("settings.schedule.title")}</h2>
       <form className="factory-setting-group factory-create" onSubmit={save}>
         <label className="field">
-          选题兴趣与听众
+          {t("settings.schedule.interests")}
           <textarea
             value={preferences.interests}
             rows={2}
             maxLength={1000}
-            placeholder="例如：面向新加坡通勤者，用生活场景解释城市政策"
+            placeholder={t("settings.schedule.interestsExample")}
             onChange={(event) =>
               setPreferences({ ...preferences, interests: event.target.value })
             }
@@ -355,7 +394,7 @@ export function ProductionSettings({
         </label>
         <div className="factory-settings-grid">
           <label className="field">
-            语言首选
+            {t("settings.schedule.language")}
             <select
               value={preferences.language}
               onChange={(event) =>
@@ -365,16 +404,18 @@ export function ProductionSettings({
                 })
               }
             >
-              <option value="auto">AI 按主题选择</option>
+              <option value="auto">
+                {t("settings.schedule.autoLanguage")}
+              </option>
               {allowed.map((language) => (
                 <option key={language} value={language}>
-                  {languages[language]}
+                  {t(contentLanguageNames[language])}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            主持人数上限
+            {t("settings.schedule.maxHosts")}
             <select
               value={preferences.maxHosts}
               onChange={(event) =>
@@ -385,12 +426,14 @@ export function ProductionSettings({
               }
             >
               {[1, 2, 3].map((count) => (
-                <option key={count}>{count}</option>
+                <option key={count} value={count}>
+                  {formatters.number(count)}
+                </option>
               ))}
             </select>
           </label>
           <label className="field">
-            音频时长上限（分钟）
+            {t("settings.schedule.maxMinutes")}
             <select
               value={preferences.maxSeconds}
               onChange={(event) =>
@@ -402,13 +445,13 @@ export function ProductionSettings({
             >
               {[60, 120, 180, 240, 300, 360, 420].map((seconds) => (
                 <option key={seconds} value={seconds}>
-                  {seconds / 60}
+                  {formatters.number(seconds / 60)}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
-            选题检查频率
+            {t("settings.schedule.cadence")}
             <select
               value={preferences.cadence}
               onChange={(event) =>
@@ -418,13 +461,15 @@ export function ProductionSettings({
                 })
               }
             >
-              <option value="adaptive">AI 按选题价值调整</option>
-              <option value="daily">每日</option>
-              <option value="weekly">每周</option>
+              <option value="adaptive">
+                {t("settings.schedule.adaptive")}
+              </option>
+              <option value="daily">{t("settings.schedule.daily")}</option>
+              <option value="weekly">{t("settings.schedule.weekly")}</option>
             </select>
           </label>
           <label className="field">
-            滚动 7 天最多选题检查
+            {t("settings.schedule.weeklyLimit")}
             <select
               value={preferences.weeklyLimit}
               onChange={(event) =>
@@ -435,24 +480,24 @@ export function ProductionSettings({
               }
             >
               {[1, 2, 3, 4, 5, 6, 7].map((count) => (
-                <option key={count}>{count}</option>
+                <option key={count} value={count}>
+                  {formatters.number(count)}
+                </option>
               ))}
             </select>
           </label>
         </div>
         <fieldset className="factory-settings-languages">
-          <legend>节目可用语言</legend>
-          {Object.entries(languages).map(([code, label]) => (
+          <legend>{t("settings.schedule.allowedLanguages")}</legend>
+          {(Object.keys(languages) as Language[]).map((code) => (
             <label className="factory-check" key={code}>
               <input
                 type="checkbox"
-                checked={allowed.includes(code as Language)}
+                checked={allowed.includes(code)}
                 disabled={allowed.length === 1 && allowed[0] === code}
-                onChange={(event) =>
-                  setLanguage(code as Language, event.target.checked)
-                }
+                onChange={(event) => setLanguage(code, event.target.checked)}
               />
-              {label}
+              {t(contentLanguageNames[code])}
             </label>
           ))}
         </fieldset>
@@ -464,33 +509,40 @@ export function ProductionSettings({
               setPreferences({ ...preferences, enabled: event.target.checked })
             }
           />
-          启用无人值守选题、制作和音频核对
+          {t("settings.schedule.enable")}
         </label>
-        <p className="muted">
-          需要设备保持唤醒、本机进程保持运行。每日最多一次选题检查，跳过、取消或失败也占额度。停用排程会停止选题，已进入制作的节目可单独取消。
-        </p>
+        <p className="muted">{t("settings.schedule.limits")}</p>
         {preferences.enabled && (
           <label className="factory-check">
             <input ref={consent} type="checkbox" required />
-            同意按保存的上限向 OpenAI 发出自动请求，费用以平台账单为准。
+            {t("settings.schedule.consent")}
           </label>
         )}
         <button className="outline" disabled={working}>
-          保存偏好并应用排程
+          {t("settings.schedule.save")}
         </button>
       </form>
       {schedule && (
         <div className="factory-setting-group">
           <p role="status" className="muted">
-            {persisted ? "本机排程已开启。" : "本机排程已停用。"} 已用{" "}
-            {schedule.used} / {schedule.preferences.weeklyLimit} 次（滚动 7
-            天）。
+            {formatters.plural("settings.schedule.usage", schedule.used, {
+              state: t(
+                persisted
+                  ? "settings.schedule.enabled"
+                  : "settings.schedule.disabled",
+              ),
+              limit: schedule.preferences.weeklyLimit,
+            })}
             {schedule.nextCheck && runtime.configured
-              ? " 下次最早检查：" +
-                new Date(schedule.nextCheck).toLocaleString() +
-                "。"
-              : ""}
-            {schedule.message}
+              ? t("settings.schedule.nextCheck", {
+                  date:
+                    locale === defaultLocale
+                      ? new Date(schedule.nextCheck).toLocaleString()
+                      : formatters.dateTime(new Date(schedule.nextCheck)),
+                })
+              : null}
+            {scheduleMessage &&
+              t("settings.schedule.detail", { message: scheduleMessage })}
           </p>
           {schedule.running ? (
             <button
@@ -498,7 +550,7 @@ export function ProductionSettings({
               disabled={working}
               onClick={onCancelDiscovery}
             >
-              取消本轮选题
+              {t("settings.schedule.cancel")}
             </button>
           ) : (
             <button
@@ -511,7 +563,7 @@ export function ProductionSettings({
               }
               onClick={onDiscover}
             >
-              立即自动选题并制作
+              {t("settings.schedule.runNow")}
             </button>
           )}
         </div>
