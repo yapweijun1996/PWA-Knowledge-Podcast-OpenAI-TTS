@@ -57,6 +57,13 @@ or has a perpendicular gradient still counts as a framing violation. This
 classification was checked against both PNGs from the GitHub runner.
 [Paired frame evidence](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45195525332)
 
+The Studio 3D preview regression compares source-frame SHA-256 values from two
+actual worker exports. It decodes the resulting MP4s at the same presentation
+times and requires at least 40 dB RGB PSNR for every sampled frame. It also checks
+native playback. The GitHub Linux x64 pair had six identical source frames, 81
+matching sample timestamps and matching keyframe positions. FFmpeg measured a
+minimum of 43.74 dB across the two decoded videos. [Native encoding evidence](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45200272739)
+
 The rubric keeps a 120 s deadline per video fixture and a 30 s deadline for
 each thumbnail or fallback fixture. It records partial results and fails if
 a required check or fixture fails. It measures opaque glyph interiors in the

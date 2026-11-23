@@ -103,6 +103,9 @@ const previewFrames = [
   stageFrames[Math.floor(stageFrames.length / 2)],
   stageFrames.at(-1)!,
 ];
+const previewTimes = previewFrames.map((index) =>
+  Math.round((index * 1_000_000) / plan.fps),
+);
 
 async function openFixture(page: Page) {
   await page.addInitScript(() =>
@@ -206,11 +209,11 @@ async function servePreviewDecoder(page: Page) {
   );
 }
 
-async function decodedFrames(preview: Locator) {
+async function decodedFrames(preview: Locator, compare: boolean) {
   return preview.evaluate(
     async (
       video: HTMLVideoElement,
-      { decoderUrl, fps, frameCount, indices },
+      { compare, decoderUrl, fps, frameCount, indices },
     ) => {
       const module: typeof import("./fixtures/visual-mp4.ts") = await import(
         decoderUrl
@@ -224,6 +227,11 @@ async function decodedFrames(preview: Locator) {
         number,
         { pixels: Uint8ClampedArray; colors: number }
       >();
+      const reference: typeof samples | undefined = Reflect.get(
+        window,
+        "previewReferenceFrames",
+      );
+      if (compare && !reference) throw new Error("Missing reference preview");
       await module.readMp4Frames(
         blob,
         width,
@@ -251,6 +259,8 @@ async function decodedFrames(preview: Locator) {
           samples.set(index, { pixels, colors: colors.size });
         },
       );
+      if (compare) Reflect.deleteProperty(window, "previewReferenceFrames");
+      else Reflect.set(window, "previewReferenceFrames", samples);
       return Promise.all(
         indices.map(async (index) => {
           const sample = samples.get(index);
@@ -259,11 +269,26 @@ async function decodedFrames(preview: Locator) {
           const sha256 = Array.from(new Uint8Array(digest), (byte) =>
             byte.toString(16).padStart(2, "0"),
           ).join("");
-          return { sha256, colors: sample.colors };
+          const baseline = reference?.get(index);
+          let psnr: number | undefined;
+          if (baseline) {
+            let squaredError = 0;
+            for (let offset = 0; offset < sample.pixels.length; offset += 4) {
+              for (let channel = 0; channel < 3; channel++) {
+                const position = offset + channel;
+                squaredError +=
+                  (sample.pixels[position] - baseline.pixels[position]) ** 2;
+              }
+            }
+            const mean = squaredError / (width * height * 3);
+            psnr = mean === 0 ? Infinity : 10 * Math.log10(255 ** 2 / mean);
+          }
+          return { sha256, colors: sample.colors, psnr };
         }),
       );
     },
     {
+      compare,
       decoderUrl,
       fps: plan.fps,
       frameCount,
@@ -272,34 +297,70 @@ async function decodedFrames(preview: Locator) {
   );
 }
 
-async function instrumentRenderWorker(page: Page, setup: () => void) {
+async function instrumentRenderWorker(
+  page: Page,
+  setup: (times: number[]) => void,
+  times: number[] = [],
+) {
   await page.route("**/assets/render-worker-*.js", async (route) => {
     const script = await route.fetch();
     await route.fulfill({
       response: script,
-      body: `(${setup.toString()})();\n${await script.text()}`,
+      body: `(${setup.toString()})(${JSON.stringify(times)});\n${await script.text()}`,
     });
   });
 }
 
-test("Studio 3D saves a playable preview with repeatable decoded frame hashes", async ({
+test("Studio 3D saves a playable preview with repeatable source frames", async ({
   page,
 }) => {
   test.setTimeout(150_000);
   await servePreviewDecoder(page);
   await page.addInitScript(() => {
     const wordmarks = new Set<string>();
+    const runs: { time: number; sha256: string }[][] = [];
     Reflect.set(window, "renderedWordmarks", wordmarks);
+    Reflect.set(window, "renderedFrames", runs);
     window.Worker = class extends Worker {
       constructor(url: string | URL, options?: WorkerOptions) {
         super(url, options);
+        const raw: (typeof runs)[number] = [];
+        if (String(url).includes("render-worker")) runs.push(raw);
         this.addEventListener("message", ({ data }) => {
           if (data.kind === "wordmark") wordmarks.add(data.text);
+          if (data.kind === "raw-preview-hash")
+            raw.push({ time: data.time, sha256: data.sha256 });
         });
       }
     };
   });
-  await instrumentRenderWorker(page, () => {
+  await instrumentRenderWorker(page, (times) => {
+    const pending: Promise<void>[] = [];
+    globalThis.VideoEncoder = class extends VideoEncoder {
+      async flush() {
+        await super.flush();
+        await Promise.all(pending);
+        pending.length = 0;
+      }
+    };
+    globalThis.VideoFrame = class extends VideoFrame {
+      constructor(source: CanvasImageSource, init: VideoFrameInit) {
+        super(source, init);
+        const time = init.timestamp;
+        if (!(source instanceof OffscreenCanvas) || !times.includes(time))
+          return;
+        const context = source.getContext("2d")!;
+        const pixels = context.getImageData(0, 0, source.width, source.height);
+        pending.push(
+          crypto.subtle.digest("SHA-256", pixels.data).then((digest) => {
+            const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+              byte.toString(16).padStart(2, "0"),
+            ).join("");
+            globalThis.postMessage({ kind: "raw-preview-hash", time, sha256 });
+          }),
+        );
+      }
+    };
     const { prototype } = OffscreenCanvasRenderingContext2D;
     const fillText = prototype.fillText;
     prototype.fillText = function (text, x, y, maxWidth?) {
@@ -315,7 +376,7 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
         maxWidth === undefined ? [text, x, y] : [text, x, y, maxWidth],
       );
     };
-  });
+  }, previewTimes);
   const { panel, render, scene, preview } = await openFixture(page);
   await expect(
     panel.getByText(english("video.studio3d.description")),
@@ -338,12 +399,16 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
       await expect(preview).not.toHaveAttribute("src", previousUrl, {
         timeout: 65_000,
       });
+    const url = (await preview.getAttribute("src"))!;
+    await expect
+      .poll(() => preview.evaluate((video: HTMLVideoElement) => video.currentSrc))
+      .toBe(url);
     await expect
       .poll(() => preview.evaluate((video: HTMLVideoElement) => video.duration))
       .toBeCloseTo(plan.duration, 1);
     return {
-      url: (await preview.getAttribute("src"))!,
-      frames: await decodedFrames(preview),
+      url,
+      frames: await decodedFrames(preview, Boolean(previousUrl)),
     };
   }
 
@@ -368,9 +433,23 @@ test("Studio 3D saves a playable preview with repeatable decoded frame hashes", 
     new Set(studioFrames.map(({ sha256 }) => sha256)).size,
   ).toBeGreaterThan(1);
   const second = await renderAndSample(first.url);
-  expect(second.frames.map(({ sha256 }) => sha256)).toEqual(
-    first.frames.map(({ sha256 }) => sha256),
-  );
+  const runs = await page.evaluate(() => {
+    const raw: { time: number; sha256: string }[][] = Reflect.get(
+      window,
+      "renderedFrames",
+    );
+    return raw.map((run) => run.sort((a, b) => a.time - b.time));
+  });
+  expect(runs).toHaveLength(2);
+  expect(runs[0].map(({ time }) => time)).toEqual(previewTimes);
+  expect(runs[1]).toEqual(runs[0]);
+  for (const [index, { psnr }] of second.frames.entries()) {
+    // Native x64 encoded different H.264 packets from identical sources.
+    // 40 dB bounds decoded RGB error to about 2.55 levels RMS out of 255.
+    expect(psnr, `decoded frame ${previewFrames[index]}`).toBeGreaterThanOrEqual(
+      40,
+    );
+  }
 
   expect(await videoReceipts(page)).toEqual([
     expect.objectContaining({
