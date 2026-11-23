@@ -44,6 +44,7 @@ const toolNames = new Map<string, MessageKey>([
   ["research_topic", "agent.panel.tool.research"],
   ["write_script", "agent.panel.tool.script"],
   ["narrate_episode", "agent.panel.tool.narration"],
+  ["draft_storyboard", "agent.panel.tool.storyboard"],
   ["render_video", "agent.panel.tool.video"],
   ["export_publish_package", "agent.panel.tool.export"],
 ]);
@@ -323,7 +324,14 @@ export function useAgent({
         getKey: getBrowserKey,
         requestConsent: consent.requestConsent,
         onModelStep: (step) => log({ type: "model_step", step }),
-        onEvent: log,
+        onEvent(event) {
+          log(event);
+          if (
+            event.type === "tool_result" &&
+            event.tool === "draft_storyboard" &&
+            event.result.status === "ok"
+          ) recordSaves(["agent.panel.saved.storyboard"]);
+        },
       });
     } catch {
       outcome = { status: "tool_error", steps: 0, message: "" };

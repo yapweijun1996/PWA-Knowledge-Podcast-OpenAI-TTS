@@ -528,6 +528,54 @@ test("steps at i/fps and draws the same scene and caption sequence for identical
   );
 });
 
+test("storyboard chapter visuals use their own camera clock and the episode PCM clock", async () => {
+  const id = "test-storyboard-camera";
+  const frames = [];
+  registerScene({
+    id,
+    kind: "webgl",
+    label: "video.scene.waveform",
+    create: () => ({
+      id,
+      kind: "webgl",
+      init() {},
+      draw({ index, time, sceneTime, turn, paletteId, mood }) {
+        frames.push({ index, time, sceneTime, audioStart: turn.audioStart, paletteId, mood });
+      },
+      dispose() {},
+    }),
+  });
+  const direction = {
+    chapterId: "two",
+    paletteId: "ocean",
+    mood: "curious",
+    cameraPresetId: "push-in",
+    visualMetaphor: "host-orbs",
+    callouts: [],
+  };
+  const { deps } = fakeDependencies();
+  const result = await renderVideo({
+    plan: {
+      ...plan,
+      chapterWindows: [
+        { chapterId: "one", start: 0.5, end: 1.75 },
+        { chapterId: "two", start: 1.75, end: 2.45, sceneId: id, direction },
+      ],
+    },
+    audio,
+    theme: "dark",
+    deps,
+  });
+  assert.deepEqual(result.chapterScenes.at(-1), { chapterId: "two", sceneId: id });
+  assert.deepEqual(
+    frames.map(({ index, time, sceneTime }) => [index, time, sceneTime]),
+    [[7, 1.75, 0], [8, 2, 0.25], [9, 2.25, 0.5]],
+  );
+  assert.ok(frames.every(({ audioStart, paletteId, mood }) =>
+    audioStart === 1 && paletteId === "ocean" && mood === "curious"
+  ));
+});
+
 test("composites a chapter's WebGL scene before its text and reports actual scene IDs", async () => {
   const id = "test-webgl";
   const observed = [];

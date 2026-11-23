@@ -71,6 +71,8 @@ export type VideoSceneEnvironment = SceneInputs & {
 
 export type VideoSceneFrame = SceneInputs & {
   readonly time: number;
+  /** A storyboard chapter starts its camera clock at zero. PCM stays on the episode clock. */
+  readonly sceneTime?: number;
   readonly index: number;
   readonly turn: VideoTurn;
   readonly textLayouts: TextLayoutCache;

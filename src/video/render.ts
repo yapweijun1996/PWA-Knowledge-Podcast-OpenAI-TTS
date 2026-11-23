@@ -273,17 +273,21 @@ export async function renderVideo({
     return scene;
   }
   const defaultScene = resolveScene(sceneId);
-  const chapterOverrides = new Map<string, ReturnType<typeof getScene>>();
   const chapterSelections =
     plan.chapterWindows ??
     plan.scenes.filter((scene) => scene.kind === "chapter");
-  for (const chapter of chapterSelections) {
-    if (chapter.sceneId !== undefined)
-      chapterOverrides.set(
-        chapter.chapterId,
-        resolveScene(chapter.sceneId, chapter.chapterId),
-      );
-  }
+  const chapterOverrides = new Map(
+    chapterSelections.flatMap((chapter) =>
+      chapter.sceneId === undefined
+        ? []
+        : [
+            [
+              chapter.chapterId,
+              resolveScene(chapter.sceneId, chapter.chapterId),
+            ] as const,
+          ],
+    ),
+  );
   const studio = [defaultScene, ...chapterOverrides.values()].some(
     (scene) => scene.id === studio3dSceneId,
   )
@@ -303,6 +307,40 @@ export async function renderVideo({
     id === studio3dSceneId
       ? themePalette("dark", studio?.settings.paletteId)
       : themePalette(theme, plan.paletteId ?? studio?.settings.paletteId);
+  const chapterLooks = new Map(
+    (plan.chapterWindows ?? []).flatMap(({ chapterId, direction, start }) => {
+      if (!direction) return [];
+      const settings =
+        chapterOverrides.get(chapterId)?.id === studio3dSceneId
+          ? resolveStudio3dOptions({
+              ...studio?.settings,
+              paletteId: direction.paletteId,
+              moodId: direction.mood,
+              cameraPresetId: direction.cameraPresetId,
+              reducedMotion: plan.reducedMotion,
+            }).settings
+          : undefined;
+      const stageKey = settings
+        ? JSON.stringify([
+            settings.paletteId,
+            settings.cameraPresetId,
+            settings.moodId,
+          ])
+        : undefined;
+      return [
+        [
+          chapterId,
+          {
+            paletteId: direction.paletteId,
+            mood: direction.mood,
+            start,
+            settings,
+            stageKey,
+          },
+        ] as const,
+      ];
+    }),
+  );
   const chapterScenes = new Map<string, string>();
   const activeScenes = new Map<
     string,
@@ -434,25 +472,27 @@ export async function renderVideo({
   const textLayouts = new Map<string, string[]>();
   const overlay = prepareOverlay(context, plan, copy, textLayouts);
 
+  let webgl2: boolean | undefined;
   async function initScene(
     selected: ReturnType<typeof getScene>,
-    exportCanvas: SceneCanvas,
+    key = selected.id,
+    settings = studio?.settings,
   ): Promise<{ scene: VideoScene; canvas: SceneCanvas }> {
-    let layer: SceneCanvas | undefined = exportCanvas;
+    let layer: SceneCanvas | undefined = canvas;
     if (selected.kind === "webgl") {
       const { requiresWebgl2 } = selected;
       layer =
-        !requiresWebgl2 || supportsWebgl2()
+        !requiresWebgl2 || (webgl2 ??= supportsWebgl2())
           ? makeCanvas(width, height, requiresWebgl2)
           : undefined;
     }
     if (layer) {
       const scene = await waitFor(
-        Promise.resolve(selected.create(studio?.settings)),
+        Promise.resolve(selected.create(settings)),
         stop,
       );
       const active = { scene, canvas: layer };
-      activeScenes.set(selected.id, active);
+      activeScenes.set(key, active);
       stop.throwIfAborted();
       const result = await scene.init({
         canvas: layer,
@@ -460,20 +500,20 @@ export async function renderVideo({
         audio: visualPcm,
         theme,
         orientation,
-        paletteId: paletteFor(scene.id),
-        mood,
+        paletteId: settings?.paletteId ?? paletteFor(scene.id),
+        mood: settings?.moodId ?? mood,
         signal: stop,
         fail: (error) => failure.abort(error),
       });
       stop.throwIfAborted();
       if (result !== "webgl-unavailable") return active;
-      activeScenes.delete(selected.id);
+      activeScenes.delete(key);
       scene.dispose();
     }
     const fallback =
       activeScenes.get(defaultSceneId) ??
-      (await initScene(getScene(defaultSceneId), exportCanvas));
-    activeScenes.set(selected.id, fallback);
+      (await initScene(getScene(defaultSceneId)));
+    activeScenes.set(key, fallback);
     return fallback;
   }
 
@@ -584,6 +624,7 @@ export async function renderVideo({
 
     onProgress?.(0);
     let audioOffset = 0;
+    let activeChapterStage: string | undefined;
     let keyFrameAt = 0;
     const keyFrameInterval = Math.max(
       1,
@@ -604,18 +645,32 @@ export async function renderVideo({
       const time = index / fps;
       const overlayFrame = overlay.frameAt(time);
       const { turn, card } = overlayFrame;
+      const direction = turn && chapterLooks.get(turn.chapterId);
       const liveTurn =
         turn &&
         (!card ||
           card.kind === "intro" ||
           (card.kind === "chapter" && card.chapterId === turn.chapterId));
-      let paletteId = paletteFor(effectiveSceneId);
+      let paletteId = direction?.paletteId ?? paletteFor(effectiveSceneId);
       let labelDrawn = false;
       if (liveTurn) {
         const override = chapterOverrides.get(turn.chapterId);
         const selected = override ?? defaultScene;
+        // Allocate at most one customized WebGL scene for the current chapter.
+        const chapterStage = direction?.stageKey;
+        if (activeChapterStage !== chapterStage) {
+          if (activeChapterStage) {
+            const previous = activeScenes.get(activeChapterStage);
+            activeScenes.delete(activeChapterStage);
+            if (previous?.scene.id === studio3dSceneId)
+              previous.scene.dispose();
+          }
+          activeChapterStage = chapterStage;
+        }
+        const stageKey = chapterStage ?? selected.id;
         const active =
-          activeScenes.get(selected.id) ?? (await initScene(selected, canvas));
+          activeScenes.get(stageKey) ??
+          (await initScene(selected, stageKey, direction?.settings));
         if (selected.id !== active.scene.id) {
           const firstUse = override
             ? !chapterScenes.has(turn.chapterId)
@@ -630,7 +685,7 @@ export async function renderVideo({
           if (!override) effectiveSceneId = active.scene.id;
         }
         chapterScenes.set(turn.chapterId, active.scene.id);
-        paletteId = paletteFor(active.scene.id);
+        paletteId = direction?.paletteId ?? paletteFor(active.scene.id);
         overlay.drawBackground(paletteId);
         if (!card) {
           drawStage(
@@ -643,8 +698,11 @@ export async function renderVideo({
               theme,
               orientation,
               paletteId,
-              mood,
+              mood: direction?.mood ?? mood,
               time,
+              ...(direction
+                ? { sceneTime: Math.max(0, time - direction.start) }
+                : {}),
               index,
               turn,
               textLayouts,
@@ -742,7 +800,9 @@ export async function renderVideo({
       audioCodec,
       sceneId: effectiveSceneId,
       orientation,
-      paletteId: paletteFor(effectiveSceneId),
+      paletteId:
+        plan.storyboard?.chapters[0]?.paletteId ?? paletteFor(effectiveSceneId),
+      ...(plan.storyboard ? { storyboard: plan.storyboard } : {}),
       fontNotices: preflight?.notices ?? [],
       captionReviewCount: overlay.captionReviewCount,
       ...(studio ? { studio3d: studio.settings } : {}),

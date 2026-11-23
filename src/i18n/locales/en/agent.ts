@@ -236,4 +236,14 @@ export default [
   ["agent.panel.saved.transcript", "transcript"],
   ["agent.panel.saved.video", "MP4 video"],
   ["agent.panel.saved.publish", "publish ZIP"],
+  [
+    "agent.tool.draftStoryboard",
+    "Draft a reviewable video storyboard for an episode with a saved script. The user applies the draft in its Video panel.",
+  ],
+  [
+    "agent.estimate.storyboard",
+    "Up to one model request. The saved episode script is sent to OpenAI. Input tokens are billed separately.",
+  ],
+  ["agent.panel.tool.storyboard", "Draft storyboard"],
+  ["agent.panel.saved.storyboard", "Storyboard draft saved"],
 ] as const;

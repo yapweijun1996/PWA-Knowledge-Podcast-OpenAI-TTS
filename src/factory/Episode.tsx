@@ -509,7 +509,7 @@ export function EpisodeWorkspace({
           )}
         </section>
       )}
-      {finished && (
+      {script && (
         <VideoPanel episode={episode} audio={currentAudio ? savedAudio : null} />
       )}
       <Evidence episode={episode} />

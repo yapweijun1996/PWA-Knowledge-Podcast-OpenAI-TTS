@@ -13,9 +13,17 @@ import {
 import { videoLayout } from "./design/layout.ts";
 import type { PaletteId } from "./design/palettes.ts";
 import { designTokens, type Orientation } from "./design/tokens.ts";
+import {
+  storyboardMetaphors,
+  validateStoryboard,
+  type Storyboard,
+  type StoryboardChapter,
+  type VideoMood,
+} from "./storyboard.ts";
+
+export type { VideoMood } from "./storyboard.ts";
 
 type Resolution = { width: 1920; height: 1080 } | { width: 1080; height: 1920 };
-export type VideoMood = "calm" | "curious" | "urgent" | "warm" | "serious";
 type Transition = "cut" | "fade";
 type CalloutRequest = { chapterId: string; start: number; text: string };
 
@@ -23,6 +31,7 @@ export type TimelineOptions = {
   fps?: number;
   resolution?: Resolution;
   chapterSceneIds?: Readonly<Record<string, string>>;
+  storyboard?: Storyboard;
   callouts?: readonly CalloutRequest[];
   hostNames?: Readonly<Partial<Record<Host, string>>>;
   showName?: string;
@@ -57,7 +66,11 @@ type Scene = Interval &
   );
 
 export type VideoTurn = Extract<Scene, { kind: "turn" }>;
-export type ChapterWindow = Interval & { chapterId: string; sceneId?: string };
+export type ChapterWindow = Interval & {
+  chapterId: string;
+  sceneId?: string;
+  direction?: StoryboardChapter;
+};
 
 export type TimelinePlan = {
   duration: number;
@@ -67,6 +80,7 @@ export type TimelinePlan = {
   scenes: Scene[];
   chapters: { title: string; start: number; timestamp: string }[];
   chapterWindows?: ChapterWindow[];
+  storyboard?: Storyboard;
   callouts?: (Interval & { text: string })[];
   hostNames?: Partial<Record<Host, string>>;
   showName?: string;
@@ -389,6 +403,11 @@ export function buildTimeline(
       ...(C === undefined ? {} : { C: C.normalize("NFC") }),
     };
   }
+  const storyboard = validateStoryboard(options.storyboard, episode);
+  if (storyboard) plan.storyboard = storyboard;
+  const directions = new Map(
+    storyboard?.chapters.map((chapter) => [chapter.chapterId, chapter]),
+  );
   const windows = plan.chapterWindows!;
   const chaptersById = new Map(
     episode.outline?.chapters.map((chapter) => [chapter.id, chapter]),
@@ -412,14 +431,17 @@ export function buildTimeline(
       const previous = windows.at(-1);
       if (previous) previous.end = start;
       const overrides = options.chapterSceneIds;
-      const sceneId =
-        overrides && Object.hasOwn(overrides, chapter.id)
+      const direction = directions.get(chapter.id);
+      const sceneId = direction
+        ? storyboardMetaphors[direction.visualMetaphor]
+        : overrides && Object.hasOwn(overrides, chapter.id)
           ? overrides[chapter.id]
           : undefined;
       windows.push({
         chapterId: chapter.id,
         start,
         end: start,
+        ...(direction ? { direction } : {}),
         ...(sceneId === undefined ? {} : { sceneId }),
       });
       const chapterTitle = chapter.title.normalize("NFC");
@@ -484,9 +506,18 @@ export function buildTimeline(
     end: Math.min(titleHold, seconds(position)),
     ...(turns.length && topic ? { topic } : {}),
   });
-  if (options.callouts?.length)
+  const callouts = storyboard
+    ? windows.flatMap(({ chapterId, start, end, direction }) =>
+        (direction?.callouts ?? []).map(({ afterPercent, text }) => ({
+          chapterId,
+          start: start + ((end - start) * afterPercent) / 100,
+          text,
+        })),
+      )
+    : options.callouts;
+  if (callouts?.length)
     plan.callouts = scheduleCallouts(
-      options.callouts,
+      callouts,
       windows,
       plan.scenes,
       geometry,

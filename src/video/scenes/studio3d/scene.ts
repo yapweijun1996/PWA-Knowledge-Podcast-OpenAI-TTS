@@ -336,11 +336,11 @@ function buildStudio(
   scene.add(bars);
 
   const bar = new THREE.Object3D();
-  function renderAt(index: number) {
+  function renderAt(index: number, sceneTime = index / fps) {
     const offset = index * envelopeStride;
     const pose = cameraPoseAt(
       settings.cameraPresetId,
-      index / fps,
+      sceneTime,
       mood,
       orientation,
       settings.reducedMotion,
@@ -401,6 +401,31 @@ function buildStudio(
   return { renderAt, dispose };
 }
 
+// Per-chapter looks use the same PCM and clock as the rest of the episode.
+const envelopesByPlan = new WeakMap<
+  VideoSceneEnvironment["plan"],
+  WeakMap<VideoSceneEnvironment["audio"], Float32Array>
+>();
+
+async function audioEnvelopes({ plan, audio, signal }: VideoSceneEnvironment) {
+  let byAudio = envelopesByPlan.get(plan);
+  if (!byAudio) {
+    byAudio = new WeakMap();
+    envelopesByPlan.set(plan, byAudio);
+  }
+  const saved = byAudio.get(audio);
+  if (saved) return saved;
+  const precompute = prepareAudioEnvelopes(audio, plan);
+  let result = precompute.next();
+  while (!result.done) {
+    await new Promise<void>((resume) => setTimeout(resume, 0));
+    signal.throwIfAborted();
+    result = precompute.next();
+  }
+  byAudio.set(audio, result.value);
+  return result.value;
+}
+
 export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
   getRenderStats(): { calls: number; triangles: number } | undefined;
 } {
@@ -414,7 +439,8 @@ export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
   return {
     id: studio3dSceneId,
     kind: "webgl",
-    async init({ canvas, plan, audio, signal, fail }: VideoSceneEnvironment) {
+    async init(env: VideoSceneEnvironment) {
+      const { canvas, plan, signal, fail } = env;
       signal.throwIfAborted();
       try {
         gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
@@ -432,13 +458,8 @@ export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
       renderer.setPixelRatio(1);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setSize(width, height, false);
-      const precompute = prepareAudioEnvelopes(audio, plan);
-      let result = precompute.next();
-      while (!result.done) {
-        await new Promise<void>((resume) => setTimeout(resume, 0));
-        signal.throwIfAborted();
-        result = precompute.next();
-      }
+      const envelopes = await audioEnvelopes(env);
+      signal.throwIfAborted();
       if (gl.isContextLost()) {
         contextLost();
         return;
@@ -448,13 +469,13 @@ export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
         width,
         height,
         plan.fps,
-        result.value,
+        envelopes,
         settings,
       );
     },
-    draw({ index }) {
+    draw({ index, sceneTime }) {
       if (gl?.isContextLost()) throw new WebglContextLostError();
-      studio?.renderAt(index);
+      studio?.renderAt(index, sceneTime);
       if (gl?.isContextLost()) throw new WebglContextLostError();
     },
     getRenderStats() {

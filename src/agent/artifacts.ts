@@ -4,7 +4,7 @@ import type { Orientation } from "../video/design/tokens.ts";
 import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
 import type { VideoPaletteId } from "../video/themes.ts";
-import type { VideoMood } from "../video/timeline.ts";
+import type { Storyboard, VideoMood } from "../video/storyboard.ts";
 
 export type StudioVideoOptions = {
   orientation: Orientation;
@@ -30,6 +30,7 @@ export type AgentArtifact = {
       audioCodec: "aac" | "opus";
       theme: "light" | "dark";
       options?: StudioVideoOptions;
+      storyboard?: Storyboard;
       width?: number;
       height?: number;
       orientation?: Orientation;

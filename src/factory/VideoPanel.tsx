@@ -12,6 +12,7 @@ import {
 import type { Orientation } from "../video/design/tokens.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
 import { episodeLanguageTags } from "./Evidence";
+import { StoryboardEditor, useStoryboard } from "./StoryboardEditor.tsx";
 import type { AudioCheck } from "./library-model.ts";
 import {
   buildReviewedPublishPackage,
@@ -569,7 +570,9 @@ export function VideoPanel({
   audio: AudioCheck;
 }) {
   const { t, formatters } = useI18n();
-  const video = useVideoRender(episode, audio);
+  const board = useStoryboard(episode);
+  const storyboard = board.record?.applied;
+  const video = useVideoRender(episode, audio, storyboard);
   const { state, artifact, camera, options, tokens } = video;
   const dimensions = tokens?.[options.orientation].frame;
   const isStudio3d = video.sceneId === "studio3d";
@@ -586,8 +589,16 @@ export function VideoPanel({
         ).value?.title ?? review.title)
       : undefined;
   const thumbnail = useMemo(
-    () => videoThumbnailInput(episode, options, reviewTitle),
-    [episode, options, reviewTitle],
+    () =>
+      videoThumbnailInput(
+        episode,
+        {
+          ...options,
+          paletteId: storyboard?.chapters[0]?.paletteId ?? options.paletteId,
+        },
+        reviewTitle,
+      ),
+    [episode, options, reviewTitle, storyboard],
   );
   const { canvas, drawn } = useThumbnailPreview(thumbnail, !!tokens);
   const headlineError = thumbnail.error ?? drawn?.error;
@@ -748,6 +759,18 @@ export function VideoPanel({
           </fieldset>
         </>
       )}
+      <StoryboardEditor
+        episode={episode}
+        board={board}
+        disabled={optionsDisabled}
+        defaults={{
+          mood: options.mood,
+          paletteId:
+            options.paletteId === "light" ? "aurora" : options.paletteId,
+          visualMetaphor: isStudio3d ? "host-orbs" : "voice-rails",
+          cameraPresetId: isStudio3d ? camera.cameraPresetId : "static",
+        }}
+      />
       {tokens && (
         <fieldset
           className="video-panel-fields video-thumbnail-options"
@@ -806,6 +829,7 @@ export function VideoPanel({
           disabled={
             !video.available ||
             video.support !== true ||
+            board.loading ||
             rendering ||
             video.keyInHeadline ||
             !!video.reviewEdit
@@ -826,6 +850,7 @@ export function VideoPanel({
       <div role="status" className="video-panel-status">
         {video.stale && <p>{t("episode.video.stale")}</p>}
         {video.sceneStale && <p>{t("video.panel.sceneStale")}</p>}
+        {video.storyboardStale && <p>{t("video.storyboard.stale")}</p>}
         {video.optionsStale && !video.sceneStale && (
           <p>{t("video.panel.options.stale")}</p>
         )}

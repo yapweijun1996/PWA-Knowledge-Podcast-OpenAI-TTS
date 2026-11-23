@@ -21,6 +21,11 @@ import type {
 import { probeVideoSupport } from "../video/capabilities.ts";
 import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
 import type { TimelineOptions, TimelinePlan } from "../video/timeline.ts";
+import {
+  sameStoryboard,
+  storyboardMoods,
+  type Storyboard,
+} from "../video/storyboard.ts";
 import { get as getBrowserKey, redact } from "./browser-key.ts";
 import type { AudioCheck } from "./library-model.ts";
 
@@ -48,13 +53,7 @@ export const videoPalettes = [
   "ocean",
   "light",
 ] as const;
-export const videoMoods = [
-  "calm",
-  "curious",
-  "urgent",
-  "warm",
-  "serious",
-] as const;
+export const videoMoods = storyboardMoods;
 export const thumbnailVariants = [
   "topic-graphic",
   "host-pair",
@@ -284,6 +283,7 @@ export async function planStudioVideo(
   episode: Episode,
   audioDuration: number,
   options?: StudioVideoOptions,
+  storyboard?: Storyboard,
 ) {
   const [{ buildTimeline }, { designTokens }] = await Promise.all([
     import("../video/timeline.ts"),
@@ -297,6 +297,7 @@ export async function planStudioVideo(
     paletteId: options?.paletteId === "light" ? undefined : options?.paletteId,
     mood: options?.mood,
     reducedMotion: options?.reducedMotion,
+    storyboard,
   };
   const plan = buildTimeline(episode, timelineOptions);
   const turns = plan.scenes.filter((scene) => scene.kind === "turn");
@@ -514,7 +515,11 @@ export async function buildReviewedPublishPackage(
   const options = resolveVideoOptions(defaultVariant, receipt);
   const { input: thumbnail, error } = videoThumbnailInput(
     episode,
-    options,
+    {
+      ...options,
+      paletteId:
+        receipt.storyboard?.chapters[0]?.paletteId ?? options.paletteId,
+    },
     title,
   );
   if (error) throw new Error(t(error));
@@ -586,7 +591,11 @@ type RenderState =
   | { phase: "rendering"; frames: number; total: number }
   | { phase: "failed"; message: MessageKey };
 
-export function useVideoRender(episode: Episode, audio: AudioCheck) {
+export function useVideoRender(
+  episode: Episode,
+  audio: AudioCheck,
+  storyboard?: Storyboard,
+) {
   const [support, setSupport] = useState<boolean>();
   const [options, setOptions] = useState(() =>
     resolveVideoOptions("host-pair"),
@@ -646,7 +655,11 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         savedArtifact.metadata.studioVideo,
       ),
     );
-  const artifact = sceneStale || optionsStale ? undefined : savedArtifact;
+  const storyboardStale =
+    !!savedArtifact &&
+    !sameStoryboard(storyboard, savedArtifact.metadata.studioVideo.storyboard);
+  const artifact =
+    sceneStale || optionsStale || storyboardStale ? undefined : savedArtifact;
   const keyInHeadline =
     redactThumbnailText(options.thumbnailHeadline) !==
     options.thumbnailHeadline;
@@ -778,7 +791,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
         { buildPublishPackage },
         { WebglContextLostError },
       ] = await Promise.all([
-        planStudioVideo(episode, duration, options),
+        planStudioVideo(episode, duration, options, storyboard),
         import("../video/render.ts"),
         import("../publish/package.ts"),
         import("../video/scenes/types.ts"),
@@ -935,6 +948,7 @@ export function useVideoRender(episode: Episode, audio: AudioCheck) {
     setCamera,
     sceneStale,
     optionsStale,
+    storyboardStale,
     artifact,
     state,
     start,

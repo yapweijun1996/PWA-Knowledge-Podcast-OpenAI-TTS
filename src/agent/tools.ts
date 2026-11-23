@@ -21,6 +21,16 @@ import { buildPublishPackage } from "../publish/package.ts";
 import { drawThumbnail, thumbnailSize } from "../publish/thumbnail.ts";
 import { renderVideo, type VideoAudio } from "../video/render.ts";
 import { buildTimeline } from "../video/timeline.ts";
+import {
+  storyboardKey,
+  validateStoryboard,
+  type Storyboard,
+} from "../video/storyboard.ts";
+import {
+  browserStoryboards,
+  type StoryboardStore,
+} from "../video/storyboard-store.ts";
+import type { PaletteId } from "../video/design/palettes.ts";
 import { browserAgentArtifacts, type AgentArtifactStore } from "./artifacts.ts";
 import {
   createAgentBridge,
@@ -29,6 +39,11 @@ import {
   type Tool,
 } from "./bridge.ts";
 import { readKey } from "./runtime.ts";
+import {
+  generateStoryboard,
+  storyboardModel,
+  storyboardOutputTokens,
+} from "./storyboard-tool.ts";
 
 type ProductionDeps = Parameters<typeof createBrowserProduction>[0];
 type PodcastDependencies = {
@@ -38,8 +53,13 @@ type PodcastDependencies = {
   narrate?: ProductionDeps["narrate"];
   production?: ProductionBounds;
   artifacts: AgentArtifactStore;
+  storyboards: StoryboardStore;
   render: typeof renderVideo;
-  makeThumbnail: (title: string, language: Episode["language"]) => Promise<Blob>;
+  makeThumbnail: (
+    title: string,
+    language: Episode["language"],
+    paletteId?: PaletteId,
+  ) => Promise<Blob>;
 };
 
 const localLibrary: PodcastDependencies["library"] = {
@@ -52,13 +72,14 @@ const localLibrary: PodcastDependencies["library"] = {
 async function makeThumbnail(
   title: string,
   language: Episode["language"],
+  paletteId?: PaletteId,
 ): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = thumbnailSize.width;
   canvas.height = thumbnailSize.height;
   const context = canvas.getContext("2d");
   if (!context) throw new ToolFailure("error");
-  drawThumbnail(context, { title, theme: "dark", language });
+  drawThumbnail(context, { title, theme: "dark", language, paletteId });
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
@@ -181,11 +202,30 @@ async function produce(
   return row;
 }
 
-function artifactId(
+async function artifactId(
   kind: "video" | "publish",
   { episode, stamp }: Library.Record,
+  storyboard?: Storyboard,
 ) {
-  return `${kind}-${episode.id}-${episode.revision}-${stamp}`;
+  const base = `${kind}-${episode.id}-${episode.revision}-${stamp}`;
+  if (!storyboard) return base;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(storyboard)),
+  );
+  return (
+    base +
+    ":" +
+    Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("")
+  );
+}
+
+async function appliedStoryboard(episode: Episode, store: StoryboardStore) {
+  const key = await storyboardKey(episode);
+  const record = key ? await store.get(key) : undefined;
+  return validateStoryboard(record?.applied, episode);
 }
 
 async function savedAudio({
@@ -315,6 +355,55 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
     },
   },
   {
+    name: "draft_storyboard",
+    description: () => t("agent.tool.draftStoryboard"),
+    parameters: byId,
+    paid: true,
+    estimate: {
+      label: "estimate",
+      description: () => t("agent.estimate.storyboard"),
+      model: storyboardModel,
+      maxRequests: 1,
+      maxOutputTokens: storyboardOutputTokens,
+    },
+    async run({ episodeId }, { deps, signal, redact }) {
+      const key = readKey(deps.getKey);
+      if (!key) throw new ToolFailure("no_key");
+      const id = String(episodeId);
+      const { episode } = await getEpisode(deps.library, id);
+      const storeKey = await storyboardKey(episode);
+      if (!storeKey) throw new ToolFailure("prerequisite_required");
+      const before = await deps.storyboards.get(storeKey).catch(() => {
+        throw new ToolFailure("save_failed");
+      });
+      signal.throwIfAborted();
+      const draft = await generateStoryboard({
+        episode,
+        key,
+        signal,
+        fetcher: deps.fetcher ?? fetch,
+        redact,
+      });
+      const current = await getEpisode(deps.library, id);
+      if ((await storyboardKey(current.episode)) !== storeKey)
+        throw new ToolFailure("conflict");
+      const applied = validateStoryboard(before?.applied, episode);
+      const saved = await deps.storyboards
+        .put(
+          storeKey,
+          { draft, ...(applied ? { applied } : {}) },
+          before?.stamp,
+          signal,
+        )
+        .catch(() => {
+          signal.throwIfAborted();
+          throw new ToolFailure("save_failed");
+        });
+      if (!saved) throw new ToolFailure("conflict");
+      return { episodeId: id, chapters: draft.chapters.length };
+    },
+  },
+  {
     name: "render_video",
     description: () => t("agent.tool.renderVideo"),
     parameters: byId,
@@ -323,7 +412,8 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
       const row = await getEpisode(deps.library, String(episodeId));
       const { episode } = row;
       ensureSafe(episode, redact);
-      const plan = buildTimeline(episode);
+      const storyboard = await appliedStoryboard(episode, deps.storyboards);
+      const plan = buildTimeline(episode, { storyboard });
       if (!episode.script || plan.estimated)
         throw new ToolFailure("prerequisite_required");
       const audio = await savedAudio(row);
@@ -335,7 +425,7 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
         signal,
       });
       signal.throwIfAborted();
-      const id = artifactId("video", row);
+      const id = await artifactId("video", row, storyboard);
       try {
         await deps.artifacts.put(
           {
@@ -370,22 +460,26 @@ const podcastTools: readonly Tool<PodcastDependencies>[] = [
       const row = await getEpisode(deps.library, String(episodeId));
       const { episode } = row;
       ensureSafe(episode, redact);
-      const video = await deps.artifacts.get(artifactId("video", row));
+      const storyboard = await appliedStoryboard(episode, deps.storyboards);
+      const video = await deps.artifacts.get(
+        await artifactId("video", row, storyboard),
+      );
       if (!video || video.sourceStamp !== row.stamp)
         throw new ToolFailure("prerequisite_required");
       const thumbnailBlob = await deps.makeThumbnail(
         episode.script?.title || episode.topic,
         episode.language,
+        storyboard?.chapters[0].paletteId,
       );
       const result = buildPublishPackage({
         episode,
-        plan: buildTimeline(episode),
+        plan: buildTimeline(episode, { storyboard }),
         videoBlob: video.blob,
         thumbnailBlob,
       });
       const blob = await result.zip();
       signal.throwIfAborted();
-      const id = artifactId("publish", row);
+      const id = await artifactId("publish", row, storyboard);
       try {
         await deps.artifacts.put(
           {
@@ -419,6 +513,7 @@ export function createPodcastAgentBridge({
   narrate,
   production,
   artifacts = browserAgentArtifacts,
+  storyboards = browserStoryboards,
   render = renderVideo,
   makeThumbnail: thumbnail = makeThumbnail,
   timeoutMs,
@@ -435,6 +530,7 @@ export function createPodcastAgentBridge({
       narrate,
       production,
       artifacts,
+      storyboards,
       render,
       makeThumbnail: thumbnail,
     },

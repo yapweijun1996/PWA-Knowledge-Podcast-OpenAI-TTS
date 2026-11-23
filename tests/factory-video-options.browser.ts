@@ -247,6 +247,55 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   await expect(headline).toHaveValue(title);
   await expect(exportPackage).toBeEnabled();
 
+  const storyboard = panel.locator(".storyboard");
+  await storyboard.locator("summary").click();
+  await storyboard
+    .getByRole("button", { name: english("video.storyboard.create") })
+    .click();
+  const chapter = storyboard.getByRole("group", { name: title });
+  await chapter
+    .getByLabel(english("video.studio3d.palette"))
+    .selectOption("sunset");
+  await chapter
+    .getByRole("button", { name: english("video.storyboard.addCallout") })
+    .click();
+  const callout = chapter.getByLabel(english("video.storyboard.callout"));
+  await callout.fill("https://example.com");
+  const saveDraft = storyboard.getByRole("button", {
+    name: english("video.storyboard.save"),
+  });
+  await saveDraft.click();
+  await expect(storyboard.getByRole("status")).toHaveText(
+    english("video.storyboard.invalid"),
+  );
+  await callout.fill("A meeting place");
+  await saveDraft.click();
+  await expect(storyboard.getByRole("status")).toHaveText(
+    english("video.storyboard.saved"),
+  );
+  await expect(exportPackage).toBeEnabled();
+  await storyboard
+    .getByRole("button", { name: english("video.storyboard.apply") })
+    .click();
+  await expect(
+    panel.getByText(english("video.storyboard.stale")),
+  ).toBeVisible();
+  await expect(exportPackage).toHaveCount(0);
+  await render.click();
+  await expect(video).toBeVisible({ timeout: 45_000 });
+  await expect(exportPackage).toBeDisabled();
+  await page.reload();
+  await expect(video).toBeVisible();
+  await storyboard.locator("summary").click();
+  await expect(
+    storyboard.getByText(english("video.storyboard.active")),
+  ).toBeVisible();
+  await expect(
+    chapter.getByLabel(english("video.studio3d.palette")),
+  ).toHaveValue("sunset");
+  await expect(callout).toHaveValue("A meeting place");
+  await storyboard.locator("summary").click();
+
   await headline.fill(
     "A headline much longer than the thumbnail layout can fit",
   );

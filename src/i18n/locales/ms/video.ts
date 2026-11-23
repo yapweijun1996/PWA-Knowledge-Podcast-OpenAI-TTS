@@ -152,4 +152,46 @@ export default [
   ["video.panel.options.guides", "Tunjukkan panduan bingkai"],
   ["video.panel.options.stale", "Video ini sudah lapuk. Pilihan eksport telah berubah."],
   ["video.panel.options.dimensions", "{width} × {height} piksel"],
+  ["video.storyboard.title", "Papan cerita"],
+  [
+    "video.storyboard.help",
+    "Minta ejen Studio mendraf papan cerita atau cipta di sini. Semak dan gunakan sebelum merender. Nota muncul hanya apabila ada masa yang mencukupi.",
+  ],
+  ["video.storyboard.active", "Papan cerita digunakan untuk episod ini"],
+  ["video.storyboard.draft", "Draf papan cerita"],
+  ["video.storyboard.create", "Cipta papan cerita"],
+  ["video.storyboard.metaphor", "Adegan bab"],
+  ["video.storyboard.callout", "Teks nota"],
+  ["video.storyboard.position", "Kedudukan terawal dalam bab (%)"],
+  ["video.storyboard.removeCallout", "Buang nota"],
+  ["video.storyboard.addCallout", "Tambah nota"],
+  ["video.storyboard.save", "Simpan draf"],
+  ["video.storyboard.apply", "Gunakan pada video"],
+  ["video.storyboard.discard", "Buang suntingan"],
+  ["video.storyboard.remove", "Keluarkan daripada video"],
+  ["video.storyboard.saved", "Draf papan cerita disimpan."],
+  [
+    "video.storyboard.applied",
+    "Papan cerita digunakan. Render semula untuk menyemak video yang dikemas kini.",
+  ],
+  [
+    "video.storyboard.removed",
+    "Papan cerita dikeluarkan. Render semula untuk menggunakan tetapan episod.",
+  ],
+  [
+    "video.storyboard.invalid",
+    "Gunakan teks ringkas untuk setiap nota. Susun pada kedudukan berbeza dari 0 hingga 90 peratus.",
+  ],
+  [
+    "video.storyboard.conflict",
+    "Papan cerita diubah di tempat lain. Buang suntingan tempatan untuk melihat draf yang disimpan.",
+  ],
+  [
+    "video.storyboard.failed",
+    "Papan cerita tidak dapat dimuatkan atau disimpan.",
+  ],
+  [
+    "video.storyboard.stale",
+    "Papan cerita berubah. Render semula sebelum meluluskan atau mengeksport.",
+  ],
 ] as const;

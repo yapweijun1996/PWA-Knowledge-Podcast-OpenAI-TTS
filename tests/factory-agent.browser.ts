@@ -276,3 +276,134 @@ test("agent offline uses one visible reason for its disabled controls", async ({
     await context.setOffline(false);
   }
 });
+
+test("agent drafts a storyboard after separate consent and leaves it for local review", async ({
+  page,
+  baseURL,
+  guard,
+  scanForKey,
+}) => {
+  const episodeId = "5af88a11-08f9-408c-bf80-d96e2a919e22";
+  const script = "A roof leads rainwater into a storage tank.";
+  const draft = {
+    schemaVersion: 1,
+    chapters: [
+      {
+        chapterId: "roof",
+        mood: "warm",
+        paletteId: "sunset",
+        visualMetaphor: "voice-rails",
+        cameraPresetId: "static",
+        callouts: [{ afterPercent: 0, text: "Rainwater storage" }],
+      },
+    ],
+  };
+  const calls: object[] = [];
+  mockResponses(guard, new URL(baseURL!).origin, (body) => {
+    calls.push(body);
+    if (calls.length === 1)
+      return agentToolTurn("draft_storyboard", { episodeId });
+    if (calls.length === 2) {
+      expect(body.text).toMatchObject({
+        format: { name: "podcast_storyboard", strict: true },
+      });
+      expect(body.store).toBe(false);
+      expect(JSON.parse(String(body.input))).toMatchObject({
+        chapters: [{ chapterId: "roof", lines: [{ host: "A", text: script }] }],
+      });
+      return agentAnswerTurn(JSON.stringify(draft));
+    }
+    return agentAnswerTurn("The storyboard draft is ready for review.");
+  });
+
+  const panel = await openAgent(page, true);
+  await page.evaluate(
+    async ({ episodeId, script }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("knowledge-podcast-library", 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("episodes", "readwrite");
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+          tx.objectStore("episodes").put({
+            episode: {
+              id: episodeId,
+              topic: "Rainwater",
+              revision: 1,
+              language: "en",
+              updated: "2026-11-23T00:00:00.000Z",
+              voices: { A: "marin" },
+              outline: {
+                model: "fixture",
+                chapters: [
+                  {
+                    id: "roof",
+                    title: "Rainwater",
+                    angle: "Storage",
+                    claimIds: [],
+                  },
+                ],
+              },
+              script: {
+                model: "fixture",
+                title: "Rainwater",
+                turns: [
+                  {
+                    id: "line",
+                    chapterId: "roof",
+                    host: "A",
+                    text: script,
+                    claimIds: [],
+                  },
+                ],
+              },
+            },
+            assets: {},
+            stamp: "storyboard-fixture",
+          });
+        });
+      } finally {
+        db.close();
+      }
+    },
+    { episodeId, script },
+  );
+  await consentToRun(panel, "Draft a storyboard for the Rainwater episode.");
+  await startButton(panel).click();
+  const dialog = page.getByRole("dialog", {
+    name: t("agent.panel.dialog.title", {
+      tool: t("agent.panel.tool.storyboard"),
+    }),
+  });
+  await expect(dialog).toBeVisible();
+  expect(calls).toHaveLength(1);
+  await expect(dialog.getByText(t("agent.estimate.storyboard"))).toBeVisible();
+  await dialog
+    .getByRole("button", { name: t("agent.panel.dialog.approve") })
+    .click();
+  await expect(
+    panel.getByText("The storyboard draft is ready for review."),
+  ).toBeVisible();
+  await expect(
+    panel.getByText(t("agent.panel.saved.storyboard")),
+  ).toBeVisible();
+  expect(calls).toHaveLength(3);
+  expect(await scanForKey(page, fixtureKey)).toEqual([]);
+
+  await page.goto(`/?view=studio&episode=${episodeId}`);
+  const storyboard = page.locator(".storyboard");
+  await storyboard.locator("summary").click();
+  await expect(
+    storyboard.getByLabel(t("video.storyboard.callout")),
+  ).toHaveValue("Rainwater storage");
+  await expect(storyboard.getByText(t("video.storyboard.active"))).toHaveCount(
+    0,
+  );
+  await expect(
+    storyboard.getByRole("button", { name: t("video.storyboard.apply") }),
+  ).toBeEnabled();
+});

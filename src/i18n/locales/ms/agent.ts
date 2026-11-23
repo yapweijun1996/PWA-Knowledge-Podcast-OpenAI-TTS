@@ -233,4 +233,14 @@ export default [
   ["agent.panel.saved.transcript", "transkrip"],
   ["agent.panel.saved.video", "video MP4"],
   ["agent.panel.saved.publish", "ZIP penerbitan"],
+  [
+    "agent.tool.draftStoryboard",
+    "Draf papan cerita video untuk episod dengan skrip yang disimpan. Pengguna menggunakannya dalam panel Video.",
+  ],
+  [
+    "agent.estimate.storyboard",
+    "Maksimum satu permintaan model. Skrip episod dihantar kepada OpenAI. Token input dibilkan secara berasingan.",
+  ],
+  ["agent.panel.tool.storyboard", "Draf papan cerita"],
+  ["agent.panel.saved.storyboard", "Draf papan cerita disimpan"],
 ] as const;

@@ -608,6 +608,7 @@ function podcastFixture() {
         artifacts.set(item.id, item);
       },
     },
+    storyboards: { get: async () => undefined },
     render: async ({ plan, audio }) => {
       assert.equal(plan.estimated, false);
       assert.equal(audio.sampleRate, 24_000);

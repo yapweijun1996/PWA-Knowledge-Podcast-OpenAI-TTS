@@ -170,4 +170,14 @@ export default [
   ["agent.panel.saved.transcript", "转录文本"],
   ["agent.panel.saved.video", "MP4 视频"],
   ["agent.panel.saved.publish", "ZIP 发布包"],
+  [
+    "agent.tool.draftStoryboard",
+    "为已保存脚本的节目起草视频分镜，用户可在节目的视频面板中审核并应用。",
+  ],
+  [
+    "agent.estimate.storyboard",
+    "最多一次模型请求。本期节目脚本将发送给 OpenAI，输入令牌另计。",
+  ],
+  ["agent.panel.tool.storyboard", "起草分镜"],
+  ["agent.panel.saved.storyboard", "已保存分镜草稿"],
 ] as const;

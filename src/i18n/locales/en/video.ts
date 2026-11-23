@@ -146,4 +146,43 @@ export default [
   ["video.panel.options.guides", "Show framing guides"],
   ["video.panel.options.stale", "This video is out of date. One or more export options changed."],
   ["video.panel.options.dimensions", "{width} × {height} pixels"],
+  ["video.storyboard.title", "Storyboard"],
+  [
+    "video.storyboard.help",
+    "Ask the Studio agent to draft a storyboard or make one here. Review and apply it before rendering. Callouts appear only where they fit.",
+  ],
+  ["video.storyboard.active", "Storyboard applied to this episode"],
+  ["video.storyboard.draft", "Storyboard draft"],
+  ["video.storyboard.create", "Create storyboard"],
+  ["video.storyboard.metaphor", "Chapter scene"],
+  ["video.storyboard.callout", "Callout text"],
+  ["video.storyboard.position", "Earliest position in chapter (%)"],
+  ["video.storyboard.removeCallout", "Remove callout"],
+  ["video.storyboard.addCallout", "Add callout"],
+  ["video.storyboard.save", "Save draft"],
+  ["video.storyboard.apply", "Apply to video"],
+  ["video.storyboard.discard", "Discard edits"],
+  ["video.storyboard.remove", "Remove from video"],
+  ["video.storyboard.saved", "Storyboard draft saved."],
+  [
+    "video.storyboard.applied",
+    "Storyboard applied. Render again to review the updated video.",
+  ],
+  [
+    "video.storyboard.removed",
+    "Storyboard removed. Render again to use the episode settings.",
+  ],
+  [
+    "video.storyboard.invalid",
+    "Check callouts are plain text, short and ordered by distinct positions from 0 to 90 percent.",
+  ],
+  [
+    "video.storyboard.conflict",
+    "The storyboard changed elsewhere. Discard these edits to see the saved draft.",
+  ],
+  ["video.storyboard.failed", "The storyboard could not be loaded or saved."],
+  [
+    "video.storyboard.stale",
+    "The storyboard changed. Render again before approving or exporting.",
+  ],
 ] as const;
