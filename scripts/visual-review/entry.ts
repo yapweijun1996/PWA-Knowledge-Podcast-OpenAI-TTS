@@ -3,7 +3,7 @@
 import { renderVideo } from "../../src/video/render.ts";
 import { buildTimeline } from "../../src/video/timeline.ts";
 import { readEpisode } from "../../shared/episode-record.ts";
-import { drawThumbnail } from "../../src/publish/thumbnail.ts";
+import { encodeThumbnail, type ThumbnailOptions } from "../../src/publish/thumbnail.ts";
 
 const chapters = ["为什么组屋能混居不同族群", "配额怎样影响买卖与转售", "效果与代价并存"];
 const lines: [number, "A" | "B", string, number][] = [
@@ -48,12 +48,39 @@ export async function render(opts: { width: number; height: number; scene: strin
   v.remove(); URL.revokeObjectURL(url);
   return { receipt, mib: Number((blob.size / 1048576).toFixed(2)), ms, frames: out, chapters: plan.chapters, duration: plan.duration };
 }
-export async function thumbs() {
+async function renderThumbnails(variants: readonly ThumbnailOptions[]) {
+  const { language, script, topic } = makeEpisode();
+  const title = script?.title ?? topic;
   const out: string[] = [];
-  for (const [variant, paletteId, headline] of [["topic-graphic", "aurora", "组屋如何混居"], ["host-pair", "sunset", "邻里怎样共享空间"], ["headline", "ocean", "不是偶然，是设计"]] as const) {
-    const c = document.createElement("canvas"); c.width = 1280; c.height = 720;
-    drawThumbnail(c.getContext("2d") as any, { variant, paletteId, headline, title: "组屋里的混居，是怎么被设计出来的", language: "zh", topicKeywords: "组屋 housing" } as any);
-    out.push(c.toDataURL("image/png"));
+  for (const options of variants) {
+    const png = await encodeThumbnail(document.createElement("canvas"), {
+      title,
+      language,
+      topicKeywords: [topic, title],
+      ...options,
+    });
+    out.push(await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(png);
+    }));
   }
   return out;
+}
+
+export function thumbs() {
+  return renderThumbnails([
+    { variant: "topic-graphic" },
+    { variant: "host-pair" },
+    { variant: "headline" },
+  ]);
+}
+
+export function thumbsExplicit() {
+  return renderThumbnails([
+    { variant: "topic-graphic", paletteId: "aurora", headline: "组屋如何混居" },
+    { variant: "host-pair", paletteId: "sunset", headline: "邻里怎样共享空间" },
+    { variant: "headline", paletteId: "ocean", headline: "不是偶然，是设计" },
+  ]);
 }

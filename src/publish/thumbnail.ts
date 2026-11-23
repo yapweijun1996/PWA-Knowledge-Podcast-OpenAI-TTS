@@ -159,7 +159,8 @@ export type ThumbnailResult =
 const contrastFloor = 4.5;
 const stops = [0, 0.55, 1] as const;
 const { width, height } = thumbnailSize;
-const hostPairShiftPx = 12;
+const headlineArtGap = 120;
+const shortCjkSizeH = 0.15;
 
 type RGB = readonly [number, number, number];
 
@@ -223,6 +224,12 @@ export function thumbnailChecks(layoutMetadata: ThumbnailLayoutMetadata) {
   const safe = [left, top, width - left, height - top] as const;
   const [badgeLeft, badgeTop] = thumbnailDesign.durationBadgeExclusion;
   const keyBounds = [...headlineBounds, wordmarkBounds, decorationBounds];
+  const decorationArea: GraphicBox = graphic
+    ? [left, graphic[1], graphic[2], graphic[3]]
+    : text;
+  const decorationFits = !graphic ||
+    (decorationBounds[2] - decorationBounds[0] === graphic[2] - graphic[0] &&
+      headlineBounds.every((bounds) => bounds[2] <= decorationBounds[0]));
   const inside = (box: GraphicBox, area: GraphicBox) =>
     box[0] >= area[0] &&
     box[1] >= area[1] &&
@@ -243,7 +250,8 @@ export function thumbnailChecks(layoutMetadata: ThumbnailLayoutMetadata) {
     bounds:
       headlineBounds.length > 0 &&
       headlineBounds.every((box) => inside(box, text)) &&
-      inside(decorationBounds, graphic ?? text) &&
+      inside(decorationBounds, decorationArea) &&
+      decorationFits &&
       keyBounds.every((box) => inside(box, safe)),
     contrast: { ratio, passed: ratio >= contrastFloor },
     badgeClearance: keyBounds.every(
@@ -427,6 +435,23 @@ function fitHeadline(
   locale: Locale,
   variant: ThumbnailVariant,
 ): HeadlineLayout | null {
+  if (isCjkHeadline(headline)) {
+    const count = cjkHeadlineLength(headline, locale);
+    if (count >= 6 && count <= 8) {
+      const balanced = fitHeadlineAtSizes(ctx, headline, locale, variant, true);
+      if (balanced) return balanced;
+    }
+  }
+  return fitHeadlineAtSizes(ctx, headline, locale, variant, false);
+}
+
+function fitHeadlineAtSizes(
+  ctx: TextContext,
+  headline: string,
+  locale: Locale,
+  variant: ThumbnailVariant,
+  preferTwoLines: boolean,
+): HeadlineLayout | null {
   const {
     text: [left, top, right, bottom],
     cjkPerLine,
@@ -438,13 +463,17 @@ function fitHeadline(
       : top;
   const cjk = isCjkHeadline(headline);
   const min = thumbnailDesign.headlineMinSizeH * height;
-  const max = thumbnailDesign.headlineSizeH * height;
+  const max =
+    (preferTwoLines ? shortCjkSizeH : thumbnailDesign.headlineSizeH) * height;
   for (let size = max; ; size = Math.max(min, size - 1)) {
     ctx.font = videoFont(designTokens.common.weight.thumbnail, size);
     const lines = wrapText(
       {
         measureText(line) {
-          if (cjk && cjkHeadlineLength(line, locale) > cjkPerLine) {
+          if (
+            (preferTwoLines && line === headline) ||
+            (cjk && cjkHeadlineLength(line, locale) > cjkPerLine)
+          ) {
             return { width: maxWidth + 1 };
           }
           const metrics = ctx.measureText(line);
@@ -459,10 +488,13 @@ function fitHeadline(
       maxWidth,
       locale,
     );
-    const last = lines.at(-1)?.replace(/[^\p{L}\p{M}\p{N}]/gu, "") ?? "";
+    const checkedLines = preferTwoLines ? lines : lines.slice(-1);
     if (
+      lines.length >= (preferTwoLines ? 2 : 1) &&
       lines.length <= thumbnailDesign.maxLines &&
-      (lines.length === 1 || headlineGraphemes(last, locale).length > 1) &&
+      (lines.length === 1 || checkedLines.every((line) =>
+        headlineGraphemes(line.replace(/[^\p{L}\p{M}\p{N}]/gu, ""), locale).length > 1,
+      )) &&
       (!cjk ||
         lines.every((line) => cjkHeadlineLength(line, locale) <= cjkPerLine))
     ) {
@@ -521,6 +553,29 @@ function fitHeadline(
   }
 }
 
+function placeGraphic(
+  box: GraphicBox,
+  layout: HeadlineLayout | null,
+  variant: ThumbnailVariant,
+): GraphicBox {
+  if (!layout) return box;
+  const [left, top, right, bottom] = box;
+  const squareLeft = (left + right - Math.min(right - left, bottom - top)) / 2;
+  // Allow for the empty space before the focal shapes in the normalized art.
+  const leadingSpace = variant === "topic-graphic" ? 44 : 12;
+  const inkRight = Math.max(...layout.bounds.map((bounds) => bounds[2]));
+  const nominalGap = squareLeft + leadingSpace - inkRight;
+  if (nominalGap <= headlineArtGap - 2) return box;
+
+  // Leave an eight-pixel margin for antialiasing when closing the visible gap.
+  const availableShift = left - thumbnailDesign.inset[0];
+  const shift = Math.min(
+    availableShift,
+    Math.ceil(nominalGap - (headlineArtGap - 8)),
+  );
+  return [left - shift, top, right - shift, bottom];
+}
+
 function drawPreparedThumbnail(
   ctx: ThumbnailContext,
   prepared: ReturnType<typeof prepareThumbnail>,
@@ -536,7 +591,7 @@ function drawPreparedThumbnail(
     defaultWordmark,
     seed,
   } = prepared;
-  const { graphic: graphicBox } = thumbnailDesign.layouts[variant];
+  const { graphic: nominalGraphicBox } = thumbnailDesign.layouts[variant];
   ctx.save();
   try {
     ctx.textAlign = "left";
@@ -545,6 +600,9 @@ function drawPreparedThumbnail(
       headline === null ? null : validateThumbnailHeadline(headline, locale);
     const layout = validation?.value
       ? fitHeadline(ctx, validation.value, locale, variant)
+      : null;
+    const graphicBox = nominalGraphicBox
+      ? placeGraphic(nominalGraphicBox, layout, variant)
       : null;
 
     const backdrop = thumbnailBackdrop(ctx, palette, reduced);
@@ -571,16 +629,8 @@ function drawPreparedThumbnail(
 
     if (graphicBox) {
       if (variant === "topic-graphic" && graphic)
-        drawTopicGraphic(ctx, graphic, graphicBox, palette, seed, reduced);
-      if (variant === "host-pair") {
-        const [left, top, right, bottom] = graphicBox;
-        drawHostPair(
-          ctx,
-          [left - hostPairShiftPx, top, right - hostPairShiftPx, bottom],
-          palette,
-          reduced,
-        );
-      }
+        drawTopicGraphic(ctx, graphic, graphicBox, palette, seed, reduced, "thumbnail");
+      if (variant === "host-pair") drawHostPair(ctx, graphicBox, palette, reduced);
     } else {
       ctx.fillStyle = palette.hostA;
       ctx.fillRect(ruleLeft, ruleTop, ruleWidth, ruleHeight);

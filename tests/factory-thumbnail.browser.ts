@@ -54,6 +54,46 @@ const variants: readonly ThumbnailCase[] = [
     expectedBackdrop: "#0b1220",
   },
   {
+    variant: "host-pair",
+    language: "zh",
+    title: "组屋里的混居，是怎么被设计出来的",
+    topicKeywords: "住房政策",
+    ink: "#F5F7FC",
+    right: 734,
+    expectedBackdrop: "#0b1220",
+    expectedHeadline: "组屋如何混居",
+  },
+  {
+    variant: "topic-graphic",
+    language: "zh",
+    title: "组屋里的混居，是怎么被设计出来的",
+    topicKeywords: "住房政策",
+    ink: "#F5F7FC",
+    right: 755,
+    expectedBackdrop: "#0b1220",
+    expectedHeadline: "组屋如何混居",
+  },
+  {
+    variant: "headline",
+    language: "en",
+    title: "Designing our neighbourhoods",
+    topicKeywords: "Housing policy",
+    ink: "#F5F7FC",
+    right: 1160,
+    expectedBackdrop: "#0b1220",
+    expectedHeadline: "Mixed housing by design",
+  },
+  {
+    variant: "headline",
+    language: "ms",
+    title: "Reka bentuk kejiranan kita",
+    topicKeywords: "Dasar perumahan",
+    ink: "#F5F7FC",
+    right: 1160,
+    expectedBackdrop: "#0b1220",
+    expectedHeadline: "Perumahan campuran dengan reka bentuk",
+  },
+  {
     variant: "headline",
     language: "zh",
     title: "邻里怎样共享空间",
@@ -136,8 +176,11 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
   const results = await page.evaluate(
     async ({ moduleUrl, fonts, cases }) => {
       const {
+        drawThumbnail,
         encodeThumbnail,
+        thumbnailChecks,
         thumbnailContrastRatio,
+        thumbnailDesign,
       }: typeof import("../src/publish/thumbnail.ts") = await import(moduleUrl);
 
       for (const [path, family] of Object.entries(fonts)) {
@@ -158,14 +201,26 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
       } of cases) {
         const { variant, language } = options;
         let headlineForFonts: string | undefined;
+        const canvas = document.createElement("canvas");
         const png = await encodeThumbnail(
-          document.createElement("canvas"),
+          canvas,
           options,
           async ({ texts }) => {
             headlineForFonts = texts[0];
             return { notices: [], missingCharacters: [] };
           },
         );
+        const rendered = drawThumbnail(canvas.getContext("2d")!, options);
+        if (rendered.error || !rendered.layoutMetadata) {
+          throw new Error(`Missing ${variant} thumbnail layout`);
+        }
+        const { layoutMetadata } = rendered;
+        const measuredInkRight = Math.max(
+          ...layoutMetadata.headlineBounds.map((box) => box[2]),
+        );
+        // Art may move into the nominal text box, so cap the headline scan at
+        // the end of the actual text. The geometry check still gates the box.
+        const headlineScanRight = Math.min(right, Math.ceil(measuredInkRight) + 2);
         const image = await createImageBitmap(png);
         const { width, height } = image;
         const full = new OffscreenCanvas(width, height);
@@ -191,11 +246,18 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
 
         let overlapDelta = 0;
         let sidewallColorDelta = 0;
+        let roofPixels = 0;
+        let roofColorDelta = 0;
+        let roofWindowPixels = 0;
         if (variant === "topic-graphic") {
+          const [artLeft, artTop, artRight, artBottom] =
+            layoutMetadata.decorationBounds;
+          const nominalLeft = thumbnailDesign.layouts[variant].graphic[0];
+          const shift = artLeft - nominalLeft;
           // The lit rear window reaches x=979. Sample the forward side past
-          // its own inset windows, then compare with a gap between rear rows.
+          // its own inset windows, adjusting for the new placement.
           const shadedPlate = fromHex("#345a5b");
-          for (let x = 975; x < 979; x++) {
+          for (let x = 975 + shift; x < 979 + shift; x++) {
             for (let y = 305; y < 309; y++) {
               const overlap = (y * width + x) * 4;
               const reference = ((y + 15) * width + x) * 4;
@@ -207,6 +269,36 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
                 sidewallColorDelta = Math.max(
                   sidewallColorDelta,
                   Math.abs(data[reference + channel] - shadedPlate[channel]),
+                );
+              }
+            }
+          }
+
+          const size = Math.min(artRight - artLeft, artBottom - artTop);
+          const squareLeft = (artLeft + artRight - size) / 2;
+          const squareTop = (artTop + artBottom - size) / 2;
+          const pad = 1 / size;
+          const roof = fromHex("#569b92");
+          const rearWindow = fromHex("#b29af0");
+          for (let y = Math.ceil(0.35 * height); y < 0.38 * height; y++) {
+            const localY = (y + 0.5 - squareTop) / size;
+            if (localY <= 0.33 + pad || localY >= 0.38 - pad) continue;
+            const edge = 0.08 + (0.074 * (0.38 - localY)) / 0.05;
+            for (
+              let x = Math.ceil(0.73 * width) + shift;
+              x < 0.76 * width + shift;
+              x++
+            ) {
+              const localX = (x + 0.5 - squareLeft) / size;
+              if (localX <= edge + pad || localX >= edge + 0.31 - pad) continue;
+              const i = (y * width + x) * 4;
+              roofPixels++;
+              if (rearWindow.every((channel, k) => Math.abs(data[i + k] - channel) <= 1)) {
+                roofWindowPixels++;
+              }
+              for (let k = 0; k < 3; k++) {
+                roofColorDelta = Math.max(
+                  roofColorDelta, Math.abs(data[i + k] - roof[k]),
                 );
               }
             }
@@ -231,7 +323,7 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
         let headlinePixels = 0;
         let headlineRight = 0;
         for (let y = 150; y < 540; y++) {
-          for (let x = 80; x < right; x++) {
+          for (let x = 80; x < headlineScanRight; x++) {
             const i = (y * width + x) * 4;
             if (isInk(i)) {
               headlinePixels++;
@@ -274,7 +366,7 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
             let inkInRow = 0;
             for (
               let x = Math.ceil(80 * scale);
-              x < Math.floor(right * scale);
+              x < Math.floor(headlineScanRight * scale);
               x++
             ) {
               const offset = (y * w + x) * 4;
@@ -292,6 +384,35 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
           return tallest;
         });
 
+        const columnHasArt = (
+          pixels: Uint8ClampedArray,
+          w: number,
+          baseline: number,
+          x: number,
+          top: number,
+          bottom: number,
+        ) => {
+          for (let y = top; y < bottom; y++) {
+            const offset = (y * w + x) * 4;
+            if ([0, 1, 2].some(
+              (k) => Math.abs(pixels[offset + k] - pixels[baseline + 4 * x + k]) >= 16,
+            )) {
+              return true;
+            }
+          }
+          return false;
+        };
+        const artScanLeft = Math.ceil(measuredInkRight) + 4;
+        let topicArtLeft: number | null = null;
+        if (variant === "topic-graphic") {
+          for (let x = artScanLeft; x < 1190; x++) {
+            if (columnHasArt(data, width, lastRow, x, 150, 416)) {
+              topicArtLeft = x;
+              break;
+            }
+          }
+        }
+
         const scanHostPair = (w: number) => {
           const h = (w * 9) / 16;
           const pixels = w === width ? data : previewPixels(w);
@@ -303,22 +424,11 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
           const bottom = Math.floor(416 * scale);
           const spans: { start: number; end: number }[] = [];
           for (
-            let x = Math.ceil(768 * scale);
+            let x = Math.ceil(artScanLeft * scale);
             x < Math.floor(1188 * scale);
             x++
           ) {
-            let occupied = false;
-            for (let y = top; y < bottom && !occupied; y++) {
-              const offset = (y * w + x) * 4;
-              occupied = [0, 1, 2].some(
-                (channel) =>
-                  Math.abs(
-                    pixels[offset + channel] -
-                      pixels[baseline + 4 * x + channel],
-                  ) >= 16,
-              );
-            }
-            if (!occupied) continue;
+            if (!columnHasArt(pixels, w, baseline, x, top, bottom)) continue;
             const last = spans.at(-1);
             if (last?.end === x) last.end = x + 1;
             else spans.push({ start: x, end: x + 1 });
@@ -356,15 +466,20 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
           badgeInk,
           headlinePixels,
           lowestContrast,
+          bounds: thumbnailChecks(layoutMetadata).bounds,
           inkHeights,
           hostPair,
           headlineRight,
+          topicArtLeft,
           expectedBackdrop,
           backdropStart: toHex(data, lastRow),
           expectedHeadline,
           headlineForFonts,
           overlapDelta,
           sidewallColorDelta,
+          roofPixels,
+          roofColorDelta,
+          roofWindowPixels,
         });
       }
       return reports;
@@ -382,6 +497,7 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
     expect(report.bytes, report.variant).toBeGreaterThan(0);
     expect(report.bytes, report.variant).toBeLessThan(2_000_000);
     expect(report.badgeInk, report.variant).toBe(0);
+    expect(report.bounds, report.variant).toBe(true);
     expect(report.headlinePixels, report.variant).toBeGreaterThan(0);
     expect(report.lowestContrast, report.variant).toBeGreaterThanOrEqual(4.5);
     if (report.expectedBackdrop)
@@ -389,10 +505,18 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
     if (report.expectedHeadline)
       expect(report.headlineForFonts, report.variant).toBe(report.expectedHeadline);
     if (report.variant === "topic-graphic") {
+      expect(report.topicArtLeft, "topic graphic pixels").not.toBeNull();
+      const headlineArtGap = report.topicArtLeft! - report.headlineRight;
+      expect(headlineArtGap, "headline-to-topic gap").toBeGreaterThan(0);
+      expect(headlineArtGap, "headline-to-topic gap").toBeLessThanOrEqual(120);
       expect(report.sidewallColorDelta, "shaded plate color")
         .toBeLessThanOrEqual(2);
       expect(report.overlapDelta, "rear window bleed through foreground wall")
         .toBeLessThanOrEqual(1);
+      expect(report.roofPixels, "foreground roof overlap sample").toBeGreaterThan(100);
+      expect(report.roofWindowPixels, "window-coloured pixels inside the roof").toBe(0);
+      expect(report.roofColorDelta, "foreground roof color across the overlap")
+        .toBeLessThanOrEqual(2);
     }
     const inkFloor = report.language === "zh" ? 8 : 6;
     expect(report.inkHeights[0], report.variant).toBeGreaterThanOrEqual(
@@ -410,6 +534,7 @@ test("exports thumbnail PNGs with clear headlines and a clear duration badge", a
         expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
         const headlineArtGap = firstHostLeft! - report.headlineRight;
         expect(headlineArtGap, "headline-to-art gap").toBeGreaterThan(0);
+        expect(headlineArtGap, "headline-to-art gap").toBeLessThanOrEqual(120);
         expect(headlineArtGap, "headline-to-art gap").toBeLessThanOrEqual(
           772 - report.headlineRight,
         );

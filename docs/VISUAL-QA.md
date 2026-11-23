@@ -75,7 +75,7 @@ seek cost for each reference episode that completes decoding.
 ## Independent review procedure
 
 1. Render sample frames with the real renderer and fonts:
-   `node scripts/visual-review/frames.mjs <output-dir> '<jobs-json>' thumbs`
+   `node scripts/visual-review/frames.mjs <output-dir> '<jobs-json>' thumbs` uses product thumbnail defaults. Use `thumbs-explicit` to check the alternate palettes and headlines.
    (jobs are objects such as `{"name":"land-3d","width":1920,"height":1080,"scene":"studio3d","frames":[0.4,10,17.8]}`;
    sample chapter cards at the first voiced frame, not inside the 0.23 s pause between turns).
 2. Give the PNGs to a reviewer that did not build the design (for example a read-only Codex run with the
