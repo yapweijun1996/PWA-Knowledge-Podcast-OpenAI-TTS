@@ -117,5 +117,14 @@ body and a tinted upper bevel. The narrower, beveled spectrum ticks keep
 foreground openings at both bases and cap the front at .012H, with at least
 .015H projected clearance. The active host gets a feathered accent ring at
 up to .25 alpha in the existing contact-shadow pass. The portrait backdrop
-carries the .06-alpha wash through y=.35–.52. Pixel checks, repeatability
-and timing for this round await Chromium verification.
+carries the .06-alpha wash through y=.35–.52.
+
+### Studio 3D backdrop caching
+
+The backdrop gradient, Bayer dither and portrait wash bake once per scene.
+Landscape reuses four columns, while portrait caches the full frame. Each draw
+fetches the original sRGB pixel from the cache. The opaque backdrop also
+replaces the color clear, while the depth clear and MSAA remain enabled.
+An offline Chromium SwiftShader run with `--in-process` measured 15.8 ms
+median in both orientations and 17.1 / 17.0 ms p95 in landscape / portrait.
+The standard multiprocess timing is still unverified.

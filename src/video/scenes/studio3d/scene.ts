@@ -40,6 +40,113 @@ const stagePlaneVertexShader = `
   }
 `;
 
+const backdropVertexShader = `
+  varying vec2 screenUv;
+  void main() {
+    screenUv = uv;
+    gl_Position = vec4(position.xy, 0.999, 1.0);
+  }
+`;
+
+function bakeBackdrop(
+  renderer: THREE.WebGLRenderer,
+  width: number,
+  height: number,
+  { orientation, centerX }: ReturnType<typeof studioLayout>,
+  palette: ReturnType<typeof getPalette>,
+  washTint: THREE.Color,
+) {
+  const portrait = orientation === "portrait";
+  // Landscape repeats the same four Bayer columns across the frame. Portrait
+  // also bakes the horizontal falloff of the screen-space wash.
+  const pixels = new THREE.WebGLRenderTarget(portrait ? width : 4, height, {
+    minFilter: THREE.NearestFilter,
+    magFilter: THREE.NearestFilter,
+    colorSpace: THREE.NoColorSpace,
+    depthBuffer: false,
+  });
+  const defines = portrait ? { STUDIO_PORTRAIT: 1 } : {};
+  const bakeMaterial = new THREE.ShaderMaterial({
+    defines,
+    uniforms: {
+      top: { value: new THREE.Color(palette.stops[0]) },
+      middle: { value: new THREE.Color(palette.stops[1]) },
+      bottom: { value: new THREE.Color(palette.stops[2]) },
+      washSrgb: { value: washTint.clone().convertLinearToSRGB() },
+      stageCenterX: { value: centerX },
+    },
+    vertexShader: backdropVertexShader,
+    fragmentShader: `
+      uniform vec3 top;
+      uniform vec3 middle;
+      uniform vec3 bottom;
+      uniform vec3 washSrgb;
+      uniform float stageCenterX;
+      varying vec2 screenUv;
+      float bayer2(vec2 cell) {
+        return 2.0 * abs(cell.x - cell.y) + cell.y;
+      }
+      void main() {
+        float y = 1.0 - screenUv.y;
+        vec3 tint = y < 0.55
+          ? mix(top, middle, y / 0.55)
+          : mix(middle, bottom, (y - 0.55) / 0.45);
+        // Store the final sRGB bytes in the target without a second conversion.
+        gl_FragColor = sRGBTransferOETF(vec4(tint, 1.0));
+        #ifdef STUDIO_PORTRAIT
+          // Carry the wash past both pedestals into the space above the caption.
+          if (y > 0.31 && y < 0.56) {
+            float side = 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - stageCenterX));
+            float falloff = smoothstep(0.31, 0.40, y) * (1.0 - smoothstep(0.45, 0.56, y));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, washSrgb, 0.06 * side * falloff);
+          }
+        #endif
+        // The 4px Bayer bias spans one 8-bit quantization interval in sRGB.
+        vec2 pixel = floor(gl_FragCoord.xy);
+        float rank = 4.0 * bayer2(mod(pixel, 2.0)) + bayer2(mod(floor(pixel * 0.5), 2.0));
+        gl_FragColor.rgb += ((rank + 0.5) / 16.0 - 0.5) / 255.0;
+      }
+    `,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bakeMaterial);
+  backdrop.frustumCulled = false;
+  backdrop.renderOrder = -1;
+  const bakeScene = new THREE.Scene();
+  bakeScene.add(backdrop);
+  const previousTarget = renderer.getRenderTarget();
+  try {
+    renderer.setRenderTarget(pixels);
+    renderer.render(bakeScene, new THREE.Camera());
+  } catch (error) {
+    pixels.dispose();
+    backdrop.geometry.dispose();
+    throw error;
+  } finally {
+    renderer.setRenderTarget(previousTarget);
+    bakeMaterial.dispose();
+  }
+  backdrop.material = new THREE.ShaderMaterial({
+    defines,
+    uniforms: { backdropPixels: { value: pixels.texture } },
+    vertexShader: backdropVertexShader,
+    fragmentShader: `
+      uniform sampler2D backdropPixels;
+      void main() {
+        ivec2 pixel = ivec2(gl_FragCoord.xy);
+        #ifndef STUDIO_PORTRAIT
+          pixel.x &= 3;
+        #endif
+        gl_FragColor = texelFetch(backdropPixels, pixel, 0);
+      }
+    `,
+    depthTest: false,
+    depthWrite: false,
+  });
+  return { backdrop, pixels };
+}
+
 function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -251,65 +358,19 @@ function buildStudio(
   backlight.position.set(2, 3, -5);
   scene.add(backlight);
 
-  const plane = new THREE.PlaneGeometry(2, 2);
-  const backdrop = new THREE.Mesh(
-    plane,
-    new THREE.ShaderMaterial({
-      defines: portrait ? { STUDIO_PORTRAIT: 1 } : {},
-      uniforms: {
-        top: { value: new THREE.Color(palette.stops[0]) },
-        middle: { value: new THREE.Color(palette.stops[1]) },
-        bottom: { value: new THREE.Color(palette.stops[2]) },
-        washSrgb: { value: washTint.clone().convertLinearToSRGB() },
-        stageCenterX: { value: centerX },
-      },
-      vertexShader: `
-        varying vec2 screenUv;
-        void main() {
-          screenUv = uv;
-          gl_Position = vec4(position.xy, 0.999, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 top;
-        uniform vec3 middle;
-        uniform vec3 bottom;
-        uniform vec3 washSrgb;
-        uniform float stageCenterX;
-        varying vec2 screenUv;
-        float bayer2(vec2 cell) {
-          return 2.0 * abs(cell.x - cell.y) + cell.y;
-        }
-        void main() {
-          float y = 1.0 - screenUv.y;
-          vec3 tint = y < 0.55
-            ? mix(top, middle, y / 0.55)
-            : mix(middle, bottom, (y - 0.55) / 0.45);
-          gl_FragColor = vec4(tint, 1.0);
-          #include <colorspace_fragment>
-          #ifdef STUDIO_PORTRAIT
-            // Carry the wash past both pedestals into the space above the caption.
-            if (y > 0.31 && y < 0.56) {
-              float side = 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - stageCenterX));
-              float falloff = smoothstep(0.31, 0.40, y) * (1.0 - smoothstep(0.45, 0.56, y));
-              gl_FragColor.rgb = mix(gl_FragColor.rgb, washSrgb, 0.06 * side * falloff);
-            }
-          #endif
-          // Repeat a 4px Bayer matrix at fixed screen coordinates. Apply the
-          // bias in sRGB so it spans one 8-bit quantization interval.
-          vec2 pixel = floor(gl_FragCoord.xy);
-          float rank = 4.0 * bayer2(mod(pixel, 2.0)) + bayer2(mod(floor(pixel * 0.5), 2.0));
-          gl_FragColor.rgb += ((rank + 0.5) / 16.0 - 0.5) / 255.0;
-        }
-      `,
-      depthTest: false,
-      depthWrite: false,
-    }),
+  const { backdrop, pixels: backdropPixels } = bakeBackdrop(
+    renderer,
+    width,
+    height,
+    layout,
+    palette,
+    washTint,
   );
-  backdrop.frustumCulled = false;
-  backdrop.renderOrder = -1;
   scene.add(backdrop);
+  // The first draw covers every color sample. Keep the depth clear for 3D.
+  renderer.autoClearColor = false;
 
+  const plane = new THREE.PlaneGeometry(2, 2);
   if (!portrait) {
     const wash = new THREE.Mesh(plane, radialMaterial(washTint, 0.06));
     wash.rotation.x = -Math.PI / 2;
@@ -483,6 +544,7 @@ function buildStudio(
       for (const material of [object.material].flat()) materials.add(material);
     });
     bars.dispose();
+    backdropPixels.dispose();
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
   }

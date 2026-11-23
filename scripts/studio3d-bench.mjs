@@ -384,11 +384,28 @@ export async function measureStudio3d({
 
 async function main() {
   const bundle = await bundleStudio3d();
+  // Diagnostic mode for environments that block Chromium child processes.
+  const inProcess = process.argv.includes("--in-process");
   const browser = await chromium.launch({
-    args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+    args: [
+      inProcess ? "--use-angle=swiftshader-webgl" : "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+      "--no-proxy-server",
+      "--host-resolver-rules=MAP * ~NOTFOUND",
+      ...(inProcess
+        ? [
+            "--single-process",
+            "--in-process-gpu",
+            "--disable-features=AudioServiceOutOfProcess",
+          ]
+        : []),
+    ],
   });
   try {
-    const context = await browser.newContext({ serviceWorkers: "block" });
+    const context = await browser.newContext({
+      offline: true,
+      serviceWorkers: "block",
+    });
     const origin = "http://127.0.0.1";
     await context.route("**/*", (route) =>
       route.request().url() === origin + "/studio3d-bench"
@@ -412,7 +429,11 @@ async function main() {
       drawCalls <= 16 &&
       triangles <= 12_000;
     console.log(
-      JSON.stringify({ chromium: browser.version(), encoding: "NOT_RUN" }),
+      JSON.stringify({
+        chromium: browser.version(),
+        mode: inProcess ? "in-process diagnostic" : "standard",
+        encoding: "NOT_RUN",
+      }),
     );
 
     for (const [orientation, width, height] of [
