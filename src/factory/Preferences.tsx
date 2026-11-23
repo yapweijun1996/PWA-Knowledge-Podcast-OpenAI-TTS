@@ -1,4 +1,4 @@
-import { useRef, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   languages,
   type Language,
@@ -6,6 +6,102 @@ import {
   type Runtime,
   type Schedule,
 } from "../../shared/factory";
+import { clear, set } from "./browser-key";
+
+export function BrowserCredentials({
+  configured,
+  working,
+}: {
+  configured: boolean;
+  working: boolean;
+}) {
+  const key = useRef<HTMLInputElement>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    function clearInput() {
+      if (key.current) key.current.value = "";
+      setAcknowledged(false);
+      setError("");
+    }
+    window.addEventListener("pagehide", clearInput);
+    return () => window.removeEventListener("pagehide", clearInput);
+  }, []);
+
+  function save(event: FormEvent) {
+    event.preventDefault();
+    if (working || !acknowledged || !key.current) return;
+    const value = key.current.value;
+    key.current.value = "";
+    try {
+      set(value);
+      setAcknowledged(false);
+      setError("");
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "无法设置浏览器密钥。",
+      );
+    }
+  }
+
+  return (
+    <section className="factory-panel" aria-labelledby="browser-key-title">
+      <h2 id="browser-key-title">浏览器密钥</h2>
+      <form className="factory-create" autoComplete="off" onSubmit={save}>
+        <label className="field">
+          浏览器 OpenAI 密钥
+          <input
+            ref={key}
+            required
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={512}
+            disabled={working}
+          />
+        </label>
+        <label className="factory-check">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            disabled={working}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+          />
+          我了解页面代码、浏览器扩展和遭入侵的设备都可能读取密钥。我会使用权限受限的密钥。密钥仅保存在此标签页内存中，离开或重新加载页面时清除。
+        </label>
+        <div className="factory-actions">
+          <button className="outline" disabled={working || !acknowledged}>
+            设置浏览器密钥
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            disabled={working || !configured}
+            onClick={() => {
+              clear();
+              if (key.current) key.current.value = "";
+              setAcknowledged(false);
+              setError("");
+            }}
+          >
+            清除浏览器密钥
+          </button>
+        </div>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <p className="muted factory-setting-group" role="status">
+        {configured
+          ? "已设置浏览器密钥。首次请求将验证权限。"
+          : "尚未设置浏览器密钥。设置后即可直接在浏览器制作。"}
+      </p>
+    </section>
+  );
+}
 
 export function ProductionCredentials({
   runtime,
@@ -23,7 +119,7 @@ export function ProductionCredentials({
   const key = useRef<HTMLInputElement>(null);
   return (
     <section className="factory-panel">
-      <h2>制作进程与密钥</h2>
+      <h2>本机制作进程与密钥（可选）</h2>
       {connected && runtime?.localProduction ? (
         <div className="factory-setting-group">
           <p className="muted">
@@ -109,7 +205,8 @@ export function ProductionSettings({
 }) {
   const consent = useRef<HTMLInputElement>(null);
   const allowed = preferences.allowedLanguages;
-  const productionControls = connected && runtime?.localProduction;
+  const productionControls =
+    connected && runtime?.localProduction && runtime.authenticated;
   const persisted = schedule?.preferences.enabled;
   function setLanguage(language: Language, checked: boolean) {
     const next = checked
@@ -130,6 +227,17 @@ export function ProductionSettings({
     onSave(consent.current?.checked === true);
     if (consent.current) consent.current.checked = false;
   }
+
+  if (!productionControls)
+    return (
+      <section className="factory-panel">
+        <p className="muted">
+          {connected && runtime?.localProduction
+            ? "请先登录本机制作进程，再设置自动化。"
+            : "请连接本机制作进程后再设置自动化。可在制作台直接用浏览器密钥手动制作。"}
+        </p>
+      </section>
+    );
 
   return (
     <section className="factory-panel">
@@ -263,17 +371,17 @@ export function ProductionSettings({
         <p className="muted">
           需要设备保持唤醒、本机进程保持运行。每日最多一次选题检查，跳过、取消或失败也占额度。停用排程会停止选题，已进入制作的节目可单独取消。
         </p>
-        {preferences.enabled && productionControls && (
+        {preferences.enabled && (
           <label className="factory-check">
             <input ref={consent} type="checkbox" required />
             同意按保存的上限向 OpenAI 发出自动请求，费用以平台账单为准。
           </label>
         )}
         <button className="outline" disabled={working}>
-          {productionControls ? "保存偏好并应用排程" : "保存浏览器偏好"}
+          保存偏好并应用排程
         </button>
       </form>
-      {productionControls && schedule && (
+      {schedule && (
         <div className="factory-setting-group">
           <p role="status" className="muted">
             {persisted ? "本机排程已开启。" : "本机排程已停用。"} 已用{" "}
