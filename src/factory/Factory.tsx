@@ -18,6 +18,7 @@ import {
 import { readPreferences } from "../../shared/preferences";
 import { download } from "../audio";
 import { StudioError, studio } from "./api";
+import { estimateBrowserProduction } from "./browser-production";
 import { EpisodeWorkspace, type Kind } from "./Episode";
 import { FactoryShell } from "./FactoryShell";
 import { LibraryWorkspace } from "./LibraryWorkspace";
@@ -34,12 +35,25 @@ import {
   syncLibrary,
   type Record as LibraryRecord,
 } from "./library";
+import { stageNames } from "./library-model";
 import type { FactoryPage, WorkspaceNavigation } from "./navigation";
 import { readIntakeDraft, writeIntakeDraft, type IntakeDraft } from "./intake-draft";
 import { PlaybackBar } from "./PlaybackBar";
-import { ProductionCredentials, ProductionSettings } from "./Preferences";
+import {
+  BrowserCredentials,
+  ProductionCredentials,
+  ProductionSettings,
+} from "./Preferences";
 import { backupRecord, restoreRecord } from "../../shared/episode-backup";
-import { StudioIntake, type StudioAvailability } from "./StudioIntake";
+import { BrowserContinuation, BrowserCost, StudioIntake } from "./StudioIntake";
+import {
+  browserCheckpoint,
+  browserProductionBounds,
+  studioProductionMode,
+  useBrowserProduction,
+  type StudioMode,
+  type WorkerAvailability,
+} from "./useBrowserProduction";
 import { useLibraryAudio } from "./useLibraryAudio";
 import { usePlayback } from "./usePlayback";
 import "./factory.css";
@@ -108,7 +122,8 @@ export function Factory({
   const [syncIssue, setSyncIssue] = useState("");
   const [intake, setIntake] = useState(readIntakeDraft);
   const { topic, exactHosts } = intake;
-  const [consent, setConsent] = useState(false);
+  const [consentFor, setConsentFor] = useState<StudioMode | null>(null);
+  const [target, setTarget] = useState<StudioMode>("browser");
   const [dirty, setDirty] = useState(false);
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
@@ -123,6 +138,7 @@ export function Factory({
   const importInput = useRef<HTMLInputElement>(null);
   const workspace = useRef<HTMLDivElement>(null);
   const awaitingCreated = useRef<string | null>(null);
+  const browser = useBrowserProduction({ listRecords, receive });
   const row = records.find((record) => record.episode.id === selected);
   const getAudio = useLibraryAudio(records);
   const { engine, audioRef, activeRevision } = usePlayback(
@@ -138,7 +154,7 @@ export function Factory({
     runtime.configured &&
     runtime.localProduction;
   const busy = pending || updating;
-  const availability: StudioAvailability = (() => {
+  const workerAvailability: WorkerAvailability = (() => {
     if (!online) return "offline";
     if (!connected || !runtime) return "no-worker";
     if (!runtime.authenticated) return "locked";
@@ -147,9 +163,29 @@ export function Factory({
     if (running || schedule?.running) return "working";
     return "ready";
   })();
+  const workerReady = workerAvailability === "ready";
+  const { mode, chooseMode, availability } = studioProductionMode(
+    browser.keySet,
+    workerAvailability,
+    target,
+  );
+  const consent = consentFor === mode;
+  const bounds = browserProductionBounds(preferences, exactHosts);
   const workerRow = remote.find((item) => item.id === selected);
   const workspaceVisible = page === "library" || page === "studio";
   const savedSelection = row?.episode.id;
+  const resumable = row && !workerRow && browserCheckpoint(row);
+  const browserSelected = !!selected && selected === browser.activeId;
+  const browserAvailable = online && browser.keySet && libraryState === "ready";
+  const episode = row?.episode;
+  const displayedEpisode =
+    resumable && episode?.job?.status === "running"
+      ? { ...episode, job: { ...episode.job, status: "interrupted" as const } }
+      : episode;
+
+  useEffect(() => {
+    if (page !== "studio") setConsentFor(null);
+  }, [page]);
 
   useEffect(() => {
     if (savedSelection && awaitingCreated.current === savedSelection) {
@@ -252,7 +288,10 @@ export function Factory({
     }
     pull();
     void loadPrefs()
-      .then(setPreferences)
+      .then((loaded) => {
+        setPreferences(loaded);
+        setConsentFor(null);
+      })
       .catch((reason) => setError(errorText(reason)));
     return subscribe(pull);
   }, [refresh]);
@@ -355,12 +394,25 @@ export function Factory({
   function changeIntake(next: IntakeDraft) {
     writeIntakeDraft(next);
     setIntake(next);
-    setConsent(false);
+    setConsentFor(null);
   }
 
   function create(event: FormEvent) {
     event.preventDefault();
-    if (!canProduce || !consent || !topic.trim()) return;
+    if (busy || !consent || !topic.trim()) return;
+    if (mode === "browser") {
+      if (!browserAvailable) return;
+      const id = crypto.randomUUID();
+      void perform(async () => {
+        if (!select(id)) return;
+        setConsentFor(null);
+        await browser.run({ id, topic, production: bounds, consent });
+        changeIntake({ topic: "", exactHosts });
+        setMessage("浏览器制作完成，节目已保存到资料库。");
+      });
+      return;
+    }
+    if (!workerReady) return;
     const id = intake.requestId ?? crypto.randomUUID();
     changeIntake({ topic, exactHosts, requestId: id });
     void perform(async () => {
@@ -374,6 +426,14 @@ export function Factory({
       awaitingCreated.current = id;
       select(id);
       changeIntake({ topic: "", exactHosts });
+    });
+  }
+
+  function resumeInBrowser(id: string) {
+    if (!resumable || !browserAvailable || busy || dirty) return;
+    void perform(async () => {
+      await browser.run({ id, consent: true, retryUnknown: true });
+      setMessage("浏览器制作完成，节目已保存到资料库。");
     });
   }
 
@@ -466,7 +526,7 @@ export function Factory({
           </button>
         </div>
       )}
-      {error && (
+      {error && (!workspaceVisible || error !== episode?.job?.message) && (
         <p className="error" role="alert">
           {error}
         </p>
@@ -480,6 +540,30 @@ export function Factory({
         <p className="notice" role="status">
           {message}
         </p>
+      )}
+      {browser.activeId && (
+        <section
+          className="factory-panel factory-production-progress"
+          aria-labelledby="browser-progress-title"
+        >
+          <h2 id="browser-progress-title">浏览器制作进度</h2>
+          <p role="status">
+            {browser.cancelling
+              ? "正在取消浏览器制作…"
+              : browser.progress
+                ? `${browser.progress.stage === "transcript" ? "音频转录与核对" : stageNames[browser.progress.stage]}（${browser.progress.index} / ${browser.progress.total}）`
+                : "正在读取本地制作进度…"}
+          </p>
+          {browser.estimate && <BrowserCost estimate={browser.estimate} />}
+          <button
+            type="button"
+            className="outline"
+            disabled={browser.cancelling}
+            onClick={browser.cancel}
+          >
+            取消浏览器制作
+          </button>
+        </section>
       )}
       {connected && runtime && !runtime.authenticated && (
         <section className="factory-panel factory-login">
@@ -531,6 +615,9 @@ export function Factory({
             </select>
           </label>
         </section>
+        {visible && page === "settings" && (
+          <BrowserCredentials configured={browser.keySet} working={busy} />
+        )}
         <ProductionCredentials
           runtime={runtime}
           connected={connected}
@@ -574,19 +661,13 @@ export function Factory({
               const next = readPreferences(preferences);
               await savePrefs(next);
               setPreferences(next);
-              if (runtime?.localProduction && connected) {
-                setSchedule(
-                  await studio<Schedule>("/schedule", "PUT", {
-                    preferences: next,
-                    consent: approved,
-                  }),
-                );
-              }
-              setMessage(
-                connected && runtime?.localProduction
-                  ? "偏好和本机排程已保存。"
-                  : "偏好已保存到浏览器。",
+              setSchedule(
+                await studio<Schedule>("/schedule", "PUT", {
+                  preferences: next,
+                  consent: approved,
+                }),
               );
+              setMessage("偏好和本机排程已保存。");
             })
           }
           onDiscover={() => {
@@ -686,6 +767,9 @@ export function Factory({
           className="factory-selection"
           id="factory-selection"
           hidden={page === "library" && !selected}
+          data-browser-resume={
+            resumable && (browser.keySet || !canProduce) ? "" : undefined
+          }
         >
           {page === "library" && selected && (
             <button
@@ -709,10 +793,20 @@ export function Factory({
               ＋ 新建
             </button>
           )}
-          {row ? (
+          {workspaceVisible && row && resumable && !browserSelected && (
+            <BrowserContinuation
+              key={row.stamp}
+              estimate={estimateBrowserProduction(row.episode.production)}
+              keySet={browser.keySet}
+              disabled={!browserAvailable || busy || dirty}
+              navigation={navigation}
+              onResume={() => resumeInBrowser(row.episode.id)}
+            />
+          )}
+          {browserSelected ? null : row && displayedEpisode ? (
             <EpisodeWorkspace
               key={row.episode.id}
-              episode={row.episode}
+              episode={displayedEpisode}
               assets={row.assets}
               savedAudio={getAudio(row)}
               playback={engine}
@@ -764,12 +858,23 @@ export function Factory({
             <StudioIntake
               availability={availability}
               navigation={navigation}
+              mode={mode}
+              chooseMode={chooseMode}
+              estimate={
+                availability === "ready-browser"
+                  ? estimateBrowserProduction(bounds)
+                  : undefined
+              }
               topic={topic}
               exactHosts={exactHosts}
               consent={consent}
-              busy={busy}
+              busy={busy || (mode === "browser" && libraryState !== "ready")}
               onChange={(topic) => changeIntake({ topic, exactHosts })}
-              onConsent={setConsent}
+              onConsent={(approved) => setConsentFor(approved ? mode : null)}
+              onModeChange={(mode) => {
+                setTarget(mode);
+                setConsentFor(null);
+              }}
               onHostsChange={(exactHosts) => changeIntake({ topic, exactHosts })}
               onSubmit={create}
             />

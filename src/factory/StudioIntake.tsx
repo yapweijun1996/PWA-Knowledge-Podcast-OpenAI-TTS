@@ -1,44 +1,149 @@
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { limits } from "../../shared/factory";
 import { WorkspaceLink, type WorkspaceNavigation } from "./navigation";
+import type {
+  BrowserEstimate,
+  StudioAvailability,
+  StudioMode,
+} from "./useBrowserProduction";
 import "./studio-intake.css";
-
-export type StudioAvailability =
-  "offline" | "no-worker" | "locked" | "no-key" | "working" | "ready";
 
 const availabilityCopy = {
   offline: ["当前离线", "可以先填写主题。联网后再提交。"],
-  "no-worker": ["未连接制作进程", "请在运行本机制作进程的网址打开制作台。"],
-  locked: ["需要登录制作进程", "请在设置中登录后回来提交。"],
-  "no-key": ["需要 OpenAI 密钥", "制作进程已连接。请在设置中配置密钥。"],
+  "no-worker": [
+    "尚未设置浏览器密钥",
+    "请在设置中添加浏览器密钥。也可选择运行本机制作进程。",
+  ],
+  locked: [
+    "需要登录制作进程",
+    "请在设置中添加浏览器密钥，或登录本机制作进程。",
+  ],
+  "no-key": [
+    "需要 OpenAI 密钥",
+    "请在设置中添加浏览器密钥，或为本机制作进程配置密钥。",
+  ],
   working: ["制作进程正忙", "当前任务结束后即可制作新节目。"],
   ready: ["可以开始制作", "制作进程与 OpenAI 密钥已就绪。"],
+  "ready-browser": [
+    "可以在浏览器制作",
+    "此标签页会直接连接 OpenAI 并保存制作进度。",
+  ],
 } satisfies Record<StudioAvailability, readonly [string, string]>;
+
+export function BrowserCost({
+  estimate,
+  id,
+  wholeEpisode = false,
+}: {
+  estimate: BrowserEstimate;
+  id?: string;
+  wholeEpisode?: boolean;
+}) {
+  return (
+    <div id={id} className="muted">
+      <strong>费用预估{wholeEpisode ? "（按整集用量）" : "（按用量）"}</strong>
+      <div>
+        输出约 {estimate.maxOutputTokens.toLocaleString("zh-CN")} 个词元，
+        网页搜索最多 {estimate.maxWebSearchCalls} 次，转录约{" "}
+        {Math.ceil(estimate.transcriptionAudioSeconds)} 秒。
+        输入和工具调用也可能计费，实际费用以 OpenAI 账单为准。
+      </div>
+    </div>
+  );
+}
+
+export function BrowserContinuation({
+  estimate,
+  keySet,
+  disabled,
+  navigation,
+  onResume,
+}: {
+  estimate: BrowserEstimate;
+  keySet: boolean;
+  disabled: boolean;
+  navigation: WorkspaceNavigation;
+  onResume: () => void;
+}) {
+  const [consent, setConsent] = useState(false);
+  return (
+    <section className="factory-panel" aria-labelledby="browser-resume-title">
+      <h2 id="browser-resume-title">继续浏览器制作</h2>
+      <p id="browser-resume-warning" className="muted">
+        将从已保存的进度继续。若上次请求的结果未知，手动继续可能再次计费。
+      </p>
+      {!keySet && (
+        <p>
+          请先在此标签页设置浏览器密钥。{" "}
+          <WorkspaceLink page="settings" navigation={navigation}>
+            前往设置
+          </WorkspaceLink>
+        </p>
+      )}
+      <div className="factory-create">
+        <BrowserCost
+          estimate={estimate}
+          id="browser-resume-estimate"
+          wholeEpisode
+        />
+        <label className="factory-check">
+          <input
+            type="checkbox"
+            aria-describedby="browser-resume-estimate browser-resume-warning"
+            checked={consent}
+            disabled={disabled}
+            onChange={(event) => setConsent(event.target.checked)}
+          />
+          我同意本次继续制作的 OpenAI 请求可能计费。
+        </label>
+        <button
+          className="primary"
+          disabled={disabled || !consent}
+          onClick={() => {
+            setConsent(false);
+            onResume();
+          }}
+        >
+          继续浏览器制作
+        </button>
+      </div>
+    </section>
+  );
+}
 
 export function StudioIntake({
   availability,
   navigation,
+  mode,
+  chooseMode,
+  estimate,
   topic,
   exactHosts,
   consent,
   busy,
   onChange,
   onConsent,
+  onModeChange,
   onHostsChange,
   onSubmit,
 }: {
   availability: StudioAvailability;
   navigation: WorkspaceNavigation;
+  mode: StudioMode;
+  chooseMode: boolean;
+  estimate?: BrowserEstimate;
   topic: string;
   exactHosts?: 2;
   consent: boolean;
   busy: boolean;
   onChange: (topic: string) => void;
   onConsent: (consent: boolean) => void;
+  onModeChange: (mode: StudioMode) => void;
   onHostsChange: (count: 2 | undefined) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
   const [status, guidance] = availabilityCopy[availability];
+  const ready = availability === "ready" || availability === "ready-browser";
 
   return (
     <div className="studio-intake">
@@ -79,12 +184,29 @@ export function StudioIntake({
               <option value="2">恰好两位主持人</option>
             </select>
           </label>
+          {chooseMode && (
+            <label className="field">
+              制作位置
+              <select
+                value={mode}
+                disabled={busy}
+                onChange={(event) =>
+                  onModeChange(
+                    event.target.value === "worker" ? "worker" : "browser",
+                  )
+                }
+              >
+                <option value="browser">此浏览器</option>
+                <option value="worker">本机制作进程</option>
+              </select>
+            </label>
+          )}
           <div className="studio-availability" id="studio-availability">
             <div role="status">
               <strong>{status}</strong>
               <span>{guidance}</span>
             </div>
-            {(availability === "locked" || availability === "no-key") && (
+            {!ready && availability !== "offline" && (
               <WorkspaceLink
                 className="outline"
                 page="settings"
@@ -94,10 +216,14 @@ export function StudioIntake({
               </WorkspaceLink>
             )}
           </div>
+          {estimate && (
+            <BrowserCost estimate={estimate} id="browser-start-estimate" />
+          )}
           <label className="factory-check studio-consent">
             <input
               type="checkbox"
-              disabled={availability !== "ready" || busy}
+              aria-describedby={estimate ? "browser-start-estimate" : undefined}
+              disabled={!ready || busy}
               checked={consent}
               onChange={(event) => onConsent(event.target.checked)}
             />
@@ -106,9 +232,7 @@ export function StudioIntake({
           <button
             className="primary"
             aria-describedby="studio-availability"
-            disabled={
-              availability !== "ready" || busy || !consent || !topic.trim()
-            }
+            disabled={!ready || busy || !consent || !topic.trim()}
           >
             制作整集播客
           </button>

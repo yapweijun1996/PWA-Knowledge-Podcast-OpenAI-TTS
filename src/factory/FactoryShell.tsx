@@ -62,6 +62,7 @@ export function FactoryShell({
               {factoryPages[page].title}
             </h1>
             {page === "library" && <p>在此浏览器保存、播放与编辑节目。</p>}
+            {page === "automation" && <p>自动化仅限本机制作进程。</p>}
           </div>
           {children}
         </main>
