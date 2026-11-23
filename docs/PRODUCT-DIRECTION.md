@@ -7,13 +7,15 @@ An AI agent researches a topic, writes the script, produces the audio, animates
 a video (Three.js first; Godot and others later) and, after a human review,
 publishes to YouTube. The owner is the only user for now.
 
+See the [roadmap](ROADMAP.md) for milestones, risks and unverified claims.
+
 ## Decisions
 
 1. **Browser first.** The browser is the primary runtime. IndexedDB is the
    system of record for episodes, research, scripts, audio, video and
    backups. Everything the Library does works offline after the first visit.
 2. **BYOK.** The user brings their own OpenAI API key. Browser BYOK is a
-   supported mode again (see T24 in `TASK.md`). It is an explicit trade-off:
+   supported mode again (M0 in the [roadmap](ROADMAP.md), T24 to T31 in `TASK.md`). It is an explicit trade-off:
    a key entered in the page is readable by page code, extensions and a
    compromised device. Use a restricted, budget-limited key. The key is never
    written to IndexedDB, backups, caches, logs or source.
@@ -35,7 +37,7 @@ publishes to YouTube. The owner is the only user for now.
 | --- | --- |
 | Library in IndexedDB, offline playback, backup and restore | implemented |
 | Research, script and audio through the worker | implemented |
-| Browser-direct BYOK generation in the Studio | **removed with V1; planned (T24)** |
+| Browser-direct BYOK generation in the Studio | **removed with V1; planned (M0, T24 to T31)** |
 | Video rendering | planned (T17-T19) |
 | YouTube upload | planned (T21) |
 | pi agent adapter | planned (T22) |
@@ -44,7 +46,7 @@ publishes to YouTube. The owner is the only user for now.
 
 | Mode | Key lives in | Needs worker | Status |
 | --- | --- | --- | --- |
-| Browser BYOK | page memory only | no | planned (T24) |
+| Browser BYOK | page memory only | no | planned (M0, T24 to T31) |
 | Worker | worker process memory | yes | implemented |
 | Library only (public Pages) | none | no | implemented |
 

@@ -271,7 +271,7 @@ those WAVs or make paid OpenAI calls.
 
 ## Suggested sequence
 
-T01–T04 and T07–T16 are implemented as described above. T05 remains open:
+T01–T04 and T07–T16 are implemented as described above. (Superseded on 2026-11-23: T05 and T06 lived in the removed V1 editor; see the V3 section.) T05 remained open:
 complete the bounded three-way real-provider comparison and listener assessment
 before selecting and implementing T06. Do not treat simulated audio or inserted
 silence as proof of improved narration continuity.
@@ -280,60 +280,119 @@ silence as proof of improved narration continuity.
 
 The V2 workflow runs topic discovery, independent evidence search, adaptive narration and audio comparison in a trusted worker, then hands the episode to the browser Library. See the [V2 runbook](docs/V2-FACTORY.md) for setup, verification limits and independent QA.
 
-## V3 video and publishing (goal: AI-made podcast video uploaded to YouTube)
+## V3: browser-first BYOK, then video and YouTube
 
-Product goal: a "Podcast Studio" similar in spirit to YouTube Studio. An AI agent
-researches a topic, writes the script, produces the audio, animates a video and,
-after a human review, publishes it to YouTube. V1 and browser BYOK were removed
-in `71a53da`; the older constraints above about browser-only BYOK and T05/T06
-(narration continuity experiment) are historical. The owner decided on 2026-11-23: browser first, IndexedDB, BYOK (T24 restores the
-browser-direct mode); the worker is optional. Until T24 lands, keys live only
-in the trusted local worker. Nothing here may upload or spend money without an explicit
-owner approval for that run. Effort is an estimate (S/M/L).
+Product goal: an AI-made podcast video, uploaded to YouTube after a human
+review. Owner rule (2026-11-23): **browser first, BYOK, no server required.**
+Full plan, milestones, risks and unverified claims: [docs/ROADMAP.md](docs/ROADMAP.md).
+Decisions: [docs/PRODUCT-DIRECTION.md](docs/PRODUCT-DIRECTION.md).
 
-- [ ] **T24 — Restore browser BYOK generation in the Studio** (effort: L; risk:
-  high). Decision in [docs/PRODUCT-DIRECTION.md](docs/PRODUCT-DIRECTION.md):
-  browser first, BYOK, worker optional. Bring the V1 browser-direct path (see
-  `src/browser-tts.ts`, history at `636fae0`) into the Studio so research,
-  script and audio can run with no worker. Reuse the V1 protections: key held
-  in memory only and cleared on page exit, per-run cost disclosure and consent,
-  save-before-next-segment, completeness checks, no automatic retry of an
-  ambiguous paid request, 4,000-unit segment limit preflight. Acceptance: tests
-  intercept every provider request by default; key never appears in
-  IndexedDB, backups, caches or logs; worker mode still works. Do this before
-  T22.
-- [ ] **T17 — Decide the video render path** (effort: S). Compare (a) Three.js
-  scene rendered in headless Chromium and captured with frame stepping, (b)
-  Godot headless movie writer, (c) simple waveform plus captions through ffmpeg.
-  Pick one for the first release and record the choice with reasons. Acceptance:
-  decision note in `docs/`, a 10-second sample rendered from a fixture episode
-  with no provider calls.
-- [ ] **T18 — Scene and caption plan from a script** (effort: M). Derive a
-  deterministic timeline (speaker turns, chapters, caption cues) from the
-  episode record and its audio timings. Acceptance: unit tests on fixtures; same
-  input gives the same plan.
-- [ ] **T19 — Render worker stage producing MP4** (effort: L). Add a worker
-  stage that takes the plan plus verified audio and outputs MP4 with the audio
-  track, storing it with a SHA-256 receipt like other assets. Acceptance:
-  deterministic fixture render in CI, cancellation and restart recovery tested,
-  disk-use limits documented.
-- [ ] **T20 — Video review in Studio** (effort: M). Preview the rendered video,
-  edit title, description, chapters and thumbnail, and approve or reject.
-  Acceptance: browser test covers approve and reject; nothing is uploaded
-  without approval.
-- [ ] **T21 — YouTube upload via the official API** (effort: L). OAuth with the
-  minimum upload scope, private-by-default upload, resumable upload with
-  recovery, quota and error handling, and an audit log. Acceptance: tested
-  against a mocked API; one real private upload only with owner approval;
-  tokens never stored in the browser or exports.
-- [ ] **T22 — Agent adapter (pi coding agent first, OpenAI API key)** (effort: M).
-  Define one narrow interface for research, script and scene generation so the
-  pi coding agent running in the browser can drive stages first, with the OpenAI
-  API key (held by the worker) as the provider. Acceptance: mock-provider tests,
-  per-run cost disclosure and consent, no automatic retry of ambiguous paid
-  requests.
-- [ ] **T23 — Release gates for video** (effort: S). Extend
-  `docs/V2-PRODUCTION-CHECKLIST.md` with render, review and upload checks,
-  including YouTube content and licensing review for AI-generated media.
+V1 and browser BYOK were removed in `71a53da`, which left `main` out of
+compliance with the rule above. M0 repairs that. The old code is at `636fae0`.
+T05 and T06 (narration continuity experiment) are **superseded**: their runner
+lived in V1. Revisit continuity only through T27 if the owner still hears
+discontinuity.
 
-Suggested order: T24 → T17 → T18 → T19 → T20 → T22 → T21 → T23.
+Rules for every task below: key in page memory only; per-run consent and
+estimate-labelled cost disclosure; no automatic retry of ambiguous paid
+requests; tests intercept provider requests by default; save before the next
+paid step; nothing uploads without approval. Effort is an estimate (S/M/L).
+Status words: `[ ]` open, `[x]` done.
+
+### M0. Restore browser-first BYOK (do first)
+
+- [ ] **T24 — Provider contract spike** (S; needs owner approval for a paid
+  call). In a scratch page, verify from a browser with a user-entered key:
+  CORS for `/v1/responses` (with the web search tool and strict JSON schema),
+  `/v1/audio/transcriptions`, and WebRTC `/v1/realtime/calls`. Record the real
+  status, headers and a cost note. Acceptance: a dated note in `docs/` listing
+  each endpoint as works, blocked or needs a proxy; the owner approves the
+  dollar ceiling beforehand. If an endpoint is blocked, that stage becomes
+  worker-only and the UI must say so.
+- [ ] **T25 — Browser key session and CSP** (S). A memory-only key holder,
+  cleared on page exit and on demand, with an explicit risk acknowledgement.
+  Allow `https://api.openai.com` in `connect-src` for the private build too
+  (`vite.config.ts` currently blocks it). Acceptance: unit tests; the key is
+  absent from storage, backups, caches and logs; CSP test for both builds.
+- [ ] **T26 — Share the pipeline between worker and browser** (M). Move the pure
+  modules (`openai`, `script`, `research`, `research-audit`, `claims`,
+  `transcript`, `qa`, `languages`, `errors`) to `shared/` with the provider
+  function injected, so the worker and the browser run the same code.
+  Acceptance: existing worker tests still pass; no Node-only imports in the
+  shared modules; no behavior change in worker mode.
+- [ ] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at
+  `636fae0`) to the shared pipeline: WebRTC Realtime audio, `Uint8Array`
+  instead of `Buffer`, WAV or PCM assembly, completeness checks, and
+  save-before-next. Acceptance: mock-provider and local-WebRTC tests; cancel
+  and save-failure recovery tests (restore the V1 protections that were
+  removed with the specs); listen to one real take with the owner's approval.
+- [ ] **T28 — Browser job runner** (L). The stage machine from
+  `server/jobs.mjs` (research, outline, script, audio, QA) running in the page
+  with each stage checkpointed in IndexedDB, resume after reload, cancel, and
+  no automatic retry of paid stages. Acceptance: reload-in-the-middle and
+  cancel tests; the episode appears in the Library with the same record format
+  the worker produces.
+- [ ] **T29 — Studio modes** (M). Add a "browser key" availability state beside
+  the worker states in `StudioIntake`; the Settings key field offers memory-only
+  browser mode; the worker is labelled optional; Automation is labelled worker
+  only. Acceptance: browser test creates an episode with no worker running;
+  the dead-end `no-worker` state is gone.
+- [ ] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
+  default-deny provider interception fixture; a key-leak scan across
+  IndexedDB, backups, service-worker caches, console and URLs; CI runs it.
+  Acceptance: CI fails if a test reaches a real provider or leaks the key.
+- [ ] **T31 — Documentation** (S). Update README, V2-FACTORY, SECURITY,
+  TEST-MATRIX and the production checklist for browser mode; remove the stale
+  V1 text. Acceptance: docs state only what is implemented.
+
+### M1. Video in the browser
+
+- [ ] **T32 — Render path spike** (S; parallel with M0). Prove Three.js canvas
+  frames, WebCodecs encoding and audio muxing for a 10-second fixture in
+  Chromium and Safari. Record codec support, speed and memory. Choose
+  (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
+  decision note and a sample MP4 with no provider calls.
+- [ ] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
+  chapters, caption cues) from the episode record and audio timings.
+  Acceptance: unit tests on fixtures; same input gives the same plan.
+- [ ] **T34 — Scene library v1** (M). Waveform, captions and host cards with two
+  themes; the owner picks the first style (see ROADMAP). Acceptance: screenshot
+  review at 1440 and 390 widths.
+- [ ] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
+  stepping, progress, cancel, memory and storage limits, MP4 stored in
+  IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
+  cancel and reload recovery, quota-exceeded handling.
+- [ ] **T36 — Video review** (M). Preview, edit title, description, chapters and
+  thumbnail, then approve or reject. Acceptance: browser test for approve and
+  reject; nothing is uploaded without approval.
+
+### M2. YouTube
+
+- [ ] **T37 — Upload via the official API** (L). Google Identity Services token
+  flow with the minimum upload scope, tokens in memory only, resumable upload
+  with recovery, quota handling, private by default, an audit log. First
+  verify and record: whether an unaudited project is restricted to private
+  uploads, the quota cost, and the AI-content disclosure setting. Acceptance:
+  mocked-API tests; one real private upload only with the owner's approval.
+- [ ] **T38 — Publish metadata** (S). Chapters from the timeline, description
+  and an AI-generated-content disclosure. Acceptance: matches the verified
+  YouTube requirements recorded in T37.
+
+### M3 to M5
+
+- [ ] **T39 — Agent adapter, pi coding agent first** (M). One narrow interface
+  for research, script and scene generation. Blocked on the owner explaining
+  what pi exposes in the browser. Acceptance: mock-provider tests, cost
+  disclosure and consent, no automatic paid retries.
+- [ ] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
+  Not on the critical path. Acceptance: a decision note.
+- [ ] **T41 — Worker as optional** (S). Keep Automation and unattended runs as
+  worker features, labelled optional, using the shared pipeline from T26.
+- [ ] **T42 — Release gates for video and upload** (S). Extend
+  `docs/V2-PRODUCTION-CHECKLIST.md`: render, review, upload, and YouTube
+  content and licensing checks for AI-generated media.
+- [ ] **T43 — Real-device and offline verification** (M). Phones and Safari,
+  storage quota with large video blobs, offline Library after upload.
+
+Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
+T31, then T33 to T36, then T37, T38, T39, then T40 to T43.
