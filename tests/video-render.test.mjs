@@ -77,6 +77,26 @@ function recordingContext() {
     },
     save() {},
     restore() {},
+    translate(...args) {
+      this.calls.push(["translate", ...args]);
+    },
+    scale(...args) {
+      this.calls.push(["scale", ...args]);
+    },
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    bezierCurveTo() {},
+    ellipse(...args) {
+      this.calls.push(["ellipse", ...args]);
+    },
+    fill() {},
+    stroke() {},
+    clip() {},
+    createRadialGradient() {
+      return { addColorStop() {} };
+    },
     measureText(text) {
       return {
         width: Array.from(text).reduce(
@@ -297,6 +317,7 @@ function overlappingPlan(resolution = { width: 1920, height: 1080 }) {
   return buildTimeline(
     {
       language: "zh",
+      topic: "新加坡组屋",
       revision: 1,
       outline: {
         chapters: [
@@ -313,7 +334,7 @@ function overlappingPlan(resolution = { width: 1920, height: 1080 }) {
       },
       render: {
         revision: 1,
-        clips: { a: { duration: 0.75 }, b: { duration: 2.5 } },
+        clips: { a: { duration: 2.25 }, b: { duration: 2.5 } },
       },
     },
     {
@@ -335,20 +356,26 @@ test("waveform drawing snapshot covers the live opening, chapter overlay and ret
       createHash("sha256").update(JSON.stringify(calls)).digest("hex"),
     ),
     [
-      "874559e9a7f577b6bb24e686d72ff5c084e9a7307ebfe88fbe45c6e4031d6b45",
-      "c5b5a939407704dab898a142b56852108ceb66edf2e43ea7e4520854f68dac90",
-      "d521804996d1db6599ec3a2c99d570a6acfb04fbdd3e959d52a59056c35cfca5",
-      "1c26422b35b99826e5886a1857608ecb419ea96e87f711418f0ed64050ccb611",
-      "73b34662cc2c0b44111b6a6e3d9ee55361d861630f1f400d4452e101215e4427",
-      "fafb511939aa7bdda87b91fb327ff825d0906b4584ec7afebf8cd902ef612cb5",
-      "04224d6d8bb57187a75cc0625f2058bd6515dd6b3a3fb583f3f88910cd166c3e",
-      "a3dc2c96aba4a8089a53b1dbc0d4b21c6534f557c92ec5e8eaf30e728127dd28",
-      "d09408f5c559b56a445b9763954a6c5dc3bd8c0f03fbc11428a266af709769b9",
-      "9893bd7b964bc82b61e3ea0d423fd4b345e5e57d774217270cc4bcbf37301488",
-      "a51053f8b4cf8e079aa2d308410d10bc1cfb00b76479ee48161a6980762da26c",
-      "7e6794f90080f7fd077b4b4bc664f942e94f8e77eb75ad03b428f6a40e728cee",
-      "b9a4da5077c1f1397ef1ce052d70c86730f82317b56d1dc5dfa6f0a7c0aede29",
-      "6b96b94cd73d3952c871a11cb1b1d044b07e999abb398954937a7fc536b30179",
+      "aa273daf78c8fcc7f7c23e61ae07cbc9fc4070da4597552f9667d64aca43bb89",
+      "1363e473a13d8a737a3d5edf743da862e87ef61816251f02ae80b0adc6d20246",
+      "497b5896a1afc0f701b47b31c11d73aad26b02f0efbe9043301248ad178bd490",
+      "bc64cc9d1cbc78995268f510cd921af822c8503204c990c8b53e159dedf6858a",
+      "b0e6de8fa14b7dfd94479b2af8b75c12d2981555606126f40fa28ccdf816ade6",
+      "805d51e568a36567553b168c3c7fc04272077d1965cb9fc285bf85d47451c103",
+      "0cc3515320e2f75c5ce327f10db743a0bb3f2391ecc910a87a8acae70c92c65d",
+      "4f9bcf4d50fbafc4ccb5fbbf79e9425e8bbae0b9498c81e034f330395cc5f82a",
+      "02e6204efe11a423bf1478f9b68edeb84541780488638fd82257e02926adfe57",
+      "a5be20de0458f383d9b60b4928e97aabf3ec1ca8cb30bf14a92f05148d5ca1ea",
+      "05a7a68cae192b2e7fc7c1a36aa8de1186d99876338775ec7b360a119fdee926",
+      "2b464adf12f90203628daa3ee462c80c0541c1a025b8696a5d83ec8762ff2b96",
+      "48098801a5727b179c9b80561c4efc305faccb345abce55cd2d9e2170b80f0b8",
+      "af57b4f7cf4056c5ebdd864341fa2ff5507eb5ef9b8f2c1e4938585291f1c2fb",
+      "5c9720935c327e2136ba4c8240c4ba525f624574d03875091aa8019db1b98f29",
+      "792266b76f8ea4450aa167f5b7d1174c4a08fa12a7a1aa0796ab5f1391badd80",
+      "44a66617d286acb7e9c6b512759b4a3b6cb04bddece84071222dcacc8809780e",
+      "74c8897136117610d0b62da5854fcf25bace93851e439129b47ecdb46d776222",
+      "6f0da04444a7fd11a1d08411e8ecf142c032baab75eeb45f06dc2c806f03ab54",
+      "8c1b34b2aedb640fba7faf86c93f2bb9f18d27927cb12ed01e97aa57a0eb7814",
     ],
   );
 });
@@ -1086,7 +1113,7 @@ test("portrait and landscape exports start with live PCM and captions and keep b
       sampleRate,
       channels: [
         Float32Array.from({ length: plan.duration * sampleRate }, (_, index) =>
-          index < 0.75 * sampleRate ? 0.25 : 0.5,
+          index < 2.25 * sampleRate ? 0.25 : 0.5,
         ),
       ],
     };
@@ -1099,15 +1126,26 @@ test("portrait and landscape exports start with live PCM and captions and keep b
     assert.equal(result.paletteId, theme === "light" ? "light" : "ocean");
     assert.deepEqual(result.fontNotices, ["font.apiUnavailable"]);
     assert.equal(trace.audio[0].data[0], 0.25);
-    assert.equal(trace.audio[1].data.at(-1), 0.5);
+    assert.equal(trace.audio[1].data.at(-1), 0.25);
+    const samples = trace.audio.flatMap(({ data }) => [...data]);
+    const secondTurnSample = Math.round(2.48 * sampleRate);
+    assert.equal(samples[secondTurnSample - 1], 0);
+    assert.equal(samples[secondTurnSample], 0.5);
     assert.deepEqual(texts(trace.frames[0]), [
       "Fixture Studio",
       "1 / 2",
+      "节目标题",
       "主持人 A",
-      "主持人 B",
       "你好，世界。",
     ]);
-    assert.deepEqual(texts(trace.frames[4]), [
+    assert.equal(
+      trace.frames[0].calls.filter(([method]) => method === "ellipse").length,
+      1,
+    );
+    const holdFrames = orientation === "landscape" ? 8 : 6;
+    assert.ok(texts(trace.frames[holdFrames - 1]).includes("节目标题"));
+    assert.ok(!texts(trace.frames[holdFrames]).includes("节目标题"));
+    assert.deepEqual(texts(trace.frames[10]), [
       "Fixture Studio",
       "2 / 2",
       "第 2 章",
@@ -1127,6 +1165,28 @@ test("portrait and landscape exports start with live PCM and captions and keep b
       [width, height],
     );
   }
+});
+
+test("the standalone frame draws the host-pair art when the title and topic have no match", () => {
+  const plan = overlappingPlan();
+  const context = recordingContext();
+  drawFrame(
+    context,
+    {
+      ...plan,
+      scenes: plan.scenes.map((scene) =>
+        scene.kind === "intro" ? { ...scene, topic: "" } : scene,
+      ),
+    },
+    audio,
+    "dark",
+    0,
+  );
+  assert.equal(
+    context.calls.filter(([method]) => method === "ellipse").length,
+    2,
+  );
+  assert.ok(texts(context).includes("你好，世界。"));
 });
 
 test("both rails keep idle ticks and only the current host's rail grows", () => {

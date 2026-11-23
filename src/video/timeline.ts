@@ -6,6 +6,7 @@ import {
   joinCaptionLines,
   normalizeDisplayText,
   paginateText,
+  wrapDisplayText,
   type TextPage,
 } from "../text/wrap.ts";
 import { videoLayout } from "./design/layout.ts";
@@ -38,7 +39,8 @@ export type CaptionCue = Interval & {
 };
 type Scene = Interval &
   (
-    | { kind: "intro" | "end"; title: string }
+    | { kind: "intro"; title: string; topic?: string }
+    | { kind: "end"; title: string }
     | { kind: "chapter"; chapterId: string; title: string; sceneId?: string }
     | {
         kind: "turn";
@@ -120,7 +122,15 @@ export function layoutCaptionCues(
     if (!context) return turn.captions;
     return turn.captions.flatMap((cue) => {
       const pages = paginate(cue.text ?? joinCaptionLines(cue.lines));
-      if (pages.length === 1) return [{ ...cue, lines: pages[0].lines }];
+      const [page] = pages;
+      if (pages.length === 1)
+        return [
+          {
+            ...cue,
+            lines: page.lines,
+            ...(page.needsReview ? { needsReview: true } : {}),
+          },
+        ];
       return timeCaptionPages(pages, cue, fps, locale);
     });
   }
@@ -174,21 +184,26 @@ function timeCaptionPages(
       : rates.map(() => 0);
   const remaining = available - bases.reduce((sum, base) => sum + base, 0);
   let cursor = start;
-  return pages.map(({ text, lines }, index) => {
+  return pages.map(({ text, lines, needsReview }, index) => {
     const framesLeft = pages.length - index - 1;
     const share = bases[index] + (remaining * weights[index]) / weightTotal;
     const nearest = Math.round((cursor + share) * fps) / fps;
-    const latest = end - framesLeft / fps;
+    const latest = (Math.floor((end + 0.5e-6) * fps) - framesLeft) / fps;
     const cut =
       framesLeft === 0
         ? end
         : seconds(
-            latest < cursor + 1 / fps
-              ? Math.min(end, Math.max(cursor, nearest))
-              : Math.min(latest, Math.max(cursor + 1 / fps, nearest)),
+            Math.min(
+              end,
+              Math.max(
+                nextFrame(cursor + 1 / fps, fps),
+                Math.min(latest, nearest),
+              ),
+            ),
           );
     const duration = cut - cursor;
     const review =
+      needsReview ||
       duration + 1e-6 < Math.max(minimum, rates[index].hard) ||
       duration > maxCue;
     const cue = {
@@ -219,11 +234,14 @@ function scheduleCallouts(
   const result: NonNullable<TimelinePlan["callouts"]> = [];
   let previous = -Infinity;
   for (const chapter of windows) {
-    const card = scenes.find(
-      (scene) => scene.kind === "chapter" && scene.start === chapter.start,
-    );
+    const cardEnd = scenes.reduce((end, scene) => {
+      const overlaps =
+        (scene.kind === "intro" && scene.end > chapter.start) ||
+        (scene.kind === "chapter" && scene.start === chapter.start);
+      return overlaps ? Math.max(end, scene.end) : end;
+    }, 0);
     const earliest = nextFrame(
-      card ? card.end + motion.calloutClearOfCardMs / 1000 : chapter.start,
+      cardEnd ? cardEnd + motion.calloutClearOfCardMs / 1000 : chapter.start,
       fps,
     );
     const boundaries = scenes.flatMap((scene) => {
@@ -278,7 +296,7 @@ function scheduleCallouts(
         3 * geometry.calloutPad.x -
         geometry.stroke.calloutRule;
       if (
-        paginateText(
+        wrapDisplayText(
           {
             measureText(line) {
               const counts = displayTextCounts(line, locale);
@@ -291,7 +309,8 @@ function scheduleCallouts(
           text,
           width,
           { locale, limits: geometry.text.callout },
-        ).length !== 1
+          false,
+        ).length === 0
       )
         continue;
       result.push({ text, start: seconds(start), end });
@@ -356,6 +375,8 @@ export function buildTimeline(
       ? episode.render.clips
       : undefined;
   const turns = episode.script?.turns ?? [];
+  const title = episode.script?.title ?? episode.topic;
+  const titleHold = motion.titleMs[orientation === "landscape" ? 0 : 1] / 1000;
   let position = 0;
   for (const [index, turn] of turns.entries()) {
     if (index > 0) position += turnPause;
@@ -429,6 +450,14 @@ export function buildTimeline(
     const chapter = windows.find(({ start }) => start === scene.start)!;
     scene.end = Math.min(scene.end, chapter.end);
   }
+  if (!turns.length) position = titleHold;
+  plan.scenes.unshift({
+    kind: "intro",
+    title,
+    start: 0,
+    end: Math.min(titleHold, seconds(position)),
+    ...(turns.length && episode.topic ? { topic: episode.topic } : {}),
+  });
   if (options.callouts?.length)
     plan.callouts = scheduleCallouts(
       options.callouts,
@@ -438,17 +467,14 @@ export function buildTimeline(
       fps,
       locale,
     );
-  if (options.endCard || !turns.length) {
-    const title = episode.script?.title ?? episode.topic;
-    const start = seconds(position);
-    const cardMs = motion.titleMs[orientation === "landscape" ? 0 : 1];
-    position += cardMs / 1000;
+  if (options.endCard && turns.length) {
     plan.scenes.push({
-      kind: turns.length ? "end" : "intro",
+      kind: "end",
       title,
-      start,
-      end: seconds(position),
+      start: seconds(position),
+      end: seconds(position + titleHold),
     });
+    position += titleHold;
   }
   plan.duration = seconds(position);
   return plan;

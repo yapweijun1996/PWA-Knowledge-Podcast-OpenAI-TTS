@@ -1,4 +1,5 @@
 import { t } from "../../i18n/index.ts";
+import type { GraphicContext } from "../../publish/topic-graphics.ts";
 import type { Orientation } from "../design/tokens.ts";
 import type { PcmAudio } from "../pcm.ts";
 import type { VideoPaletteId, VideoTheme } from "../themes.ts";
@@ -20,7 +21,8 @@ export type DrawingContext = Partial<
     | "lineWidth"
     | "globalAlpha"
     | "createLinearGradient"
-  >
+  > &
+    GraphicContext
 > &
   Pick<
     SceneContext,

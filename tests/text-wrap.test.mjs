@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { drawThumbnail } from "../src/publish/thumbnail.ts";
-import { paginateText, wrapDisplayText, wrapText } from "../src/text/wrap.ts";
+import {
+  paginateText,
+  withinTextLimit,
+  wrapDisplayText,
+  wrapText,
+} from "../src/text/wrap.ts";
 import { drawFrame } from "../src/video/draw.ts";
 
 const trialTitle = "组屋里的混居，是怎么被设计出来的";
@@ -217,6 +222,70 @@ test("CJK captions keep the housing phrase, punctuation and a supplied name toge
         );
     }
   }
+});
+
+test("recuts the three reviewed Mandarin passages at legal caption boundaries", () => {
+  const context = recordingContext();
+  const hook =
+    "你有没有想过，为什么新加坡的组屋里，不同族群能比较自然地住在一起？";
+  const question = "那它怎么真的影响买卖呢？";
+  const followUp = "二手组屋交易里，";
+  const rule = "对，而且它不是只讲理念，规则直接落到楼栋和邻里层面，";
+  for (const limit of [16, 11]) {
+    const paginate = (text) =>
+      paginateText(context, text, limit * 2, {
+        locale: "zh-CN",
+        limits: [2, limit, limit === 16 ? 42 : 26],
+      });
+    const hookLines = paginate(hook).flatMap(({ lines }) => lines);
+    assert.ok(hookLines.some((line) => line.includes("新加坡的组屋里")));
+    assert.deepEqual(paginate(question + followUp), [
+      {
+        text: question,
+        lines: limit === 16 ? [question] : ["那它怎么", "真的影响买卖呢？"],
+      },
+      { text: followUp, lines: [followUp] },
+    ]);
+    const ruleCues = paginate(rule);
+    const ruleLines = ruleCues.flatMap(({ lines }) => lines);
+    assert.ok(ruleLines.some((line) => line.includes("讲理念")));
+    assert.ok(ruleLines.some((line) => line.includes("楼栋")));
+    if (limit === 11)
+      assert.deepEqual(
+        ruleCues.map(({ text }) => text),
+        ["对，而且它不是只讲理念，", "规则直接落到楼栋和邻里层面，"],
+      );
+    for (const source of [hook, question + followUp, rule]) {
+      const cues = paginate(source);
+      assert.equal(cues.map(({ text }) => text).join(""), source);
+      assert.ok(cues.every(({ lines }) => lines.length <= 2));
+      for (const line of cues.flatMap(({ lines }) => lines)) {
+        assert.ok(withinTextLimit(line, limit, 42, "zh-CN"));
+        assert.ok(context.measureText(line).width <= limit * 2);
+        assert.doesNotMatch(line, /^[呢吗吧啊嘛啦\p{Pe}\p{Pf}、。，：；？！]/u);
+        assert.doesNotMatch(line, /[的地得了着过和与在对把被从向为以及或而]$/u);
+      }
+    }
+  }
+});
+
+test("prioritizes clauses and keeps decimal and CJK units attached", () => {
+  const context = recordingContext();
+  const text = "Take 12.5 km, then turn; complete the route. Next, go home.";
+  const pages = paginateText(context, text, 17, { limits: [2, 11, 17] });
+  assert.equal(pages.map(({ text }) => text).join(" "), text);
+  assert.ok(pages.every(({ text }) => /[,;.]$/u.test(text)));
+  assert.ok(
+    pages
+      .flatMap(({ lines }) => lines)
+      .some((line) => line.includes("12.5 km")),
+  );
+  const mixed = paginateText(context, "距离市区大约30公里，路线清楚。", 16, {
+    limits: [2, 8, 26],
+  });
+  assert.ok(
+    mixed.flatMap(({ lines }) => lines).some((line) => line.includes("30公里")),
+  );
 });
 
 test("Malay spaces and mixed graphemes count against their role limits", () => {
