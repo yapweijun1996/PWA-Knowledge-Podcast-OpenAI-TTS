@@ -293,6 +293,28 @@ test("avoids starting a continuation with an adverb after a verb phrase when ano
   ]);
 });
 
+test("prefers a legal adverb break in Mandarin portrait cues", () => {
+  const context = recordingContext();
+  const examples = [
+    ["那它怎么", "真的影响买卖呢？"],
+    ["这条政策", "已经影响二手组屋了。"],
+    ["这几个邻居", "一直互相照应。"],
+    ["这条街的店面", "正在慢慢恢复营业。"],
+    ["这个消息让她", "特别地感到安心。"],
+    ["这个社区的租金", "又上涨了一次。"],
+  ];
+  for (const lines of examples) {
+    const text = lines.join("");
+    assert.deepEqual(
+      paginateText(context, text, 22, {
+        locale: "zh-CN",
+        limits: [2, 11, 26],
+      }),
+      [{ text, lines }],
+    );
+  }
+});
+
 test("prioritizes clauses and keeps decimal and CJK units attached", () => {
   const context = recordingContext();
   const text = "Take 12.5 km, then turn; complete the route. Next, go home.";

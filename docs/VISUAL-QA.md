@@ -15,7 +15,7 @@ Three layers, each catching different failures. A layer passing never substitute
 | --- | --- |
 | Captions | At most two lines; per-line limits from the tokens; no line ends with a CJK function word (的 地 得 了 着 过 和 与 在 对 把 被 从 向 为 以 及 或 而) or starts with 呢 吗 吧 啊 嘛 啦 or a closing mark; no single-character last line; Latin words whole; cues cover the turn text with no lost words; reading rate within the caption-timing ceilings. |
 | Contrast | Every checked text element reaches 4.5:1 in the raw frame **and** in the frame decoded from the H.264 MP4. Small text is measured after compression because that is what viewers see. |
-| Framing | Element boxes inside the spec's safe rectangle for each orientation, no decoded ink outside the title-safe rectangle (.05 .05 .95 .95), and no adjacent 8×8 background luma step above 3/255 on the decoded card scan lines. |
+| Framing | Element boxes inside the spec's safe rectangle for each orientation, no decoded ink outside the title-safe rectangle (.05 .05 .95 .95), no adjacent 8×8 background luma step above 3/255 on decoded card scan lines, and raw-to-decoded deltas at or below 3/255 in the bottom four rows and outside plate edges. |
 | Typography | Bundled faces loaded, no missing glyphs after NFC normalisation, wordmark in the episode language. |
 | Opening and chapters | Caption and title ink at frame 0; title hold 2.0 s landscape and 1.5 s portrait; chapter cards on the first voiced frame; correct `n / total` progress. |
 | Flash safety | General-flash and red-flash counts over the area rule must be at most 3 per rolling second. The cell-level count is a diagnostic reported as a warning with its value (soft limit 10 per second). |
@@ -52,6 +52,26 @@ steps on dark gradients. Averaging 64 pixels reduces dither and isolated
 pixel noise. A step above 3/255 on either scan fails framing. The fixture
 report records both maxima and their block coordinates for each checked frame.
 The gate adds no seeks.
+
+The framing check also examines every decoded sample, including those used for
+flash analysis. The bottom four native rows must be within 3/255 in each RGB
+channel of the encoder input. The first six native pixels outside every drawn
+caption plate, callout plate and speaker chip must be within 3/255 Rec. 709
+code-value luma of the same pixel in the raw frame. This includes background
+pixels along the rounded corners. The report gives each region's maximum,
+coordinate and pixel count. It also checks even coordinates and sizes and
+clearance between the caption plate and each chip. The checks reuse the
+existing seeks.
+
+Run the targeted chapter-card experiment with
+`npm run e2e:factory -- --no-deps --project=render tests/visual-qa.browser.ts -g "compares the raw and decoded"`.
+It reuses the original Mandarin review episode and PCM and attaches the
+1920×1080 encoder input, decoded frame 534 and eightfold RGB difference.
+The JSON attachment compares both reported regions with the encoder input and
+the untouched Aurora gradient, excluding the drawn plate bounds. A deviation
+present only after decode narrows the cause to the encode/decode path.
+Compare the native and downscaled captures if the original review image
+shows a deviation absent from both native frames.
 
 The flash pass samples a 160×90 landscape grid or a 90×160 portrait grid. It
 checks all raw frames and seeks all decoded frames within eight source frames

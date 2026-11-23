@@ -2,6 +2,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { build } from "vite";
 import { videoFontManifest } from "../src/video/fonts/manifest.ts";
 import {
+  maximumFramingDelta,
   rubric,
   type Criterion,
   type FlashDiagnostic,
@@ -159,6 +160,47 @@ test("visual QA reader decodes frame indices and a callout cut at frame 45", asy
   ]);
 });
 
+test("compares the raw and decoded Studio 3D chapter card at 17.8 seconds", async ({
+  page,
+  context,
+  baseURL,
+  browserName,
+}, testInfo) => {
+  test.skip(browserName !== "chromium", "Chromium H.264 reference profile");
+  test.setTimeout(150_000);
+  const { url, moduleURL } = await watchdog(
+    "chapter-card experiment / build harness",
+    20_000,
+    () => serveHarness(context, baseURL!),
+  );
+  await page.goto(url, { timeout: 5_000 });
+  const { metrics, pngs } = await watchdog(
+    "chapter-card experiment / render and compare frame 534",
+    fixtureTimeoutMs,
+    () =>
+      page.evaluate(async (moduleURL) => {
+        const harness: Harness = await import(moduleURL);
+        return harness.runReviewFrameDiff(17.8);
+      }, moduleURL),
+  );
+  for (const [name, dataURL] of Object.entries(pngs)) {
+    await testInfo.attach(`chapter-card-${name}.png`, {
+      body: Buffer.from(dataURL.slice(dataURL.indexOf(",") + 1), "base64"),
+      contentType: "image/png",
+    });
+  }
+  await testInfo.attach("chapter-card-diff.json", {
+    body: JSON.stringify(metrics, null, 2),
+    contentType: "application/json",
+  });
+  expect(metrics.frame).toBe(534);
+  expect(metrics.plates.map(({ kind }) => kind)).toContain("chip");
+  for (const region of metrics.evidence) {
+    expect(region.backgroundPixels).toBeGreaterThan(0);
+    expect(region.maxRawBackdropDelta, region.name).toBe(0);
+  }
+});
+
 test("visual rubric for real Chromium MP4s and thumbnails", async ({
   context,
   baseURL,
@@ -266,7 +308,88 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
             ),
         );
         add(scope, result.issues);
-        const { banding, chapterStartFrames } = result.metrics;
+        const {
+          banding,
+          chapterStartFrames,
+          decodedFraming,
+          flash,
+          resolution,
+        } = result.metrics;
+        if (
+          decodedFraming.length !== flash.decodedFrames.length ||
+          decodedFraming.some(
+            ({ frame }, index) => frame !== flash.decodedFrames[index],
+          )
+        )
+          add(scope, [
+            {
+              criterion: "framing",
+              detail: "Missing native-pixel framing samples",
+            },
+          ]);
+        for (const {
+          frame,
+          bottomRows,
+          plateEdges,
+          plates,
+        } of decodedFraming) {
+          if (bottomRows.pixels !== resolution.width * 4)
+            add(scope, [
+              {
+                criterion: "framing",
+                frame,
+                detail: "Incomplete bottom four rows",
+              },
+            ]);
+          if (
+            plates.some(({ box }) =>
+              Object.values(box).some((value) => value % 2 !== 0),
+            )
+          )
+            add(scope, [
+              {
+                criterion: "framing",
+                frame,
+                detail: "Plate or chip off the even-pixel grid",
+              },
+            ]);
+          const caption = plates.find(({ kind }) => kind === "caption")?.box;
+          if (
+            caption &&
+            plates.some(
+              ({ kind, box }) =>
+                kind === "chip" &&
+                box.x < caption.x + caption.width &&
+                box.x + box.width > caption.x &&
+                box.y < caption.y + caption.height &&
+                box.y + box.height > caption.y,
+            )
+          )
+            add(scope, [
+              {
+                criterion: "framing",
+                frame,
+                detail: "Caption plate overlaps a chip",
+              },
+            ]);
+          const worstEdge = plateEdges.reduce<
+            (typeof plateEdges)[number] | undefined
+          >(
+            (worst, edge) =>
+              !worst || edge.maxDelta > worst.maxDelta ? edge : worst,
+            undefined,
+          );
+          for (const sample of [bottomRows, worstEdge]) {
+            if (sample && sample.maxDelta > maximumFramingDelta + 1e-12)
+              add(scope, [
+                {
+                  criterion: "framing",
+                  frame,
+                  detail: `${sample.name} differs from raw by ${(sample.maxDelta * 255).toFixed(2)}/255 at (${sample.x}, ${sample.y}); limit 3/255`,
+                },
+              ]);
+          }
+        }
         for (const [index, frame] of chapterStartFrames.entries()) {
           const card = index === 0 ? "title" : "chapter";
           if (
@@ -437,7 +560,7 @@ test("visual rubric for real Chromium MP4s and thumbnails", async ({
   await testInfo.attach("visual-qa-report.json", {
     body: JSON.stringify(
       {
-        version: 4,
+        version: 5,
         summary,
         earned,
         assessable,

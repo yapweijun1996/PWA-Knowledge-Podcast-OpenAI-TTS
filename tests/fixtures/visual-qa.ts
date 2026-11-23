@@ -1,4 +1,5 @@
 import type { Episode, Language } from "../../shared/factory.ts";
+import { render as renderReview } from "../../scripts/visual-review/entry.ts";
 import {
   createTranslator,
   setLocale,
@@ -11,6 +12,7 @@ import {
 import type { ThumbnailOptions } from "../../src/publish/thumbnail.ts";
 import { displayTextCounts, displayWordCount } from "../../src/text/wrap.ts";
 import { videoLayout, type PixelBox } from "../../src/video/design/layout.ts";
+import { palettes } from "../../src/video/design/palettes.ts";
 import {
   designTokens,
   type Orientation,
@@ -340,6 +342,155 @@ const colorDistance = (a: Pixels, i: number, b: Pixels, j: number) =>
   );
 
 const maximumBandingStep = 3 / 255;
+export const maximumFramingDelta = 3 / 255;
+const plateBorder = 6;
+
+type Plate = {
+  kind: "caption" | "callout" | "chip";
+  box: PixelBox;
+  radius: number;
+};
+
+type FramingRegion = {
+  name: string;
+  box: PixelBox;
+  plate?: Plate;
+};
+
+function observePlates(
+  ctx: Canvas2D,
+  geometry: Geometry,
+  onPlate: (plate: Plate) => void,
+) {
+  const colors = new Set(
+    Object.values(palettes).map(({ plate }) => plate.toLowerCase()),
+  );
+  const beginPath = ctx.beginPath.bind(ctx);
+  const roundRect = ctx.roundRect.bind(ctx);
+  let plate: Plate | undefined;
+  ctx.beginPath = () => {
+    plate = undefined;
+    beginPath();
+  };
+  ctx.roundRect = (x, y, width, height, radii) => {
+    if (typeof radii === "number" && colors.has(String(ctx.fillStyle))) {
+      const kind =
+        radii === geometry.radius.host
+          ? "chip"
+          : contains(geometry.caption, { x, y, width, height })
+            ? "caption"
+            : "callout";
+      plate = {
+        kind,
+        box: { x, y, width, height },
+        radius: Math.min(radii, width / 2, height / 2),
+      };
+    }
+    roundRect(x, y, width, height, radii);
+  };
+  ctx.fill = new Proxy(ctx.fill, {
+    apply(target, receiver, args) {
+      if (plate && args.length === 0) onPlate(plate);
+      return Reflect.apply(target, receiver, args);
+    },
+  });
+}
+
+export function framingRegions(width: number, height: number, plates: Plate[]) {
+  const rows = Math.min(4, height);
+  const regions: FramingRegion[] = [
+    {
+      name: "bottom four rows",
+      box: { x: 0, y: height - rows, width, height: rows },
+    },
+  ];
+  for (const [index, plate] of plates.entries()) {
+    const { x, y, width: w, height: h } = plate.box;
+    const border = plateBorder;
+    const corner = Math.ceil(plate.radius);
+    const edges = [
+      ["top", x - border, y - border, w + 2 * border, border],
+      ["bottom", x - border, y + h, w + 2 * border, border],
+      ["left", x - border, y, border, h],
+      ["right", x + w, y, border, h],
+      ["top left corner", x, y, corner, corner],
+      ["top right corner", x + w - corner, y, corner, corner],
+      ["bottom left corner", x, y + h - corner, corner, corner],
+      ["bottom right corner", x + w - corner, y + h - corner, corner, corner],
+    ] as const;
+    for (const [edge, left, top, w, h] of edges) {
+      const x = Math.max(0, left);
+      const y = Math.max(0, top);
+      const box = {
+        x,
+        y,
+        width: Math.min(width, left + w) - x,
+        height: Math.min(height, top + h) - y,
+      };
+      if (box.width > 0 && box.height > 0)
+        regions.push({
+          name: `${plate.kind} ${index + 1} ${edge}`,
+          box,
+          plate,
+        });
+    }
+  }
+  return regions;
+}
+
+// A background pixel is fully outside the rounded path and its centre is
+// within six native pixels of it. Test distance to the pixel square at corners.
+function inPlateExterior(x: number, y: number, { box, radius }: Plate) {
+  const dx = Math.max(
+    box.x + radius - x - 0.5,
+    0,
+    x + 0.5 - (box.x + box.width - radius),
+  );
+  const dy = Math.max(
+    box.y + radius - y - 0.5,
+    0,
+    y + 0.5 - (box.y + box.height - radius),
+  );
+  const nearX = Math.max(0, dx - 0.5);
+  const nearY = Math.max(0, dy - 0.5);
+  return (
+    nearX ** 2 + nearY ** 2 >= radius ** 2 &&
+    dx ** 2 + dy ** 2 <= (radius + plateBorder) ** 2
+  );
+}
+
+export function framingDelta(
+  raw: Pixels,
+  decoded: Pixels,
+  region: FramingRegion,
+) {
+  const { box, plate, name } = region;
+  const result = { name, maxDelta: 0, x: box.x, y: box.y, pixels: 0 };
+  for (let row = 0, offset = 0; row < box.height; row++) {
+    const y = box.y + row;
+    for (let col = 0; col < box.width; col++, offset += 4) {
+      const x = box.x + col;
+      if (plate && !inPlateExterior(x, y, plate)) continue;
+      const r = decoded[offset] - raw[offset];
+      const g = decoded[offset + 1] - raw[offset + 1];
+      const b = decoded[offset + 2] - raw[offset + 2];
+      const delta = plate
+        ? Math.abs(0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+        : Math.max(Math.abs(r), Math.abs(g), Math.abs(b)) / 255;
+      result.pixels++;
+      if (delta > result.maxDelta)
+        Object.assign(result, { maxDelta: delta, x, y });
+    }
+  }
+  return result;
+}
+
+function readFramingRegion(
+  readback: Canvas2D,
+  { x, y, width, height }: PixelBox,
+) {
+  return readback.getImageData(x, y, width, height).data;
+}
 
 export function decodedBanding(
   pixels: Pixels,
@@ -935,6 +1086,166 @@ function observeVideoFrames(observe: (source: CanvasImageSource) => void) {
       }
     },
   });
+}
+
+function frameImage(width: number, height: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const drawing = canvas.getContext("2d", { willReadFrequently: true })!;
+  return { canvas, drawing };
+}
+
+/** Compare the review script's unscaled encoder input and MP4 at one frame. */
+export async function runReviewFrameDiff(time: number, scene = "studio3d") {
+  const [width, height] = designTokens.landscape.frame;
+  const geometry = videoLayout(width, height, "landscape");
+  const frame = Math.round(time * fps);
+  const raw = frameImage(width, height);
+  const decoded = frameImage(width, height);
+  const difference = frameImage(width, height);
+  const backdrop = context(width, height);
+  prepareOverlay(backdrop, {
+    resolution: { width: 1920, height: 1080 },
+    scenes: [],
+    estimated: false,
+    fps,
+    duration: 0,
+    chapters: [],
+  }).drawBackground("aurora");
+  let rawPlates: Plate[] | undefined;
+  let plates: Plate[] = [];
+  let movie: Blob | undefined;
+  let index = 0;
+  const NativeVideoFrame = globalThis.VideoFrame;
+  const createObjectURL = URL.createObjectURL;
+  // Use the original review inputs, including PCM and encoder history. The
+  // review runner owns its render options and normally returns downscaled PNGs.
+  try {
+    globalThis.VideoFrame = observeVideoFrames((source) => {
+      if (
+        index === 0 &&
+        (source instanceof OffscreenCanvas ||
+          source instanceof HTMLCanvasElement)
+      ) {
+        // The renderer holds this context for every subsequent frame.
+        const drawing = source.getContext("2d") as Canvas2D;
+        observePlates(drawing, geometry, (plate) => plates.push(plate));
+      }
+      if (index++ === frame) {
+        raw.drawing.drawImage(source, 0, 0);
+        rawPlates = plates;
+      }
+      plates = [];
+    });
+    URL.createObjectURL = (object) => {
+      if (object instanceof Blob && object.type === "video/mp4") movie = object;
+      return createObjectURL.call(URL, object);
+    };
+    const review = await renderReview({ width, height, scene, frames: [] });
+    if (review.receipt.sceneId !== scene)
+      throw new Error(
+        `Review rendered ${review.receipt.sceneId}, expected ${scene}`,
+      );
+    if (!review.receipt.videoCodec.startsWith("avc1."))
+      throw new Error(`Expected H.264, received ${review.receipt.videoCodec}`);
+  } finally {
+    globalThis.VideoFrame = NativeVideoFrame;
+    URL.createObjectURL = createObjectURL;
+  }
+  const captured = rawPlates;
+  if (!captured || !movie)
+    throw new Error(`No raw frame or review MP4 for frame ${frame}`);
+  const currentTime = await withVideo(
+    movie,
+    "review frame diff",
+    async (video) => {
+      const time = await seekFrameCenter(video, frame, "review frame diff");
+      if (video.videoWidth !== width || video.videoHeight !== height)
+        throw new Error(
+          `Unexpected review MP4 size ${video.videoWidth}×${video.videoHeight}`,
+        );
+      decoded.drawing.drawImage(video, 0, 0);
+      return time;
+    },
+  );
+  const a = raw.drawing.getImageData(0, 0, width, height).data;
+  const b = decoded.drawing.getImageData(0, 0, width, height).data;
+  const expected = backdrop.getImageData(0, 0, width, height).data;
+  const diff = difference.drawing.createImageData(width, height);
+  for (let offset = 0; offset < diff.data.length; offset += 4) {
+    for (let channel = 0; channel < 3; channel++)
+      diff.data[offset + channel] =
+        8 * Math.abs(a[offset + channel] - b[offset + channel]);
+    diff.data[offset + 3] = 255;
+  }
+  difference.drawing.putImageData(diff, 0, 0);
+  const regions = [
+    ["chip neighbourhood", [0.46, 0.52, 0.65, 0.67]],
+    ["reported bottom strip", [0.075, 0.993, 0.108, 1]],
+  ] as const;
+  const evidence = regions.map(([name, [left, top, right, bottom]]) => {
+    const x0 = Math.floor(left * width);
+    const y0 = Math.floor(top * height);
+    const x1 = Math.ceil(right * width);
+    const y1 = Math.ceil(bottom * height);
+    let maxCodecDelta = 0;
+    let maxRawBackdropDelta = 0;
+    let backgroundPixels = 0;
+    let rawPixelsOverLimit = 0;
+    let codecPixelsOverLimit = 0;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        if (
+          captured.some(
+            ({ box }) =>
+              x >= box.x &&
+              x < box.x + box.width &&
+              y >= box.y &&
+              y < box.y + box.height,
+          )
+        )
+          continue;
+        const i = (y * width + x) * 4;
+        const delta = colorDistance(a, i, b, i);
+        maxCodecDelta = Math.max(maxCodecDelta, delta);
+        const fromBackdrop = colorDistance(a, i, expected, i);
+        maxRawBackdropDelta = Math.max(maxRawBackdropDelta, fromBackdrop);
+        backgroundPixels++;
+        if (fromBackdrop > 3) rawPixelsOverLimit++;
+        if (delta > 3) codecPixelsOverLimit++;
+      }
+    }
+    return {
+      name,
+      x0,
+      y0,
+      x1,
+      y1,
+      maxCodecDelta,
+      maxRawBackdropDelta,
+      backgroundPixels,
+      rawPixelsOverLimit,
+      codecPixelsOverLimit,
+    };
+  });
+  return {
+    metrics: {
+      time,
+      scene,
+      frame,
+      currentTime,
+      width,
+      height,
+      plates: captured,
+      evidence,
+    },
+    pngs: {
+      raw: raw.canvas.toDataURL("image/png"),
+      decoded: decoded.canvas.toDataURL("image/png"),
+      "rgb-difference-8x": difference.canvas.toDataURL("image/png"),
+    },
+  };
 }
 
 function firstFrame(time: number) {
@@ -1636,6 +1947,18 @@ export async function runVisualCase(options: VisualCase) {
   const rawHashes = new Map<number, Promise<string>>();
   const decodedHashes = new Map<number, Promise<string>>();
   const rawExterior = new Map<number, ReturnType<typeof safeExterior>>();
+  const decodedLookup = new Set(decodedFrames);
+  const rawFraming = new Map<
+    number,
+    { plates: Plate[]; regions: { region: FramingRegion; pixels: Pixels }[] }
+  >();
+  const decodedFraming: {
+    frame: number;
+    bottomRows: ReturnType<typeof framingDelta>;
+    plateEdges: ReturnType<typeof framingDelta>[];
+    plates: Plate[];
+  }[] = [];
+  let pendingPlates: Plate[] = [];
   const masks = new Map<string, ReturnType<typeof measureGlyphs>>();
   const pendingText: TextProbe[] = [];
   const titleFrames = new Set<number>();
@@ -1651,8 +1974,8 @@ export async function runVisualCase(options: VisualCase) {
   let hasExportCanvas = false;
   const VideoFrameReader = observeVideoFrames((canvas) => {
     flash.raw.add(index, flash.sample(canvas));
+    if (decodedLookup.has(index)) readback.drawImage(canvas, 0, 0);
     if (frameLookup.has(index)) {
-      readback.drawImage(canvas, 0, 0);
       const { data } = readback.getImageData(0, 0, width, height);
       if (hashFrames.has(index)) rawHashes.set(index, sha256(data));
       rawExterior.set(index, safeExterior(data, titleSafe, width, height));
@@ -1666,7 +1989,18 @@ export async function runVisualCase(options: VisualCase) {
         })),
       );
     }
+    if (decodedLookup.has(index)) {
+      const regions = framingRegions(width, height, pendingPlates);
+      rawFraming.set(index, {
+        plates: pendingPlates,
+        regions: regions.map((region) => ({
+          region,
+          pixels: readFramingRegion(readback, region.box),
+        })),
+      });
+    }
     index++;
+    pendingPlates = [];
     pendingText.length = 0;
   });
   const renderStarted = performance.now();
@@ -1683,6 +2017,7 @@ export async function runVisualCase(options: VisualCase) {
         hasExportCanvas = true;
         const canvas = new OffscreenCanvas(w, h);
         const drawing = canvas.getContext("2d", { alpha: false })!;
+        observePlates(drawing, geometry, (plate) => pendingPlates.push(plate));
         observeText(drawing, (text, x, y, maxWidth) => {
           if (!text?.trim()) return;
           const role = textRole(geometry, drawing, x, y);
@@ -1834,6 +2169,25 @@ export async function runVisualCase(options: VisualCase) {
       );
       const forRole = (role: TextRole) =>
         textEvidence.filter((run) => run.role === role);
+      const plates = rawFraming.get(frame)?.plates ?? [];
+      for (const [kind, role] of [
+        ["caption", "caption"],
+        ["chip", "host"],
+        ["callout", "callout"],
+      ] as const) {
+        const drawn = plates.filter((plate) => plate.kind === kind).length;
+        if (
+          drawn !==
+          (kind === "chip"
+            ? forRole(role).length
+            : Number(forRole(role).length > 0))
+        )
+          add({
+            criterion: "framing",
+            frame,
+            detail: `Missing or extra exterior capture for ${kind}`,
+          });
+      }
       const hasInk = (role: TextRole) =>
         forRole(role).some(
           ({ decoded }) => decoded.pixels >= 8 && (decoded.min ?? 0) >= 4.5,
@@ -1966,7 +2320,27 @@ export async function runVisualCase(options: VisualCase) {
       decodedFrames,
       frameLookup,
       readExact,
-      (frame) => flash.decoded.add(frame, flash.sample(video)),
+      (frame) => {
+        flash.decoded.add(frame, flash.sample(video));
+        if (!frameLookup.has(frame)) readback.drawImage(video, 0, 0);
+        const raw = rawFraming.get(frame);
+        if (!raw) throw new Error(`No raw framing pixels for frame ${frame}`);
+        rawFraming.delete(frame);
+        const [bottomRows, ...plateEdges] = raw.regions.map(
+          ({ region, pixels }) =>
+            framingDelta(
+              pixels,
+              readFramingRegion(readback, region.box),
+              region,
+            ),
+        );
+        decodedFraming.push({
+          frame,
+          bottomRows,
+          plateEdges,
+          plates: raw.plates,
+        });
+      },
     );
   }
   const decodeStarted = performance.now();
@@ -2035,6 +2409,7 @@ export async function runVisualCase(options: VisualCase) {
       },
       exteriorEdges,
       banding,
+      decodedFraming,
       frameEvidence: frameEvidence.sort((a, b) => a.frame - b.frame),
       flash: { ...flash.evidence, decodedFrames },
     },
