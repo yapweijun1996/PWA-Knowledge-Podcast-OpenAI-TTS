@@ -1,8 +1,10 @@
 import { setLocale } from "../i18n/index.ts";
 import { probeVideoSupport } from "./capabilities.ts";
+import { Mp4StorageError } from "./mp4-sink.ts";
+import { OpfsSink } from "./opfs-sink.ts";
 import type {
+  WorkerRenderCommand,
   WorkerRenderMessage,
-  WorkerRenderRequest,
 } from "./render-client.ts";
 import { renderVideo } from "./render.ts";
 import { WebglContextLostError } from "./scenes/types.ts";
@@ -14,12 +16,20 @@ const worker = globalThis as typeof globalThis & {
 
 worker.addEventListener(
   "message",
-  async (event: MessageEvent<WorkerRenderRequest>) => {
-    const { locale, ...options } = event.data;
+  async (event: MessageEvent<WorkerRenderCommand>) => {
+    if ("kind" in event.data) return;
+    const { locale, opfsFileName, ...options } = event.data;
     setLocale(locale);
+    const controller = opfsFileName ? new AbortController() : undefined;
+    function cancel({ data }: MessageEvent<WorkerRenderCommand>) {
+      if ("kind" in data && data.kind === "cancel") controller?.abort();
+    }
+    if (opfsFileName) worker.addEventListener("message", cancel);
     try {
       const result = await renderVideo({
         ...options,
+        sink: opfsFileName ? await OpfsSink.open({ fileName: opfsFileName }) : undefined,
+        signal: controller?.signal,
         onProgress(value) {
           worker.postMessage({ kind: "progress", value });
         },
@@ -29,7 +39,10 @@ worker.addEventListener(
       worker.postMessage({
         kind: "failed",
         contextLost: error instanceof WebglContextLostError,
+        ...(error instanceof Mp4StorageError ? { storageError: error.kind } : {}),
       });
+    } finally {
+      worker.removeEventListener("message", cancel);
     }
   },
   { once: true },

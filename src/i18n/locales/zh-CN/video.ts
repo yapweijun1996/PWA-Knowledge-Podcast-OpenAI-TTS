@@ -29,6 +29,8 @@ export default [
     "视频超过浏览器渲染的 {size} MiB 编码数据上限。",
   ],
   ["video.render.videoEncodingFailed", "视频编码失败。"],
+  ["video.render.opfsQuota", "浏览器存储空间不足，无法保存新视频。请腾出空间后重试。"],
+  ["video.render.opfsSizeLimit", "视频超出本地导出的大小上限。"],
   ["video.render.unexpectedFrameTimestamp", "视频编码器返回了意外的帧时间戳。"],
   ["video.render.audioEncodingFailed", "音频编码失败。"],
   ["video.render.missingFrames", "视频编码器未返回所有帧。"],

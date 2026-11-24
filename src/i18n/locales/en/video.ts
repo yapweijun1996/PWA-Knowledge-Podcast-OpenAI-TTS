@@ -53,6 +53,8 @@ export default [
     "The encoded video exceeds the {size} MiB browser rendering limit.",
   ],
   ["video.render.videoEncodingFailed", "Video encoding failed."],
+  ["video.render.opfsQuota", "There is too little browser storage to save the new video. Free up space and try again."],
+  ["video.render.opfsSizeLimit", "The video exceeds a local export size limit."],
   [
     "video.render.unexpectedFrameTimestamp",
     "The video encoder returned an unexpected frame timestamp.",

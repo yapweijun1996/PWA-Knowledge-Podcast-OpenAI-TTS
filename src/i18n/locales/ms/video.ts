@@ -56,6 +56,8 @@ export default [
     "Data video yang dikodkan melebihi had {size} MiB untuk pemaparan dalam pelayar.",
   ],
   ["video.render.videoEncodingFailed", "Pengekodan video gagal."],
+  ["video.render.opfsQuota", "Ruang storan pelayar tidak mencukupi untuk menyimpan video baharu. Kosongkan ruang dan cuba lagi."],
+  ["video.render.opfsSizeLimit", "Video melebihi had saiz eksport setempat."],
   [
     "video.render.unexpectedFrameTimestamp",
     "Pengekod video mengembalikan cap masa bingkai yang tidak dijangka.",

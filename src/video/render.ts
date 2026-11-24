@@ -2,6 +2,13 @@ import { createTranslator, t } from "../i18n/index.ts";
 import { recordCaptionTrack } from "./caption-track.ts";
 import { ensureVideoFonts } from "./fonts/loader.ts";
 import { maxEncodedBytes, mebibyte, videoEncodingRates } from "./limits.ts";
+import { MemorySink, Mp4StorageError, type Mp4Sink } from "./mp4-sink.ts";
+import {
+  maxOpfsMp4Bytes,
+  maxPendingOpfsBytes,
+  maxStagedOpfsBytes,
+  OpfsSink,
+} from "./opfs-sink.ts";
 import { overlayCopy, prepareOverlay } from "./overlay.ts";
 import { memoryPcmSource, openWavPcmSource, type PcmSource } from "./pcm-source.ts";
 import { turnSampleRange, type PcmAudio, type WindowedVideoScene } from "./pcm.ts";
@@ -53,6 +60,8 @@ type RenderOptions = {
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
   deps?: VideoRenderDependencies;
+  /** Internal export opt-in. A supplied sink is owned by this render. */
+  sink?: Mp4Sink | "opfs";
 };
 
 type EncoderQueue = Pick<
@@ -275,7 +284,20 @@ function audioBlocks(plan: TimelinePlan, audio: PcmSource, sampleRate: number) {
   };
 }
 
-export async function renderVideo({
+export async function renderVideo({ sink, ...options }: RenderOptions) {
+  if (sink === "opfs") options.signal?.throwIfAborted();
+  const output = sink === "opfs"
+    ? await OpfsSink.open()
+    : sink ?? new MemorySink((options.deps?.crypto ?? globalThis.crypto)?.subtle);
+  try {
+    return await renderToSink(options, output);
+  } catch (error) {
+    await output.abort();
+    throw error;
+  }
+}
+
+async function renderToSink({
   plan,
   audio,
   theme,
@@ -284,7 +306,7 @@ export async function renderVideo({
   onProgress,
   signal,
   deps = {},
-}: RenderOptions) {
+}: Omit<RenderOptions, "sink">, sink: Mp4Sink) {
   const failure = new AbortController();
   const stop = signal
     ? AbortSignal.any([signal, failure.signal])
@@ -438,7 +460,8 @@ export async function renderVideo({
     throw new Error(t("video.render.noVideoEncoder"));
   if (!AudioEncoderClass || !AudioDataClass)
     throw new Error(t("video.render.noAudioEncoder"));
-  if (!subtle) throw new Error(t("video.render.noHash"));
+  const fileBacked = sink.kind === "opfs";
+  if (!fileBacked && !subtle) throw new Error(t("video.render.noHash"));
 
   const { audioBitrate, videoBitrate, fallbackVideoBitrate } =
     videoEncodingRates(duration, numberOfChannels);
@@ -626,9 +649,28 @@ export async function renderVideo({
     return fallback;
   }
 
-  const { ArrayBufferTarget, Muxer } = await waitFor(import("mp4-muxer"), stop);
+  const { StreamTarget, Muxer } = await waitFor(import("mp4-muxer"), stop);
   stop.throwIfAborted();
-  const target = new ArrayBufferTarget();
+  const writes: { position: number; bytes: Uint8Array }[] = [];
+  const pendingOutputs: (() => void)[] = [];
+  const stagedBuffers = new Set<ArrayBufferLike>();
+  let stagedBytes = 0;
+  const target = new StreamTarget({
+    chunked: fileBacked,
+    chunkSize: maxPendingOpfsBytes,
+    onData(bytes, position) {
+      if (!fileBacked) {
+        sink.write(position, bytes);
+        return;
+      }
+      if (!stagedBuffers.has(bytes.buffer)) {
+        stagedBytes += bytes.buffer.byteLength;
+        if (stagedBytes > maxStagedOpfsBytes) throw new Mp4StorageError("size");
+        stagedBuffers.add(bytes.buffer);
+      }
+      writes.push({ position, bytes });
+    },
+  });
   const muxer = new Muxer({
     target,
     video: { codec: hasAvc ? "avc" : "vp9", width, height },
@@ -640,6 +682,32 @@ export async function renderVideo({
     },
     fastStart: false,
   });
+
+  async function drainWrites() {
+    for (const { position, bytes } of writes) {
+      stop.throwIfAborted();
+      await sink.write(position, bytes);
+    }
+    writes.length = 0;
+    stagedBuffers.clear();
+    stagedBytes = 0;
+  }
+
+  async function drainOutput() {
+    if (writes.length) await drainWrites();
+    // StreamTarget cannot await onData. Drain each synchronous muxer call's
+    // output before the next call, and drain codec callbacks before encoding more.
+    for (const write of pendingOutputs) {
+      stop.throwIfAborted();
+      write();
+      if (writes.length) await drainWrites();
+    }
+    pendingOutputs.length = 0;
+  }
+
+  function pendingOutput() {
+    if (writes.length || pendingOutputs.length) return waitFor(drainOutput(), stop);
+  }
   const getAudioBlock = audioBlocks(plan, pcm, sampleRate);
   let encodedBytes = 0;
   let encodedVideoFrames = 0;
@@ -651,12 +719,16 @@ export async function renderVideo({
 
   function copyChunk(chunk: EncodedVideoChunk | EncodedAudioChunk) {
     encodedBytes += chunk.byteLength;
-    if (encodedBytes > maxEncodedBytes)
+    if (fileBacked) {
+      if (encodedBytes > maxOpfsMp4Bytes || chunk.byteLength > maxStagedOpfsBytes)
+        throw new Mp4StorageError("size");
+    } else if (encodedBytes > maxEncodedBytes) {
       throw new Error(
         t("video.render.encodedSizeLimit", {
           size: maxEncodedBytes / mebibyte,
         }),
       );
+    }
     const bytes = new Uint8Array(chunk.byteLength);
     chunk.copyTo(bytes);
     return bytes;
@@ -664,6 +736,10 @@ export async function renderVideo({
 
   function output(write: () => void) {
     if (stop.aborted) return;
+    if (fileBacked) {
+      pendingOutputs.push(write);
+      return;
+    }
     try {
       write();
     } catch (error) {
@@ -748,6 +824,8 @@ export async function renderVideo({
       // independent of when output callbacks run.
       if (index > 0 && index % maxVideoFramesInFlight === 0) {
         await waitFor(videoEncoder.flush(), stop);
+        const pending = pendingOutput();
+        if (pending) await pending;
         if (encodedVideoFrames !== index)
           throw new Error(t("video.render.missingFrames"));
       }
@@ -844,6 +922,9 @@ export async function renderVideo({
           : undefined,
       );
       const endTime = Math.min(duration, (index + 1) / fps);
+      const pending = pendingOutput();
+      if (pending) await pending;
+      stop.throwIfAborted();
       const frame = new VideoFrameClass(canvas, {
         timestamp,
         duration: micros(endTime) - timestamp,
@@ -872,6 +953,8 @@ export async function renderVideo({
         stop.throwIfAborted();
         const count = Math.min(audioBlockSize, totalSamples - audioOffset);
         const block = await waitFor(getAudioBlock(audioOffset, count, stop), stop);
+        const pending = pendingOutput();
+        if (pending) await pending;
         stop.throwIfAborted();
         const data = new AudioDataClass({
           format: "f32-planar",
@@ -898,6 +981,8 @@ export async function renderVideo({
       Promise.all([videoEncoder.flush(), audioEncoder.flush()]),
       stop,
     );
+    const pending = pendingOutput();
+    if (pending) await pending;
     stop.throwIfAborted();
     if (
       encodedVideoFrames !== totalFrames ||
@@ -907,19 +992,14 @@ export async function renderVideo({
       throw new Error(t("video.render.incompleteTracks"));
     }
     muxer.finalize();
-    const bytes = target.buffer;
-    const hash = await waitFor(subtle.digest("SHA-256", bytes), stop);
+    if (writes.length) await waitFor(drainWrites(), stop);
+    const result = await waitFor(sink.close(stop), stop);
     stop.throwIfAborted();
-    const sha256 = Array.from(new Uint8Array(hash), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    const blob = new Blob([bytes], { type: "video/mp4" });
-    const captionTrack = captionRecorder?.complete(sha256);
+    const captionTrack = captionRecorder?.complete(result.sha256);
     onProgress?.(1);
     stop.throwIfAborted();
     return {
-      blob,
-      sha256,
+      ...result,
       ...(captionTrack ? { captionTrack } : {}),
       durationSeconds: duration,
       width,
