@@ -277,7 +277,7 @@ silence as proof of improved narration continuity.
 
 ## V2 browser-local production follow-up
 
-V2 Studio is the only UI at `c22a9fe`. The browser is the primary runtime,
+V2 Studio is the only UI at `dd6e2f5`. The browser is the primary runtime,
 IndexedDB is the record store, and the private Node.js worker is optional.
 [V2 runbook](docs/V2-FACTORY.md)
 
@@ -293,16 +293,17 @@ T05 and T06 (narration continuity experiment) are **superseded**: their runner
 lived in V1. Revisit continuity only through T27 if the owner still hears
 discontinuity.
 
-At `c22a9fe`, the manager’s Mac passed typecheck and both builds. `npm test`
-reported 289 tests, 288 passed and 1 skipped because the Crucible spike
-dependency was absent. The strict i18n scan had 0 findings and `npm audit`
-reported 0 vulnerabilities. Factory passed 51/51 twice in Chromium 156–158
-with software WebGL and automated visual QA at 62/62. A separate parallel run
-had one intermittent failure in `tests/factory-video-options.browser.ts`,
-which is under investigation. [Test matrix](docs/TEST-MATRIX.md)
+At `dd6e2f5` on `main`, the manager’s Mac passed typecheck and both builds.
+`npm test` reported 306 tests, 305 passed, 0 failed and 1 skipped because the
+Crucible spike dependency was absent. The strict i18n scan reported 0 findings
+across 84 files and `npm audit` reported 0 vulnerabilities. In Chromium 156–158
+with software WebGL, `npm run e2e:factory` passed 53/53 tests in two consecutive
+runs across `factory`, `render` and `perf`, with automated visual QA at 62/62.
+[Test matrix and intermittent failure follow-up](docs/TEST-MATRIX.md)
 
-Visual acceptance remains open. The independent review scored 79.0% (54.5/69)
-against an 85% bar. [Visual QA](docs/VISUAL-QA.md) · [Owner-only open items](docs/ROADMAP.md#open-items)
+**VISUAL ACCEPTANCE NOT PASSED.** All six independent still-image scores were
+below 85%. The owner decides by viewing real exports.
+[Visual QA](docs/VISUAL-QA.md) · [Owner-only open items](docs/ROADMAP.md#open-items)
 
 Rules for every task below: key in page memory only; per-run consent and
 estimate-labelled cost disclosure; no automatic retry of ambiguous paid
@@ -356,7 +357,7 @@ verification and owner-only sign-offs.
   only. Acceptance: browser test creates an episode with no worker running;
   the dead-end `no-worker` state is gone. Implemented in `a6f35a4`. The browser
   trial is recorded for the earlier static build. Real-provider execution on
-  `c22a9fe` is **unverified**. [Earlier trial](docs/E2E-TRIAL-2026-11-23.md)
+  `dd6e2f5` is **UNVERIFIED**. [Earlier trial](docs/E2E-TRIAL-2026-11-23.md)
 - [x] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
   default-deny provider interception fixture; a key-leak scan across
   IndexedDB, backups, service-worker caches, console and URLs; CI runs it.
@@ -375,16 +376,17 @@ verification and owner-only sign-offs.
   (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
   decision note and a sample MP4 with no provider calls. WebCodecs is
   selected. The earlier codec fixture is recorded separately. Safari/iOS,
-  real-device checks and long-episode memory on `c22a9fe` remain **owner-only
-  and unverified**.
+  real-device checks and export memory at 300 s on `dd6e2f5` are **owner-only,
+  UNVERIFIED**.
   [Earlier codec notes](docs/VIDEO-RENDER-DECISION.md#desktop-safari-rendering)
 - [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
   _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
 - [x] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
-  captions** as the initial scene. Waveform stays the default, and Studio 3D
-  is available as a lazily loaded scene. [Current visual review](docs/VISUAL-QA.md)
+  captions** as the initial scene. Waveform is the current default, and Studio
+  3D is available as a lazily loaded scene. Final default scene sign-off is
+  **owner-only, UNVERIFIED**. [Owner checklist](docs/OWNER-CHECKLIST.md)
 - [x] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
   stepping, progress, cancel, memory and storage limits, MP4 stored in
   IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
@@ -394,6 +396,12 @@ verification and owner-only sign-offs.
 - [x] **T36 — Video review** (M). Preview, edit title, description, chapters and
   thumbnail, then approve or reject. Acceptance: browser test for approve and
   reject; nothing is uploaded without approval.
+- [x] **R1 — Five-minute Studio export.** `src/video/limits.ts` caps source audio
+  and planned video at 300 s. The panel shows a localized estimate and warning.
+  Browser generation preferences still allow up to 420 s and finished WAV
+  validation up to 500 s. Episodes of 30–60 minutes exceed the export cap. OPFS
+  streaming and chapter parts are later, owner-gated work. Real-device memory
+  at 300 s is **owner-only, UNVERIFIED**. [Long-episode plan](docs/LONG-EPISODES.md)
 
 ### M2. Publish package (YouTube upload is out of scope)
 
@@ -416,7 +424,7 @@ audio remains **owner-only and unverified**.
   2026-11-23 decision records an in-page agent loop and an optional loopback
   pi bridge spike. Acceptance calls for mocked-provider tests, cost disclosure
   and consent, no automatic paid retries, and a tool call log. A real model-driven
-  agent run on `c22a9fe` is **unverified**.
+  agent run on `dd6e2f5` is **UNVERIFIED**.
   [Agent guide](docs/AGENT.md) · [Earlier bridge spike](docs/PI-BRIDGE.md)
 - [x] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
   Keep the built-in browser exporter and reserve Godot Movie Maker for a
@@ -430,8 +438,8 @@ audio remains **owner-only and unverified**.
   content and licensing checks for AI-generated media. [Episode sign-off](docs/V2-PRODUCTION-CHECKLIST.md)
 - [ ] **T43 — Real-device and offline verification** (M). Phones and Safari,
   storage quota with large video blobs, offline Library after upload.
-  Real-device and Safari/iOS checks and long-episode memory are **owner-only
-  and unverified**. [Earlier desktop measurements](docs/VIDEO-RENDER-DECISION.md#desktop-long-episode-measurement)
+  Real-device and Safari/iOS checks and export memory at 300 s are **owner-only,
+  UNVERIFIED**. [Earlier desktop measurements](docs/VIDEO-RENDER-DECISION.md#desktop-long-episode-measurement)
 
 Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
 T31, then T33 to T36, then T38, T39, then T40 to T43 (T37 is parked).
@@ -456,14 +464,15 @@ collide.
   Source locale stays `zh-CN`. Acceptance: a scan finds no hard-coded
   user-facing string; behavior unchanged; existing browser tests updated only
   where text changed.
-  The strict i18n scan at `c22a9fe` found 0 CJK text fragments outside `src/i18n`.
+  The strict i18n scan at `dd6e2f5` found 0 CJK text fragments across 84 files
+  outside `src/i18n`.
 - [x] **T46 — English and Malay catalogues and glossary** (M). Complete `en` and
   `ms` with a per-locale glossary (key, cost, consent, estimate, unknown
   outcome, backup, episode, narration). Mark consent, cost, key-risk and
   no-retry messages for native review. Acceptance: no missing key; `ms`
   recorded as unreviewed until a native speaker signs off.
-  Native-speaker review of Malay and English consent and cost copy remains
-  **owner-only and unverified**. The Malay product name remains an owner decision.
+  Native-speaker review of Malay and English consent and cost copy and approval
+  of the Malay product name are **owner-only, UNVERIFIED**.
 - [x] **T47 — UI/UX standard audit and fixes** (L). Run the evidence in the
   standard per locale: scans, runtime toggle, 1440, 768 and 390 screenshots
   viewed by the manager, 200% text, keyboard pass, state coverage (empty,
@@ -532,13 +541,10 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
   guides. [Panel options tests](tests/factory-video-options.browser.ts)
 - [x] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
   orphan characters, flash limit, hash determinism, per spec section 8.
-- [ ] **T64 Visual review** (manager). **Visual acceptance has not passed.** The
-  latest independent image-only review scored 79.0% (54.5/69), below 85%.
-  Remaining findings cover portrait chapter title size (.041H to .047H),
-  speaking-state readability of waveform active bars and the active chip
-  outline, Studio 3D materials and grounding, and minor gradient steps. The
-  Mandarin portrait caption break is subjective because reviewers disagreed.
-  [Review history](docs/VISUAL-QA.md#history-and-status)
+- [ ] **T64 Visual review** (owner). **VISUAL ACCEPTANCE NOT PASSED.** Review
+  real exports for the weak speaking-state cue on the Studio 3D stage, its
+  prototype appearance, the sparse portrait chapter card and faint gradient
+  steps. [Review evidence](docs/VISUAL-QA.md#review-reliability-and-acceptance-policy)
 - [x] **T65 Bundle size** (S). The app loads the renderer, font coverage, 3D scene,
   and video tools on demand. The PWA still precaches their assets for offline
   use. [Render hook](src/factory/useVideoRender.ts) · [Agent hook](src/factory/useAgent.ts)

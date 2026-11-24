@@ -44,8 +44,8 @@ sample's timestamp. The frame-indexed test compares decoded indices with the
 native media element, including the callout boundary at frame 45.
 
 The shared QA frame reader requests `prefer-software` when decoding MP4 frames.
-Chromium’s hardware H.264 decoder on macOS failed on the first frame of a valid
-export during QA runs. [QA frame reader](../tests/fixtures/visual-mp4.ts)
+Chromium’s hardware H.264 decoder failed on the first frame of valid exports
+on the manager’s Mac. [QA frame reader](../tests/fixtures/visual-mp4.ts)
 
 Flash analysis samples a 160×90 landscape grid or a 90×160 portrait grid. It
 checks all raw frames and uses every decoded frame within eight source frames
@@ -87,57 +87,45 @@ render jobs share a single Playwright worker to avoid starving those fixtures.
 
 ## History and status
 
-At `c22a9fe`, the manager’s Mac (Chromium 156–158, software WebGL) passed
-two consecutive Factory runs at **51/51** with automated visual QA at
-**62/62**. One separate parallel run had an intermittent failure in
-`tests/factory-video-options.browser.ts`. Investigation is open. Browser
-execution for this documentation update was `NOT_RUN`.
+At `dd6e2f5` on `main`, `npm run e2e:factory` passed **53/53** tests in two
+consecutive runs across `factory`, `render` and `perf` on the manager’s Mac
+(Chromium 156–158, software WebGL). Automated visual QA passed **62/62**.
+Browser execution for this documentation update was **NOT_RUN**.
 [Test matrix](TEST-MATRIX.md)
 
-**Visual acceptance has not passed.** Earlier round reports used an 85%
-still-image bar and apply to their own samples. [Round 2](VISUAL-REVIEW-ROUND2.md) · [Round 3](VISUAL-REVIEW-ROUND3.md)
-
-- Reviewers asked to increase the portrait chapter title from .041H to .047H.
-- The waveform’s active bars and the active chip outline need clearer speaking-state cues.
-- Reviewers flagged Studio 3D materials and grounding, and minor gradient steps.
-- Reviewers disagreed about the Mandarin portrait caption break. The item is subjective.
+**VISUAL ACCEPTANCE NOT PASSED.** Earlier round reports apply to their own
+samples. [Round 2](VISUAL-REVIEW-ROUND2.md) · [Round 3](VISUAL-REVIEW-ROUND3.md)
 
 ## Review reliability and acceptance policy
 
-The manager verified five independent image-only reviews of the same nine
-stills with the same prompt. Scores cover assessable visible points.
+Six independent image-only reviews used the same prompt and the same nine
+stills. Scores cover visible criteria. The still-image bar is 85%.
 
 | Review | Score |
 | --- | ---: |
-| Baseline at `5546126` | 76.8% |
-| Earlier alternative line | 71.0% |
-| Following review | 71.7% |
-| Review recorded at `c22a9fe` | 79.0% (54.5/69) |
-| Review recorded at `7e76c16` | 70.3% |
+| Baseline recorded at `5546126` (2026-11-23) | 76.8% |
+| Review 2 | 71.0% |
+| Review 3 | 71.7% |
+| Historical review recorded at `c22a9fe` (2026-11-24) | 79.0% (54.5/69) |
+| Review recorded at `7e76c16` (2026-11-24) | 70.3% |
+| Review 6 | 69.6% |
 
-Scores spanned 8.7 percentage points. Individual criteria swung by up to
-6 points across reviews of near-identical frames. Contrast and host identity,
-for example, received 12 points and then 6. Reviewers gave three mutually
-contradictory preferences for the same Mandarin caption break. Allow for
-roughly ±8 percentage points of review noise, larger than the effect of one
-round of polish. A score is comparable only when the stills, prompt and
-reviewer settings are the same. Treat image-only reviews as advisory.
+The scores span 9.4 percentage points. Allow for roughly ±8 percentage points
+of review noise. Treat image-only reviews as advisory.
 
-Reviewers repeatedly found weak speaking cues on the Studio 3D stage itself,
-a prototype look from the pedestals and floor marks, portrait chapter titles
-that need more size and better vertical balance, and faint gradient steps.
-Check these findings in the exported videos.
+Treat the repeated findings as defects to check in real exports. The Studio 3D
+stage has a weak speaking-state cue and still looks like a prototype, the
+portrait chapter card is sparse, and faint gradient steps are visible.
 
 The owner decides visual acceptance by viewing real MP4 exports of waveform
 and Studio 3D in both landscape and portrait, plus the exported thumbnails,
-alongside the automated gate results. The recorded Factory suite result
-(51/51) and automated visual QA result (62/62) establish that the checks found
-no hard defects in the cases they cover. A single still-image score is an
-unreliable acceptance gate. [Owner checklist](OWNER-CHECKLIST.md)
+alongside the automated gate results. [Owner checklist](OWNER-CHECKLIST.md)
 
 ## Not verified
 
-Real-GPU frame timing, real-device and Safari/iOS checks, long-episode memory,
-listening review of real TTS audio and YouTube acceptance of Opus audio are
-**owner-only and unverified**. The independent stills leave motion quality and
-audio-visual sync against real speech unverified. [Owner checklist](OWNER-CHECKLIST.md) · [Open items](ROADMAP.md#open-items)
+Real-GPU frame timing, real-device and Safari/iOS checks, memory at 300 s,
+listening review of real TTS audio, YouTube acceptance of Opus, USD cost
+accuracy, native-speaker review of Malay and English consent and cost copy,
+the Malay product name and the default scene choice are **owner-only,
+UNVERIFIED**. Motion quality and audio-visual sync against real speech also
+await owner review. [Owner checklist](OWNER-CHECKLIST.md) · [Open items](ROADMAP.md#open-items)

@@ -8,18 +8,20 @@ manually.
 
 ## Current verified state
 
-At `c22a9fe`, the video pipeline uses Canvas 2D, WebCodecs and mp4-muxer. It
-exports H.264 MP4 via an OffscreenCanvas worker where supported, using AAC
-audio when available and Opus as the fallback. The waveform and lazily loaded
+At `dd6e2f5` on `main`, the video pipeline uses Canvas 2D, WebCodecs and
+mp4-muxer. It exports H.264 MP4 via an OffscreenCanvas worker where supported,
+using AAC audio when available and Opus as the fallback. The waveform and lazily loaded
 Studio 3D scenes support chapter storyboards with consent and manual review.
 The publish ZIP includes thumbnails, chapters and an SRT caption sidecar when
 measured captions are available.
 
-On the manager’s Mac, typecheck and both builds passed. Of 289 tests, 288
-passed and 1 skipped because the Crucible spike dependency was absent. The
-strict i18n scan reported 0 findings and `npm audit` reported 0 vulnerabilities.
-Chromium 156–158 with software WebGL passed 51/51 Factory tests twice in a row
-and 62/62 automated visual QA points. **Visual acceptance has not passed.**
+On the manager’s Mac, typecheck and both builds passed. `npm test` reported
+306 tests, 305 passed, 0 failed and 1 skipped because the Crucible spike
+dependency was absent. The strict i18n scan reported 0 findings across 84
+files and `npm audit` reported 0 vulnerabilities. In Chromium 156–158 with
+software WebGL, `npm run e2e:factory` passed 53/53 tests in two consecutive
+runs across `factory`, `render` and `perf`, with automated visual QA at 62/62.
+**VISUAL ACCEPTANCE NOT PASSED.**
 [Test matrix](TEST-MATRIX.md) · [Visual QA](VISUAL-QA.md)
 
 ## Milestone status
@@ -27,13 +29,13 @@ and 62/62 automated visual QA points. **Visual acceptance has not passed.**
 | Milestone | Status | Verification still open |
 | --- | --- | --- |
 | M0 · Browser Studio, T24 to T31 | V2 Studio, in-memory browser BYOK and IndexedDB records. | Listening review of real TTS audio and USD cost accuracy. |
-| M1 · Video, T32 to T36, T49 and R1 | Browser MP4 export with AAC or Opus audio and an OffscreenCanvas worker. R1 raises the Episode single-file limit from 210 to 300 s with resource estimates and a storage check. | Manager browser verification of R1 and owner-only memory at 300 s, Safari and real devices. |
+| M1 · Video, T32 to T36, T49 and R1 | Browser MP4 export with AAC or Opus audio and an OffscreenCanvas worker. R1 caps single-file export at 300 s with a localized estimate and warning. The manager’s Factory runs covered the R1 browser cases. | Real-device memory at 300 s and Safari/iOS compatibility are owner-only and **UNVERIFIED**. |
 | M2 · Manual publish package, T38 | Publish ZIP with video, thumbnail, chapters and timed SRT when available. T37 upload is parked. | YouTube acceptance of Opus audio. |
-| M3 · Agent, T39 | Chapter storyboard generation with consent and manual review. | Real model-driven agent runs on `c22a9fe` are unverified. |
+| M3 · Agent, T39 | Chapter storyboard generation with consent and manual review. | Real model-driven agent runs on `dd6e2f5` are **UNVERIFIED**. |
 | M4 · Optional worker, T40 and T41 | Optional private Node.js worker. | Unattended production on the target host is unverified. |
 | M5 · Release hardening, T42 and T43 | Release verification remains open. | Real-device and Safari/iOS checks. |
-| M6 · i18n and UI/UX, T44 to T48 | Strict i18n scan passed with 0 findings. | Native-speaker review of Malay and English consent and cost copy, and the Malay product name decision. |
-| M7 · Animation, T50 to T56 | Waveform and lazily loaded Studio 3D are available. Automated visual QA passed 62/62. | Owner visual acceptance, real-GPU frame timing and the default scene decision. |
+| M6 · i18n and UI/UX, T44 to T48 | Strict i18n scan passed with 0 findings across 84 files. | Native-speaker review of Malay and English consent and cost copy, and the Malay product name decision. |
+| M7 · Animation, T50 to T56 | Waveform and lazily loaded Studio 3D are available. | Owner visual acceptance, real-GPU frame timing and the default scene decision. |
 
 ## Rules every milestone keeps
 
@@ -52,21 +54,23 @@ and 62/62 automated visual QA points. **Visual acceptance has not passed.**
 
 ## Open items
 
-- **Browser QA.** One parallel run had an intermittent failure in
-  `tests/factory-video-options.browser.ts`. Investigation is open.
+- **Browser QA.** After the service-worker readiness fix, the offline filters
+  failure occurred in 0 of 60 runs. The caption readiness change hardens the
+  video options test. The cause of that one-off failure is **UNVERIFIED**.
+  [Intermittent failure follow-up](TEST-MATRIX.md#intermittent-failure-follow-up)
 - **Visual acceptance.** Review both scenes in both orientations and the
-  thumbnails alongside the automated gates. Recheck the Studio 3D speaking cue,
-  pedestals and floor marks, portrait chapter title size and balance, and faint
-  gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
-- **Long-episode export.** The 300 s Episode cap and localized preflight
-  are implemented. Browser execution for R1 is **NOT_RUN**. The OPFS
-  single-file path for 30–60 minute episodes and chapter export remain later
-  packages. [Long-episode plan](LONG-EPISODES.md)
-- **Owner-only checks and decisions.** Verify playback on real devices, private
-  YouTube Opus playback, TTS quality, Malay and English copy, real-GPU frame
-  timing, memory at the 300 s cap and USD cost. Sign off on the Malay product
-  name and the default scene. The 30–60 minute memory check is blocked by the
-  Episode export duration limit. [Owner checklist](OWNER-CHECKLIST.md)
+  thumbnails alongside the automated gates. Recheck the weak speaking-state cue
+  on the Studio 3D stage, its prototype appearance, the sparse portrait chapter
+  card and faint gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
+- **Long-episode export.** Browser generation preferences still allow up to 420 s
+  and finished WAV validation allows up to 500 s. Studio’s 300 s cap blocks
+  export of 30–60 minute episodes. OPFS streaming and chapter parts remain
+  later, owner-gated work. [Long-episode plan](LONG-EPISODES.md)
+- **Owner-only checks and decisions are UNVERIFIED.** Real-device and Safari/iOS
+  checks, YouTube acceptance of Opus, listening review of real TTS, native-speaker
+  review of Malay and English consent and cost copy, real-GPU frame timing,
+  memory at 300 s, USD cost accuracy, the Malay product name and the default
+  scene. [Owner checklist](OWNER-CHECKLIST.md)
 
 [Production readiness](PRODUCTION-READINESS.md) · [Episode sign-off](V2-PRODUCTION-CHECKLIST.md)
 

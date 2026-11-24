@@ -1,16 +1,18 @@
 # Owner checklist
 
-Record the revision, date, evidence and result for each item. The checks are
-open and owner visual acceptance is pending.
+At `dd6e2f5` on `main`, all checks and decisions below are **owner-only,
+UNVERIFIED**. **VISUAL ACCEPTANCE NOT PASSED.** Record the revision, date,
+evidence and result for each item.
 
 - [ ] **Visual acceptance.** From Library, open one episode with final audio
   and render Waveform and Studio 3D in both Landscape and Portrait. Download
   each MP4 and its thumbnail PNG. Play the exports through the opening, a
-  speaker handoff and a chapter change. Check the stage speaking cue,
-  pedestals and floor marks, portrait chapter title size and balance, and
-  gradients. View thumbnails at full size and at 160×90. **Pass when** the
-  automated gates pass and the owner signs off on all four videos and
-  thumbnails, including readable text, clear speaker cues and captions in sync.
+  speaker handoff and a chapter change. Check the weak speaking-state cue on
+  the Studio 3D stage, its prototype appearance, the sparse portrait chapter
+  card and faint gradient steps. View thumbnails at full size and at 160×90.
+  **Pass when** the automated gates pass and the owner signs off on all four
+  videos and thumbnails, including readable text, clear speaker cues and
+  captions in sync.
 - [ ] **MP4 playback on real devices.** Serve the same downloaded MP4 from a
   private test URL. Open it directly in Safari on a physical iPhone, Chrome
   on a physical Android device and desktop Safari. On each, play with sound,
@@ -44,7 +46,7 @@ open and owner visual acceptance is pending.
   renderer, warm-up time, median and p95. **Pass when** the renderer is the
   target GPU and each orientation meets the spec's ≤40 ms median and ≤60 ms
   p95 after warm-up, including compositing and readback. [Timing spec](VISUAL-DESIGN-SPEC.md#5-studio-3d-art-direction-and-motion)
-- [ ] **Five-minute export memory.** **NOT_RUN, owner-only.** R1 permits up to
+- [ ] **Five-minute export memory.** **NOT_RUN.** R1 permits up to
   300 s of final audio and planned video when the modeled PCM and encoded
   budgets fit and the browser reports enough free space or gives no estimate.
   Use a verified 300 s local WAV on the target 8 GB laptop and physical iPhone
@@ -57,8 +59,8 @@ open and owner visual acceptance is pending.
   device versions, including Safari and iOS standalone where tested.
   [R1 model](LONG-EPISODES.md#r1-five-minute-export)
 - [ ] **30–60 minute export memory.** **BLOCKED on this revision.** The Episode
-  view caps the audio and planned video at 300 seconds. The OPFS export path
-  is a later package.
+  view caps the audio and planned video at 300 s. OPFS streaming and chapter
+  parts are later, owner-gated work.
   Once the supported duration covers the check, open a saved 30-minute episode
   with final audio and render Studio 3D from the Episode view. Repeat at 60
   minutes. Sample browser renderer and GPU process memory once per second from

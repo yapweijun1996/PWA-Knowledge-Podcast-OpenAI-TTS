@@ -51,15 +51,22 @@ loaded Studio 3D scene. Chapter storyboard generation requires consent, and
 you review the draft manually before applying it.
 [Renderer](src/video/render.ts) · [Animation decision](docs/ANIMATION-DECISION.md)
 
+Studio’s single-file video export currently caps both source audio and planned
+video at 300 s. The panel shows a localized resource estimate and warning.
+Browser generation preferences still allow up to 420 s, and finished WAV
+validation allows up to 500 s. Export of 30–60 minute episodes is unavailable.
+Real-device memory at 300 s is **owner-only, UNVERIFIED**.
+[Export limits](src/video/limits.ts) · [Long-episode plan](docs/LONG-EPISODES.md)
+
 The publish ZIP includes the MP4, a thumbnail, chapters and a timed SRT
 caption sidecar when measured captions are available. The owner uploads to
-YouTube manually. YouTube acceptance of Opus audio is **UNVERIFIED**.
+YouTube manually. YouTube acceptance of Opus audio is **owner-only, UNVERIFIED**.
 [Publish package](src/publish/package.ts)
 
 ## Agent
 
 See the Agent guide for the in-page workflow and consent requirements. A real
-model-driven agent run on `c22a9fe` is **UNVERIFIED**.
+model-driven agent run on `dd6e2f5` is **UNVERIFIED**.
 [Agent](docs/AGENT.md) · [pi bridge spike](docs/PI-BRIDGE.md)
 
 ## Repository layout
@@ -74,15 +81,15 @@ model-driven agent run on `c22a9fe` is **UNVERIFIED**.
 
 ## Verification
 
-On the manager’s Mac at `c22a9fe`, typecheck and both builds passed. `npm test`
-reported 289 tests, with 288 passed and one skipped because the Crucible spike
-dependency was absent. The strict i18n scan reported 0 findings and `npm audit`
-found 0 vulnerabilities. Two consecutive Factory runs passed 51/51 tests with
-automated visual QA at 62/62 in Chromium 156–158 with software WebGL. A separate
-parallel run had one intermittent failure in `tests/factory-video-options.browser.ts`.
-The failure is under investigation. [Test matrix](docs/TEST-MATRIX.md)
+On the manager’s Mac at `dd6e2f5` on `main`, typecheck and both builds passed.
+`npm test` reported 306 tests, 305 passed, 0 failed and 1 skipped because the
+Crucible spike dependency was absent. The strict i18n scan reported 0 findings
+across 84 files and `npm audit` found 0 vulnerabilities. In Chromium 156–158
+with software WebGL, `npm run e2e:factory` passed 53/53 tests in two consecutive
+runs across `factory`, `render` and `perf`, with automated visual QA at 62/62.
+[Test matrix and intermittent failure follow-up](docs/TEST-MATRIX.md)
 
-**Visual acceptance has not passed.** The owner reviews real exports alongside
+**VISUAL ACCEPTANCE NOT PASSED.** The owner reviews real exports alongside
 the automated gates. Image-only reviews are advisory.
 [Visual QA](docs/VISUAL-QA.md#review-reliability-and-acceptance-policy) · [Owner checklist](docs/OWNER-CHECKLIST.md) · [Roadmap](docs/ROADMAP.md#open-items)
 

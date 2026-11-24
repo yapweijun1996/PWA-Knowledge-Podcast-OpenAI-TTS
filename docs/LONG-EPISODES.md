@@ -1,10 +1,11 @@
 # Long-episode video export
 
-R1 raises Episode single-file export from 210 to 300 seconds, subject to the
-PCM, nominal encoded size and estimated free-space checks below. For 30–60
-minute episodes, target one local MP4 backed by the Origin Private File System
-(OPFS), with chapter parts for devices that cannot finish one continuous
-render. The owner uploads manually to YouTube.
+At `dd6e2f5` on `main`, R1 caps Studio single-file export at 300 s, subject to
+the PCM, nominal encoded size and estimated free-space checks below. The panel
+shows a localized estimate and warning. Studio cannot export 30–60 minute
+episodes under this cap. Origin Private File System (OPFS) streaming for one
+local MP4 and chapter parts are later, owner-gated work. The owner uploads
+manually to YouTube.
 
 ## R1 five-minute export
 
@@ -39,18 +40,17 @@ panel labels these estimates in zh-CN, en and ms and gives one reason when
 preflight blocks export.
 [Model](../src/video/limits.ts) · [Episode panel](../src/factory/VideoPanel.tsx)
 
-The browser generation preference ceiling of 420 s (240 s default) controls
-the audio production budget. Finished WAV and record validation accept up to
-500 s so longer audio can remain in the Library. Single-file video has its own
-300 s ceiling, so valid saved audio can exceed the video limit.
+The browser generation preference ceiling remains 420 s (240 s default).
+Finished WAV and record validation still accept up to 500 s, so valid saved
+audio can exceed the 300 s video limit.
 
-## Verified limits at `11f8a92`
+## Historical limits at `11f8a92` (2026-11-24, before R1)
 
-| Gate | Code and history |
+| Gate | Behavior at that revision |
 | --- | --- |
-| Episode video preflight | `videoWithinLimits` checks both the source audio and the planned video before decode. `maxVideoSeconds = floor((128 MiB − 1 MiB) / ((5,000,000 + 64,000) / 8)) = 210`. `git log -S'maxVideoSeconds'` and `git blame` trace the guard to `713b3b7` (T36/T38). Its comment says the 1 MiB reserve was for mux overhead at the then-configured 5 Mb/s video and 64 kb/s mono audio. [Guard](../src/factory/useVideoRender.ts#L265) · [UI](../src/factory/VideoPanel.tsx#L914) |
-| Decoded PCM | The same hook budgets 32 MiB before decode at 24 kHz mono Float32 and checks the actual channel count and sample length after decode. Mono reaches 32 MiB at 349.5 s. The optional worker path takes a second PCM copy. [Decode](../src/factory/useVideoRender.ts#L830) · [Worker dispatch](../src/video/render-client.ts) |
-| Encoded chunks | The renderer aborts once audio plus video chunks exceed 128 MiB, independent of the UI guard. `git log -S'5_000_000'` shows `cd8fbd3` (T49) lowered the video target to 900 kb/s. `2f6bbe0` added adaptive targets from 900 kb/s to 2.4 Mb/s. The Episode preflight still uses its original rate. [Renderer](../src/video/render.ts) · [Render decision](VIDEO-RENDER-DECISION.md) |
+| Episode video preflight | `videoWithinLimits` checked both source audio and planned video before decode. The former 210 s cap came from `floor((128 MiB − 1 MiB) / ((5,000,000 + 64,000) / 8))`. Commit `713b3b7` (T36/T38) reserved 1 MiB for mux overhead at the then-configured 5 Mb/s video and 64 kb/s mono audio. |
+| Decoded PCM | The hook budgeted 32 MiB before decode at 24 kHz mono Float32 and checked the actual channel count and sample length after decode. Mono reached 32 MiB at 349.5 s. The optional worker path took a second PCM copy. [Worker dispatch](../src/video/render-client.ts) |
+| Encoded chunks | The renderer aborted once audio plus video chunks exceeded 128 MiB. `cd8fbd3` (T49) lowered the video target to 900 kb/s. `2f6bbe0` added adaptive targets from 900 kb/s to 2.4 Mb/s. At `11f8a92`, the Episode preflight still used its original rate. [Render decision](VIDEO-RENDER-DECISION.md) |
 | Generation and saved audio | Browser preferences allow up to 420 s (240 s default). Browser production budgets 48,000 WAV payload bytes/s against the chosen limit. Finished WAV validation allows 24,000,044 bytes, exactly 500 s with the required 44-byte header. Episode record validation also limits durations and chapter starts to 500 s. Planning and record validation cap the current script at seven chapters, 42 turns and 12,500 characters total. The private Node worker has a 500 s default when the episode has no production bound. Long generated episodes need intake, production and Library changes alongside export changes. [Preferences](../shared/preferences.ts) · [Browser production](../src/factory/browser-production.ts) · [Planning](../shared/pipeline/script.ts) · [Record](../shared/episode-record.ts) · [WAV](../shared/audio-record.ts) · [Worker](../server/jobs.mjs) |
 
 The separate agent tool validates the same WAV and expands the Int16 samples to
@@ -105,7 +105,7 @@ Draw time is `N × ms/frame ÷ 60,000` in minutes. The manager’s software WebG
 range and a few milliseconds per waveform frame give draw-only estimates.
 Encode throughput is unknown. End-to-end wall time also depends on audio
 preparation, encoder backpressure and flushes, hashing, save and download.
-The earlier repo record reports a **91.5 s** render of a local ten-minute
+The 2026-11-23 record at `5546126` reports a **91.5 s** render of a local ten-minute
 landscape Studio 3D fixture on native Chrome 158, with **632 MiB** peak
 renderer RSS and **124 MiB** peak GPU RSS. Sampling ended before storage and
 hash readback checks. That fixture exercised the renderer outside the Episode
@@ -139,7 +139,7 @@ browser-first workflow and local fixtures.
 
 | Approach | Effort and decision | Risks and tests to extend |
 | --- | --- | --- |
-| Raise the cap with an estimate | **Implemented in R1.** The Episode applies a 300 s ceiling and gates export by estimated resources. | The model and fitted plan have unit coverage. The short-fixture quota and rollback cases and the over-limit WAV case await manager browser execution. Actual memory at 300 s is owner-only. |
+| Raise the cap with an estimate | **Implemented in R1.** The Episode applies a 300 s ceiling and gates export by estimated resources. | Unit tests cover the model and fitted plan. The manager’s Factory runs passed the short-fixture quota and rollback cases and the over-limit WAV case. Actual memory at 300 s is **owner-only, UNVERIFIED**. |
 | Stream fragmented MP4 to OPFS | **3 worker packages.** Land (1) long local fixture intake, versioned audio/record handling and windowed PCM plus scene envelopes, (2) a seekable, backpressured worker writer with bounded fragments and an incremental digest of the closed file in byte order, (3) IndexedDB receipt pointers, legacy Blob playback, preview and local package/download. Stage a new file before committing the receipt, retain the last approved file until commit, and clean up orphaned files. Stream ZIP output or offer direct file download so delivery preserves the memory gains. Enable by tested capability. | The pinned muxer’s file target forwards asynchronous writes without waiting and its fragmented index grows. Bound pending writes and track skew, and spool the index or use a muxer with bounded index memory if measurements require it. Probe worker/file capabilities, fragmented seeking, upload compatibility, disk full, cancellation, reload, interrupted writes and legacy receipts. Extend `video-render.test.mjs` (queues, timestamps, digest, byte limits), `factory-video.browser.ts` (playback, quota, cancel), `publish-package.test.mjs` (ZIP), `library.test.mjs` and the backup round-trip in `factory.test.mjs`. Continue using local fixture audio while separate long AI-generation work qualifies script, narration and transcript limits in `browser-production.test.mjs`. |
 | Export chapter parts | **2 worker packages.** Render one MP4 per chapter where it fits, splitting longer chapters at clean turn boundaries within a computed time budget. Start at up to five minutes per part on qualified devices. Read only that part’s PCM, release render buffers between parts, and offer sequential downloads. The publish package lists ordered filenames, chapter titles, episode offsets, durations and per-part captions. Keep optional user-side concatenation and a global chapter/caption list. | Cut seams, AAC/Opus priming, frame rounding, incompatible parameters for concatenation and partial recovery. Test gapless joins, complete unique samples and cues, part-level retry/cancel/quota, and manifest/receipt identity. Extend `video-timeline.test.mjs` (source offsets and boundaries), `video-render.test.mjs` (A/V timing), `publish-package.test.mjs` (parts and sidecars) and `factory-video.browser.ts` (reopen parts and keep prior approval). |
 | Audio-first MP4 | **1 worker package after shared long-audio intake.** Offer a static image or slow storyboard at **2 fps** with 24 kHz mono audio, a caption sidecar and manual upload. At an illustrative 150 kb/s video target plus 64 kb/s audio, 60 minutes is 7,200 frames and 91.8 MiB of encoded payload. Qualify the bitrate and frame rate. Reuse windowed audio and storage work so PCM and saving remain feasible. | Device support at low frame rates, text legibility, caption timing and A/V sync. Test long silence, first/last sample, storyboard changes, sidecar timing and real playback/upload. Extend `video-render.test.mjs` (mode-specific bitrate and keyframe rules), `caption-timing.test.mjs` and `video-timeline.test.mjs` (timing at 2 fps), and `factory-video.browser.ts` (render/approval/playback). |
@@ -151,11 +151,11 @@ binding constraint. Keep the existing short MP4 path available throughout.
 
 ## Owner hardware verification
 
-Browser execution for R1 is **NOT_RUN**. Real-device memory at 300 s is
-**NOT_RUN** and owner-only. On the target 8 GB laptop and physical iPhone and
-Android devices, use a valid 300 s WAV in both orientations and record memory
-and timing through decode, mux, save and download. The manager’s earlier tests
-cover software WebGL and a one-byte quota rollback fixture.
+The manager’s Chromium runs at `dd6e2f5` covered R1 fixtures with software
+WebGL. Browser execution for this documentation update was **NOT_RUN**.
+Real-device memory at 300 s is **owner-only, UNVERIFIED**. On the target 8 GB
+laptop and physical iPhone and Android devices, use a valid 300 s WAV in both
+orientations and record memory and timing through decode, mux, save and download.
 
 For the later OPFS packages, use the target devices to establish codec and
 OPFS support, real-GPU draw and encoder timings, peak renderer/GPU/whole-browser
