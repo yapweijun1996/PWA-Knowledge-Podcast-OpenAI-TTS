@@ -38,16 +38,17 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     titleGraphicBox: [.65, .20, .90, .55],
     chapterBox: [.09, .235, .85, .49],
     stageBox: [.13, .18, .87, .57],
-    hostTagCenters: [[.34, .54], [.66, .54]],
+    hostTagCenters: [[.34, .545], [.66, .545]],
     cardHostTagCenter: [.50, .615],
     hostTagMaxWidthW: .22,
+    hostMarkerBoxH: .026, hostMarkerStrokeH: .006,
     calloutBox: [.09, .59, .53, .675],
     captionCenterX: .50, captionBottom: .84, captionMaxWidthW: .72,
     waveCenters: [[.34, .385], [.66, .385]],
     waveWidthW: .24, waveBarsPerHost: 36, waveMaxHalfHeightH: .058,
     orbCenters: [[.34, .345], [.66, .345]], orbDiameterH: .195,
     typeH: { title: .082, chapter: .059, caption: .050,
-             host: .028, callout: .030, progress: .024, wordmark: .028 },
+             host: .036, callout: .030, progress: .024, wordmark: .028 },
     // max lines, CJK graphemes per line, Latin graphemes per line
     text: { title: [2,10,24], chapter: [2,16,36], caption: [2,16,42],
             host: [1,10,22], callout: [2,18,32], wordmark: [1,10,22] }
@@ -60,17 +61,19 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .270, .78, .445],
+    chapterBox: [.08, .30, .78, .445],
     stageBox: [.09, .195, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
+    chapterHostTagCenter: [.43, .495],
     hostTagMaxWidthW: .30,
-    calloutBox: [.08, .515, .78, .59],
-    captionCenterX: .43, captionBottom: .70, captionMaxWidthW: .70,
+    hostMarkerBoxH: .018, hostMarkerStrokeH: .003,
+    calloutBox: [.08, .507, .78, .575],
+    captionCenterX: .43, captionBottom: .68, captionMaxWidthW: .70,
     waveCenters: [[.25, .355], [.61, .355]],
     waveWidthW: .27, waveBarsPerHost: 20, waveMaxHalfHeightH: .039,
     orbCenters: [[.25, .325], [.61, .325]], orbDiameterH: .107,
-    typeH: { title: .046, chapter: .036, caption: .032,
+    typeH: { title: .046, chapter: .041, caption: .032,
              host: .020, callout: .023, progress: .019, wordmark: .021 },
     text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
@@ -86,9 +89,8 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
       captionXY_L: [.018, .014], captionXY_P: [.0125, .010],
       calloutXY: [.0125, .006], hostXY: [.010, .004]
     },
-    strokeH: { progress: .004, calloutRule: .004, waveRail: .0025,
-               hostMarker: .003, cardRule: .005 },
-    hostMarkerBoxH: .014, hostMarkerGapH: .006, progressLabelGapH: .008,
+    strokeH: { progress: .004, calloutRule: .004, waveRail: .0025, cardRule: .005 },
+    hostMarkerGapH: .006, progressLabelGapH: .008,
     wordmarkMaxWidthW: [.24, .33],
     motion: {
       titleMs: [2000, 1500], chapterMs: [1600, 1333],
@@ -157,7 +159,7 @@ For the CVD columns I applied the Machado severity-1.0 matrices to linear RGB an
 | **Callout lower-third** | Use the reserved higher rail above captions. Left-align a short fact, definition, or detail with a thin accent rule. Permit one at a time, up to three per chapter, in requested timestamp order. Use up to **20 CJK or 46 Latin graphemes total** and keep the text opaque during its 3 s slot. A callout starts at least 600 ms after a card clears and at least 8 s after the previous start. Hold it until the next valid clause boundary or omit it if it cannot finish inside the chapter. |
 | **Chapter progress** | At top right, show `current / total` and a short track filled from chapter start to end. Fill with primary ink and use the palette track token. Reset only when the new chapter starts. Keep visible through cards. Right-align the entire group to the safe edge. |
 | **Wordmark** | At top left, draw the configured short show name or `Podcast Studio` in secondary ink, with no emblem. One line, fixed position. Use the fallback if the supplied name exceeds the token budget. |
-| **Waveform** | Use two open rails on the gradient, each centered above its host chip. Draw a stable baseline and 3 px minimum visible idle ticks at native resolution. Grow only the speaking rail. Reuse the existing 480 ms PCM peak window per turn and apply precomputed smoothing. With normalized peak `p`, use `sqrt(clamp((p - .012)/.38, 0, 1))` before applying the height cap. Bar width is `.58` of pitch. Anchor bars symmetrically to the rail. Leave the broad rectangular panel out of the new composition. |
+| **Waveform** | Use two open rails on the gradient, each centered above its host chip. Draw a stable baseline and 3 px minimum visible idle ticks at native resolution. Grow only the speaking rail. Reuse the existing 480 ms PCM peak window per turn and apply precomputed smoothing. With normalized peak `p`, use `sqrt(clamp((p - .012)/(1 - .012), 0, 1))` before applying the height cap. Bar width is `.58` of pitch. Anchor bars symmetrically to the rail. Leave the broad rectangular panel out of the new composition. |
 | **Scene transition** | `cut` changes the stage at the event frame. `fade` dips only the stage to the palette plate over three frames and reveals the next stage over three frames, with `easeInOutSine`. The active caption, wordmark, and progress stay at full opacity. Use at most one 3D scene render per output frame. |
 
 ## 5. Studio 3D art direction and motion

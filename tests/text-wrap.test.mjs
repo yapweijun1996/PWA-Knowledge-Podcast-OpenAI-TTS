@@ -276,6 +276,39 @@ test("recuts the three reviewed Mandarin passages at legal caption boundaries", 
   }
 });
 
+test("keeps degree, time and manner adverbs with their phrases in portrait captions", () => {
+  const context = recordingContext();
+  const options = { locale: "zh-CN", limits: [2, 11, 26] };
+  for (const lines of [
+    ["那它怎么", "真的影响买卖呢？"],
+    ["对，而且它", "不是只讲理念，"],
+    ["这条政策", "已经影响二手组屋了。"],
+    ["这几个邻居", "一直互相照应。"],
+    ["这条街的店面", "正在慢慢恢复营业。"],
+    ["这个消息让她", "特别地感到安心。"],
+    ["这个社区的租金", "又上涨了一次。"],
+  ]) {
+    const text = lines.join("");
+    assert.deepEqual(
+      paginateText(context, text, 22, options),
+      [{ text, lines }],
+      text,
+    );
+  }
+});
+
+test("keeps a caption on one cue when its preferred adverb break is too wide", () => {
+  const context = recordingContext();
+  const options = { locale: "zh-CN", limits: [2, 11, 26] };
+  const text = "我们解释以后也举例说明。";
+  assert.deepEqual(paginateText(context, text, 22, options), [
+    { text, lines: ["我们解释", "以后也举例说明。"] },
+  ]);
+  assert.deepEqual(paginateText(context, text, 12, options), [
+    { text, lines: ["我们解释以后", "也举例说明。"] },
+  ]);
+});
+
 test("prioritizes clauses and keeps decimal and CJK units attached", () => {
   const context = recordingContext();
   const text = "Take 12.5 km, then turn; complete the route. Next, go home.";

@@ -109,21 +109,29 @@ export function prepareWaveform(
     (milliseconds) => 1 - Math.exp(-1000 / (fps * milliseconds)),
   );
   let current: VideoTurn | undefined;
-  const smoothed = new Float64Array(bins);
+  let smoothed = 0;
   for (let index = 0; index < count; index++) {
     const time = index / fps;
     const turn = latestStarted(turns, time);
     if (turn !== current) {
-      smoothed.fill(0);
+      smoothed = 0;
       current = turn;
     }
     if (!turn || time >= turn.end || turn.speakerId === "C") continue;
-    wavePeaks(audio, time, turn, bins, peakAt).forEach((peak, bin) => {
-      const target = Math.sqrt(Math.max(0, Math.min(1, (peak - 0.012) / 0.38)));
-      const previous = smoothed[bin];
-      smoothed[bin] +=
-        (target - previous) * (target > previous ? attack : release);
-      levels[index * bins + bin] = smoothed[bin];
+    const targets = wavePeaks(audio, time, turn, bins, peakAt).map((peak) =>
+      Math.sqrt(Math.max(0, (peak - 0.012) / (1 - 0.012))),
+    );
+    const mean = targets.reduce((sum, target) => sum + target, 0) / bins;
+    const rising = mean > smoothed;
+    smoothed += (mean - smoothed) * (rising ? attack : release);
+    // Apply attack/release to the rail as a whole so a peak moving between
+    // bins keeps its shape. Scale toward zero on attack and toward one on release.
+    const gain = rising
+      ? smoothed / mean
+      : (1 - smoothed) / (1 - mean || 1);
+    const offset = rising ? 0 : smoothed - gain * mean;
+    targets.forEach((target, bin) => {
+      levels[index * bins + bin] = offset + gain * target;
     });
   }
   return { geometry, levels };

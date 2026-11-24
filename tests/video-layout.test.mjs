@@ -24,7 +24,7 @@ const bottom = ({ y, height }) => y + height;
 const center = ({ y, height }) => y + height / 2;
 const cases = [
   ["landscape", 1920, 1080, 54, 907.2, 1382.4, 36],
-  ["portrait", 1080, 1920, 61.44, 1344, 756, 20],
+  ["portrait", 1080, 1920, 61.44, 1305.6, 756, 20],
 ];
 
 function recordingContext() {
@@ -88,6 +88,7 @@ for (const [
       progress,
       wordmark,
       layout.cardChip,
+      layout.chapterChip,
       layout.title,
       layout.titleGraphic,
       layout.chapter,
@@ -100,7 +101,7 @@ for (const [
       );
     }
     close(layout.type.caption, fontSize);
-    close(layout.marker, 0.018 * height);
+    close(layout.marker, (orientation === "landscape" ? 0.026 : 0.018) * height);
     close(
       layout.type.wordmark,
       (orientation === "landscape" ? 0.028 : 0.021) * height,
@@ -111,11 +112,21 @@ for (const [
     close(right(progress), right(safe));
     close(wordmark.x, safe.x);
     assert.ok(bottom(callout) < caption.y);
+    assert.ok(bottom(layout.cardChip) + 0.5 < caption.y);
+    assert.ok(bottom(layout.chapterChip) + 0.5 < caption.y);
     assert.ok(right(hostChips[0]) < hostChips[1].x);
-    assert.ok(bottom(wave[0]) < hostChips[0].y);
+    for (const [index, chip] of hostChips.entries()) {
+      assert.ok(bottom(wave[index]) < chip.y);
+      assert.ok(bottom(chip) < callout.y);
+    }
     assert.equal(layout.waveBarsPerHost, bars);
     if (orientation === "portrait") {
-      close(layout.chapter.y / height, 0.27);
+      close(layout.chapter.y / height, 0.30);
+      close(layout.type.chapter / height, 0.041);
+      close(center(layout.chapterChip) / height, 0.495);
+      close(center(layout.cardChip) / height, 0.505);
+      close((caption.x + caption.width / 2) / width, 0.43);
+      assert.ok(bottom(layout.chapter) < layout.chapterChip.y);
       close(layout.stage.y / height, 0.17);
       for (const rail of wave) close(center(rail) / height, 0.3);
       for (const [, y] of designTokens.portrait.orbCenters) close(y, 0.3);
@@ -134,7 +145,7 @@ for (const [
       outline: {
         chapters: [
           { id: "open", title: "First chapter" },
-          { id: "next", title: "Second chapter" },
+          { id: "next", title: "Sharing spaces around the park" },
         ],
       },
       script: {
@@ -183,11 +194,29 @@ for (const [
     );
     if (orientation === "portrait") {
       context.text.length = 0;
+      context.shapes.length = 0;
       overlay.draw(overlay.frameAt(127 / 30), "ocean");
       const label = context.text.find(
         ({ value }) => value === overlayCopy(plan).chapterLabels[1],
       );
-      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.27);
+      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.30);
+      const chapterLines = context.text.filter(
+        ({ font }) => font === videoFont(800, geometry.type.chapter),
+      );
+      assert.equal(chapterLines.length, 2);
+      assert.equal(
+        chapterLines.map(({ value }) => value).join(" "),
+        episode.outline.chapters[1].title,
+      );
+      const chip = context.shapes.find(
+        ({ color, box }) =>
+          color === palettes.ocean.plate && box[1] === geometry.chapterChip.y,
+      );
+      assert.ok(chip);
+      const titleBottom =
+        chapterLines.at(-1).y + (geometry.type.chapter * 1.16) / 2;
+      assert.ok(titleBottom < chip.box[1]);
+      assert.ok(chip.box[1] + chip.box[3] < Math.round(geometry.caption.y));
     }
   });
 
@@ -264,6 +293,68 @@ for (const [
     }
   });
 }
+
+test("compact landscape host chips fit their labels and show both marker states", () => {
+  const context = recordingContext();
+  const strokes = [];
+  context.arc = (...circle) => {
+    context.path = circle;
+  };
+  context.stroke = () => {
+    strokes.push(context.lineWidth);
+  };
+  const resolution = { width: 320, height: 180 };
+  const layout = videoLayout(320, 180, "landscape");
+  const scenes = ["A", "B"].map((speakerId, start) => ({
+    kind: "turn",
+    speakerId,
+    start,
+    end: start + 1,
+    audioStart: start,
+    captions: [],
+  }));
+  const plan = {
+    resolution,
+    duration: 2,
+    scenes,
+    hostNames: { A: "A name longer than the whole chip budget", B: "Maya" },
+  };
+  const copy = overlayCopy(plan);
+  const overlay = prepareOverlay(context, plan, copy);
+  const palette = palettes.aurora;
+  close(layout.type.host, 6.48);
+  close(layout.marker, 4.68);
+  for (const active of [0, 1]) {
+    context.shapes.length = 0;
+    context.text.length = 0;
+    strokes.length = 0;
+    overlay.drawHosts(overlay.frameAt(active), "aurora");
+    const plates = context.shapes.filter(({ color }) => color === palette.plate);
+    assert.deepEqual(
+      context.text.map(({ value }) => value),
+      [copy.hostLabels.A, plan.hostNames.B],
+    );
+    assert.equal(plates.length, 2);
+    for (const [host, limit] of layout.hostChips.entries()) {
+      const { x, font, color, value } = context.text[host];
+      const [left, top, width, height] = plates[host].box;
+      assert.equal(font, videoFont(800, 6.48));
+      assert.equal(color, host === active ? "#F5F7FC" : "#C4CDDE");
+      assert.ok(left >= limit.x && left + width <= right(limit));
+      assert.ok(top > bottom(layout.wave[host]));
+      assert.ok(top + height < layout.callout.y);
+      context.font = font;
+      assert.ok(x + context.measureText(value).width <= left + width);
+    }
+    const bStrokes = context.shapes.filter(
+      ({ color }) => color === palette.hostB,
+    );
+    assert.equal(bStrokes.length, 2);
+    for (const { box } of bStrokes) assert.ok(box[3] >= 1);
+    assert.ok(bStrokes[0].box[1] + bStrokes[0].box[3] < bStrokes[1].box[1]);
+    if (active === 1) assert.ok(strokes[0] >= 1);
+  }
+});
 
 test("localized fallback names fit and the overlay freezes catalogue copy at preparation", () => {
   const context = recordingContext();

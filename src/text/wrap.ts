@@ -29,6 +29,19 @@ const functionWord =
 // Prefer keeping a restricting adverb with a preceding verb phrase when
 // another balanced line break is available.
 const dependentAdverb = /^[\u53ea\u4e5f\u90fd\u5c31\u624d\u8fd8\u518d\u53c8]/u;
+const shortAdverb =
+  /[\u771f\u5f88\u66f4\u6700\u592a\u521a\u53c8\u53ea\u4e5f\u90fd\u5c31\u624d\u8fd8\u518d]/u.source;
+const longAdverb =
+  /\u7279\u522b|\u975e\u5e38|\u5df2\u7ecf|\u6b63\u5728|\u4e00\u76f4|\u603b\u662f|\u8fd8\u662f|\u9a6c\u4e0a/u.source;
+const adverbPrefix =
+  /[\u4ee5\u4e4b][\u524d\u540e]|\u7136\u540e|\u4e0d\u662f|\u4e0d/u.source;
+const adverbSuffix = /[\u7684\u5730]/u.source;
+const captionAdverb = new RegExp(
+  `^(?:${adverbPrefix})?(?:${longAdverb}|${shortAdverb})${adverbSuffix}?`,
+  "u",
+);
+const trailingAdverb = new RegExp(`${shortAdverb}$`, "u");
+const trailingAdverbPrefix = new RegExp(`(?:${adverbPrefix})$`, "u");
 const finalParticle = /^[\u5462\u5417\u5427\u554a\u561b\u5566]/u;
 const numberWithUnit =
   /(?:[$£€¥]|(?:S|US)\$)?\p{Nd}+(?:[.,．，]\p{Nd}+)*(?: ?(?:公里|公斤|千克|厘米|毫米|分钟|小时|平方米|平方公里|毫升|°[CF]|[%％°℃℉元年月日米秒克吨]|(?:km\/h|m\/s|mm|cm|km|kg|mg|ml|kWh|Hz|MHz|GB|MB|USD|SGD|MYR|m|g|s|h)\b))?/gu;
@@ -223,6 +236,11 @@ function isOrphan(line: string) {
   return !content || singleHan.test(content);
 }
 
+function startsAdverbPhrase(line: string) {
+  const adverb = captionAdverb.exec(line)?.[0];
+  return !!adverb && /^\p{Script=Han}/u.test(line.slice(adverb.length));
+}
+
 /** Balance measured lines at legal breaks. An indivisible word can exceed maxWidth. */
 export function wrapText(
   context: TextMeasurer,
@@ -397,18 +415,36 @@ function layout(
       score: number[];
     };
     const best: (PageSolution | undefined)[] = [];
-    const badBreak = (line: Line) =>
-      Number(line.end < last && (functionWord.test(line.text) || strandsAdverb(line)));
     const wordBreak = (line: Line) => Number(extra.has(points[line.end]));
     for (let start = last - 1; start >= 0; start--) {
+      const lastFit = choices[start].at(-1)?.end ?? start;
       function consider(lines: Line[], line: Line) {
         const tail = best[line.end];
         if (line.end < last && !tail) return;
+        const first = lines.length === 2 ? lines[0] : undefined;
+        // Only reward a phrase break inside a cue that needs two lines.
+        const startsPhrase =
+          first &&
+          !first.overflow &&
+          !line.overflow &&
+          line.end > lastFit &&
+          preferredPoints.has(points[first.end]) &&
+          startsAdverbPhrase(line.text) &&
+          !trailingAdverbPrefix.test(first.text) &&
+          !(trailingAdverb.test(first.text) &&
+            preferredPoints.has(points[start] + first.text.length - 1));
         const score = [
-          lines.reduce((sum, item) => sum + badBreak(item), 0),
+          Number(!!first && functionWord.test(first.text)) +
+            Number(
+              line.end < last &&
+                (functionWord.test(line.text) || strandsAdverb(line)),
+            ),
           Number(line.end < last && !endsClause(line)),
           lines.reduce((sum, item) => sum + wordBreak(item), 0),
           1,
+          -Number(!!startsPhrase),
+          // A dependent adverb can start the second line when needed to fit.
+          Number(!!first && !startsPhrase && strandsAdverb(first)),
           lines.reduce((sum, item) => sum + item.slack, 0) +
             (line.finalOrphan ? 2 * penalty : 0),
         ].map((value, index) => value + (tail?.score[index] ?? 0));

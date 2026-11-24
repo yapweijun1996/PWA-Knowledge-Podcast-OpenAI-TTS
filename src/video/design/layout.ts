@@ -31,7 +31,10 @@ export function videoLayout(
     ) as Record<keyof T, number>;
   const type = scale(tokens.typeH);
   const radius = scale(common.radiusH);
-  const stroke = scale(common.strokeH);
+  const stroke = scale({
+    ...common.strokeH,
+    hostMarker: tokens.hostMarkerStrokeH,
+  });
   const pad = ([x, y]: readonly number[]) => ({ x: x * height, y: y * height });
   const captionPad = pad(
     orientation === "landscape"
@@ -45,7 +48,7 @@ export function videoLayout(
     2 * captionPad.y;
   const captionWidth = tokens.captionMaxWidthW * width;
   const hostWidth = tokens.hostTagMaxWidthW * width;
-  const marker = common.hostMarkerBoxH * height;
+  const marker = tokens.hostMarkerBoxH * height;
   const markerGap = common.hostMarkerGapH * height;
   const hostHeight =
     Math.max(type.host * common.leading.caption, marker) + 2 * hostPad.y;
@@ -84,6 +87,11 @@ export function videoLayout(
     stage: box(tokens.stageBox),
     hostChips: tokens.hostTagCenters.map(hostBox),
     cardChip: hostBox(tokens.cardHostTagCenter),
+    chapterChip: hostBox(
+      orientation === "portrait"
+        ? designTokens.portrait.chapterHostTagCenter
+        : tokens.cardHostTagCenter,
+    ),
     callout: box(tokens.calloutBox),
     caption: {
       x: tokens.captionCenterX * width - captionWidth / 2,

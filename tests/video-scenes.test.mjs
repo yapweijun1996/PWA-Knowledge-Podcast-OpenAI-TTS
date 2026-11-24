@@ -90,7 +90,8 @@ test("the smoothed waveform is seek-independent, resets on host changes and deca
   const bins = prepared.geometry.waveBarsPerHost;
   const alpha = 1 - Math.exp(-1000 / (30 * 67));
   assert.equal(bins, 20);
-  assert.ok(Math.abs(prepared.levels[0] - alpha) < 1e-7);
+  const target = Math.sqrt((0.4 - 0.012) / (1 - 0.012));
+  assert.ok(Math.abs(prepared.levels[0] - target * alpha) < 1e-7);
   assert.ok(prepared.levels[bins] > prepared.levels[0]);
   assert.ok(prepared.levels[bins * 30] < prepared.levels[bins * 24]);
   assert.equal(prepared.levels[bins * 60], prepared.levels[0]);
@@ -141,6 +142,44 @@ test("the waveform uses all bins at the start, middle and end of a turn", () => 
   samples.fill(0, sampleRate, sampleRate * 4);
   for (const time of [5, 6.5, 8 - 1 / sampleRate]) {
     assert.deepEqual(wavePeaks(audio, time, turn, bins), Array(bins).fill(0));
+  }
+});
+
+test("the compact speaking rail preserves varied local PCM peaks across all 36 bars", () => {
+  const resolution = { width: 320, height: 180 };
+  const active = { ...turn, start: 0, end: 2, audioStart: 0 };
+  const plan = { resolution, fps: 30, duration: 2, scenes: [active] };
+  const pattern = [0.25, 0.75, 0.125, 1, 0.5, 0.875];
+  const peaks = Array.from(
+    { length: 36 },
+    (_, index) => pattern[index % pattern.length],
+  );
+  const samples = new Float32Array(2 * sampleRate);
+  // Put one signed peak inside each 320-sample bin of the centered 480 ms window.
+  peaks.forEach((peak, bin) => {
+    samples[0.76 * sampleRate + 320 * bin + 160] = -peak;
+  });
+  const audio = { sampleRate, channels: [samples] };
+  assert.deepEqual(wavePeaks(audio, 1, active, 36), peaks);
+  const prepared = prepareWaveform(plan, audio);
+  const calls = [];
+  drawWaveform({ fillRect: (...box) => calls.push(box) }, prepared, {
+    index: 30,
+    time: 1,
+    turn: active,
+    paletteId: "aurora",
+  });
+  const bars = calls.slice(1, 37);
+  assert.equal(bars.length, 36);
+  for (const [bin, [, , width, height]] of bars.entries()) {
+    assert.ok(Math.abs(width - (320 * 0.24 * 0.58) / 36) < 1e-10);
+    assert.ok(height <= 2 * 0.058 * 180);
+    const next = (bin + 1) % bars.length;
+    assert.ok(Math.abs(height - bars[next][3]) >= 1);
+    assert.equal(
+      Math.sign(height - bars[next][3]),
+      Math.sign(peaks[bin] - peaks[next]),
+    );
   }
 });
 

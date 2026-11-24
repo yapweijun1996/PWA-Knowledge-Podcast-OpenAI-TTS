@@ -269,7 +269,17 @@ export function prepareOverlay(
     ]),
   ) as Record<Host, string>;
   const hostNameWidths = Object.fromEntries(
-    hostIds.map((host) => [host, context.measureText(names[host] ?? "").width]),
+    hostIds.map((host) => {
+      const metrics = context.measureText(names[host] ?? "");
+      return [
+        host,
+        Math.max(
+          metrics.width,
+          (metrics.actualBoundingBoxLeft ?? 0) +
+            (metrics.actualBoundingBoxRight ?? 0),
+        ),
+      ];
+    }),
   ) as Record<Host, number>;
   const cues = new Map(
     turns.map((turn) => {
@@ -392,7 +402,9 @@ export function prepareOverlay(
       return;
     }
     const offsets = host === "B" ? [-size * 0.3, size * 0.3] : [0];
-    const height = host === "B" ? size * 0.4 : size;
+    // At compact sizes, each idle B stroke needs a visible core of its own.
+    const idleStrokes = host === "B" && !active && orientation === "landscape";
+    const height = idleStrokes ? border : host === "B" ? size * 0.4 : size;
     for (const offset of offsets) {
       const shape = {
         x: x - size / 2,
@@ -400,7 +412,13 @@ export function prepareOverlay(
         width: size,
         height,
       };
-      if (!active && context.beginPath && context.roundRect && context.stroke) {
+      if (
+        !active &&
+        !idleStrokes &&
+        context.beginPath &&
+        context.roundRect &&
+        context.stroke
+      ) {
         const outline = Math.min(border / 2, height / 3);
         context.beginPath();
         context.roundRect(
@@ -467,7 +485,13 @@ export function prepareOverlay(
           (card.kind === "intro" && active) ||
           (card.kind === "chapter" && card.chapterId === turn?.chapterId))
       )
-        chip(geometry.cardChip, speaker, palette, active, emphasis);
+        chip(
+          card.kind === "chapter" ? geometry.chapterChip : geometry.cardChip,
+          speaker,
+          palette,
+          active,
+          emphasis,
+        );
       return;
     }
     geometry.hostChips.forEach((box, index) => {
