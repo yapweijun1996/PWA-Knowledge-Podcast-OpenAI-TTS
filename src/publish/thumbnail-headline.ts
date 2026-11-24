@@ -69,6 +69,34 @@ export function cjkHeadlineLength(text: string, locale: Locale) {
   return headlineGraphemes(text.replace(/\s/gu, ""), locale).length;
 }
 
+// Keep local housing terms together when the word segmenter treats them as
+// separate characters.
+const housingTerms = /\u7ec4\u5c4b\u91cc?|\u6df7\u5c45|\u90bb\u91cc/gu;
+
+export function cjkHeadlinePhrases(text: string) {
+  return Array.from(text.matchAll(housingTerms), ([phrase]) => phrase);
+}
+
+export function isCjkHeadlineBreak(
+  text: string,
+  offset: number,
+  keepTogether: readonly string[],
+) {
+  const splitsPhrase = keepTogether.some((phrase) => {
+    const start = text.lastIndexOf(phrase, offset - 1);
+    return start >= 0 && offset < start + phrase.length;
+  });
+  if (splitsPhrase) return false;
+  if (typeof Intl.Segmenter === "function") {
+    const word = new Intl.Segmenter("zh-CN", { granularity: "word" })
+      .segment(text)
+      .containing(offset);
+    return word?.index === offset;
+  }
+  // Without word segmentation, only use explicit separators.
+  return /[\s\p{P}]$/u.test(text.slice(0, offset));
+}
+
 function wordEnds(text: string, locale: Locale) {
   if (typeof Intl.Segmenter === "function") {
     return Array.from(

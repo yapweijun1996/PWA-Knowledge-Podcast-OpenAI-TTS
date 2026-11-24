@@ -197,8 +197,8 @@ YouTube advises legible type, simple composition, expressive visuals suited to t
 | Variant | Layout and selection |
 |---|---|
 | **Topic graphic** | Default when an approved drawing is available. Text box `[80,155,755,540]`, one graphic in `[800,112,1190,530]`. For the sample episode, use `组屋如何混居` and the housing-block graphic. |
-| **Host pair** | Default fallback when the episode has no approved topic drawing. Text box `[80,155,734,540]`, one orb-and-band composition in `[756,120,1176,535]`. Use the episode’s palette and the A/B shapes. |
-| **Headline** | Select for an episode with a strong, short editorial claim. Text box `[80,150,1160,530]`. Use one accent rule or a single code-drawn symbol beside the headline. Keep the claim traceable to the reviewed episode script. |
+| **Host pair** | Default fallback when the episode has no approved topic drawing. Text box `[80,155,734,540]`, one orb-and-band composition in `[768,120,1188,535]`. Centre both orbs at `.46H ± .015H`. Use one 13 px palette-tinted band on A and two on B. |
+| **Headline** | Select for an episode with a strong, short editorial claim. Text box `[80,150,1160,530]`. Start the accent rule at `[80,277.6]` and keep a `.03H` gap to the first headline ink. Keep the claim traceable to the reviewed episode script. |
 
 ```js
 {
@@ -206,14 +206,14 @@ YouTube advises legible type, simple composition, expressive visuals suited to t
   durationBadgeExclusion: [.79, .78, 1, 1],
   ink: "palette.ink", secondaryInk: "palette.secondaryInk",
   backdrop: "palette.stops", graphic: ["palette.A", "palette.B"],
-  headlineSizeH: .136, headlineMinSizeH: .119, headlineLeading: 1.10,
+  headlineSizeH: .136, cjkHeadlineSizeH: .145, headlineMinSizeH: .119, headlineLeading: 1.10,
   wordmarkSizeH: .022, wordmarkWeight: 600, wordmarkTopLeftPx: [80, 72], accentRuleH: .009,
   maxLines: 2, CJKTotal: [6, 12], CJKPerLine: [6, 6, 8],
   LatinWords: [2, 5], LatinMaxGraphemes: 30, MalayMaxGraphemes: 34
 }
 ```
 
-Use short natural phrases and sentence or title case. Keep the headline visible in full. When it cannot fit at the minimum size, require a shorter thumbnail headline field. Keep the title and thumbnail promise aligned. For eligible long-form videos, hold the upload title constant while comparing variants with YouTube’s test. YouTube chooses a winner by watch-time share and currently excludes Shorts from this test. [YouTube title and thumbnail testing](https://support.google.com/youtube/answer/16391400?hl=en), accessed 2026-11-23.
+Use short natural phrases and sentence or title case. Prefer a single Mandarin line within the variant’s character cap and measured text box. Reduce the size to fit while retaining the ink-height floor. Wrap longer copy at a legal phrase or word boundary and keep all words visible. Each Mandarin line must show at least 11 px of ink at `160×90` and 22 px at `320×180` in the factory thumbnail test. Latin x-height retains the 6 px and 12 px floors. If the copy cannot meet the layout and ink limits, require a shorter thumbnail headline. Keep the title and thumbnail promise aligned. For eligible long-form videos, hold the upload title constant while comparing variants with YouTube’s test. YouTube chooses a winner by watch-time share and currently excludes Shorts from this test. [YouTube title and thumbnail testing](https://support.google.com/youtube/answer/16391400?hl=en), accessed 2026-11-23.
 
 ## 7. Existing frames and change order
 

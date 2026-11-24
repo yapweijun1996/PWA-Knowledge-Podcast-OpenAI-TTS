@@ -18,6 +18,7 @@ const variants = [
     paletteId: "aurora",
     language: "zh",
     headline: "组屋如何混居",
+    lines: ["组屋如何混居"],
     ink: "#F5F7FC",
     right: 755,
   },
@@ -26,6 +27,7 @@ const variants = [
     paletteId: "sunset",
     language: "zh",
     headline: "邻里怎样共享空间",
+    lines: ["邻里怎样", "共享空间"],
     ink: "#F5F7FC",
     right: 734,
   },
@@ -34,6 +36,7 @@ const variants = [
     paletteId: "light",
     language: "zh",
     headline: "社区空间人人共享",
+    lines: ["社区空间人人共享"],
     ink: "#172238",
     right: 1160,
   },
@@ -43,12 +46,14 @@ const variants = [
     language: "en",
     // Lowercase letters with no ascenders or descenders exercise x-height.
     headline: "more room",
+    lines: ["more room"],
     ink: "#F5F7FC",
     right: 1160,
   },
 ] as const satisfies readonly (ThumbnailOptions & {
   variant: ThumbnailVariant;
   ink: string;
+  lines: readonly string[];
   right: number;
 })[];
 
@@ -134,9 +139,30 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
         language,
         ink,
         right,
+        lines,
       } of cases) {
+        const canvas = document.createElement("canvas");
+        const drawing = canvas.getContext("2d", {
+          colorSpace: "srgb",
+          alpha: false,
+        })!;
+        const fillText = drawing.fillText.bind(drawing);
+        const headlineInk: { text: string; top: number; bottom: number }[] = [];
+        drawing.fillText = (text, x, baseline) => {
+          if (baseline < 120) {
+            headlineInk.length = 0;
+          } else {
+            const metrics = drawing.measureText(text);
+            headlineInk.push({
+              text,
+              top: baseline - metrics.actualBoundingBoxAscent,
+              bottom: baseline + metrics.actualBoundingBoxDescent,
+            });
+          }
+          fillText(text, x, baseline);
+        };
         const png = await encodeThumbnail(
-          document.createElement("canvas"),
+          canvas,
           { variant, paletteId, headline, language },
           async () => ({ notices: [], missingCharacters: [] }),
         );
@@ -162,18 +188,43 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           inkChannels.every(
             (channel, k) => Math.abs(data[i + k] - channel) <= 1,
           );
+        const backgroundDistance = (
+          pixels: Uint8ClampedArray,
+          w: number,
+          x: number,
+          y: number,
+        ) => {
+          const offset = (y * w + x) * 4;
+          const background = pixels.length - (w - x) * 4;
+          return Math.max(
+            Math.abs(pixels[offset] - pixels[background]),
+            Math.abs(pixels[offset + 1] - pixels[background + 1]),
+            Math.abs(pixels[offset + 2] - pixels[background + 2]),
+          );
+        };
+
+        const scanArt = (minimumDifference: number) => {
+          const bounds = [width, height, 0, 0];
+          for (let y = 0; y < height; y++) {
+            for (let x = right; x < width; x++) {
+              if (backgroundDistance(data, width, x, y) < minimumDifference)
+                continue;
+              bounds[0] = Math.min(bounds[0], x);
+              bounds[1] = Math.min(bounds[1], y);
+              bounds[2] = Math.max(bounds[2], x + 1);
+              bounds[3] = Math.max(bounds[3], y + 1);
+            }
+          }
+          return bounds;
+        };
+        const artBounds = variant === "headline" ? null : scanArt(3);
+        const buildingRight =
+          variant === "topic-graphic" ? scanArt(40)[2] : null;
 
         let badgeInk = 0;
         for (let y = Math.floor(0.78 * height); y < height; y++) {
           for (let x = Math.floor(0.79 * width); x < width; x++) {
-            const offset = (y * width + x) * 4;
-            if (
-              [0, 1, 2].some(
-                (k) =>
-                  Math.abs(data[offset + k] - data[lastRow + x * 4 + k]) > 2,
-              )
-            )
-              badgeInk++;
+            if (backgroundDistance(data, width, x, y) > 2) badgeInk++;
           }
         }
 
@@ -212,32 +263,34 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           const pixels = previewPixels(w);
           const baseline = (h - 1) * w * 4;
           const scale = w / width;
-          let tallest = 0;
-          let run = 0;
-          for (
-            let y = Math.ceil(150 * scale);
-            y < Math.floor(540 * scale);
-            y++
-          ) {
-            let inkInRow = 0;
+          return headlineInk.map(({ top, bottom }) => {
+            let tallest = 0;
+            let run = 0;
             for (
-              let x = Math.ceil(80 * scale);
-              x < Math.floor(right * scale);
-              x++
+              let y = Math.floor(top * scale);
+              y < Math.ceil(bottom * scale);
+              y++
             ) {
-              const offset = (y * w + x) * 4;
-              if (
-                thumbnailContrastRatio(
-                  toHex(pixels, offset),
-                  toHex(pixels, baseline + x * 4),
-                ) >= 3
-              )
-                inkInRow++;
+              let inkInRow = 0;
+              for (
+                let x = Math.ceil(80 * scale);
+                x < Math.floor(right * scale);
+                x++
+              ) {
+                const offset = (y * w + x) * 4;
+                if (
+                  thumbnailContrastRatio(
+                    toHex(pixels, offset),
+                    toHex(pixels, baseline + x * 4),
+                  ) >= 3
+                )
+                  inkInRow++;
+              }
+              run = inkInRow >= 3 ? run + 1 : 0;
+              tallest = Math.max(tallest, run);
             }
-            run = inkInRow >= 3 ? run + 1 : 0;
-            tallest = Math.max(tallest, run);
-          }
-          return tallest;
+            return tallest;
+          });
         });
 
         const scanHostPair = (w: number) => {
@@ -256,16 +309,8 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
             x++
           ) {
             let occupied = false;
-            for (let y = top; y < bottom && !occupied; y++) {
-              const offset = (y * w + x) * 4;
-              occupied = [0, 1, 2].some(
-                (channel) =>
-                  Math.abs(
-                    pixels[offset + channel] -
-                      pixels[baseline + 4 * x + channel],
-                  ) >= 16,
-              );
-            }
+            for (let y = top; y < bottom && !occupied; y++)
+              occupied = backgroundDistance(pixels, w, x, y) >= 16;
             if (!occupied) continue;
             const last = spans.at(-1);
             if (last?.end === x) last.end = x + 1;
@@ -286,7 +331,24 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
               }
               if (ink >= (end - start) / 3) highContrastRows++;
             }
-            return { width: end - start, highContrastRows };
+            let first = h;
+            let last = 0;
+            // A higher colour-distance threshold keeps the ground shadow
+            // out of the silhouette's measured top and bottom.
+            for (let y = top; y < Math.ceil(435 * scale); y++) {
+              for (let x = start; x < end; x++) {
+                if (backgroundDistance(pixels, w, x, y) >= 45) {
+                  first = Math.min(first, y);
+                  last = y + 1;
+                  break;
+                }
+              }
+            }
+            return {
+              width: end - start,
+              highContrastRows,
+              centerY: (first + last) / 2,
+            };
           });
           const gap = spans.length === 2 ? spans[1].start - spans[0].end : 0;
           return { w, gap, visible };
@@ -305,6 +367,10 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
           headlinePixels,
           lowestContrast,
           inkHeights,
+          lines: headlineInk.map(({ text }) => text),
+          expectedLines: lines,
+          artBounds,
+          buildingRight,
           hostPair,
         });
       }
@@ -325,19 +391,41 @@ test("exports three thumbnail PNGs with clear headlines and a clear duration bad
     expect(report.badgeInk, report.variant).toBe(0);
     expect(report.headlinePixels, report.variant).toBeGreaterThan(0);
     expect(report.lowestContrast, report.variant).toBeGreaterThanOrEqual(4.5);
-    const inkFloor = report.language === "zh" ? 8 : 6;
-    expect(report.inkHeights[0], report.variant).toBeGreaterThanOrEqual(
-      inkFloor,
-    );
-    expect(report.inkHeights[1], report.variant).toBeGreaterThanOrEqual(
-      2 * inkFloor,
-    );
+    expect(report.lines, report.variant).toEqual(report.expectedLines);
+    const inkFloor = report.language === "zh" ? 11 : 6;
+    for (const [index, heights] of report.inkHeights.entries()) {
+      for (const height of heights)
+        expect(height, report.variant).toBeGreaterThanOrEqual(
+          (index + 1) * inkFloor,
+        );
+    }
+    if (report.artBounds) {
+      const [left, top, right, bottom] = report.artBounds;
+      const box =
+        report.variant === "topic-graphic"
+          ? [800, 112, 1190, 530]
+          : [768, 120, 1188, 535];
+      expect(right - left, report.variant).toBeGreaterThan(0);
+      expect(bottom - top, report.variant).toBeGreaterThan(0);
+      expect(left, report.variant).toBeGreaterThanOrEqual(box[0]);
+      expect(top, report.variant).toBeGreaterThanOrEqual(box[1]);
+      expect(right, report.variant).toBeLessThanOrEqual(box[2]);
+      expect(bottom, report.variant).toBeLessThanOrEqual(box[3]);
+    }
+    if (report.buildingRight !== null)
+      expect(report.buildingRight, report.variant).toBeGreaterThanOrEqual(1170);
     for (const { w, gap, visible } of report.hostPair) {
       expect(visible, `${w}px host silhouettes`).toHaveLength(2);
       expect(gap, `${w}px host gap`).toBeGreaterThanOrEqual(
         w === 1280 ? 16 : 1,
       );
-      if (w === 1280) expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
+      if (w === 1280) {
+        expect(gap, `${w}px host gap`).toBeLessThanOrEqual(24);
+        const [a, b] = visible;
+        expect(Math.abs(a.centerY - b.centerY)).toBeLessThanOrEqual(0.015 * 720);
+        for (const { centerY } of visible)
+          expect(Math.abs(centerY / 720 - 0.46)).toBeLessThanOrEqual(0.015);
+      }
       for (const orb of visible) {
         expect(orb.width, `${w}px host width`).toBeGreaterThanOrEqual(
           (18 * w) / 160,

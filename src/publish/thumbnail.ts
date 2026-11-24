@@ -5,16 +5,18 @@ import {
   t,
   type Locale,
 } from "../i18n/index.ts";
-import { wrapText } from "../text/wrap.ts";
+import { wrapDisplayText, wrapText } from "../text/wrap.ts";
 import { palettes } from "../video/design/palettes.ts";
 import { designTokens } from "../video/design/tokens.ts";
 import { ensureVideoFonts, videoFont } from "../video/fonts/loader.ts";
 import { themePalette } from "../video/themes.ts";
 import {
   cjkHeadlineLength,
+  cjkHeadlinePhrases,
   deriveThumbnailHeadline,
   headlineGraphemes,
   isCjkHeadline,
+  isCjkHeadlineBreak,
   publishLocales,
   thumbnailHeadlineErrors,
   validateThumbnailHeadline,
@@ -49,10 +51,11 @@ export const thumbnailDesign = {
   inset: [80, 72],
   durationBadgeExclusion: [0.79, 0.78, 1, 1],
   headlineSizeH: 0.136,
+  cjkHeadlineSizeH: 0.145,
   headlineMinSizeH: 0.119,
   headlineLeading: 1.1,
   wordmarkSizeH: designTokens.common.thumbnailWordmarkSizeH,
-  accentRuleY: 0.33,
+  accentRuleY: 277.6 / thumbnailSize.height,
   accentRuleH: 0.009,
   accentRuleGapH: 0.03,
   maxLines: 2,
@@ -64,7 +67,7 @@ export const thumbnailDesign = {
     },
     "host-pair": {
       text: [80, 155, 734, 540],
-      graphic: [756, 120, 1176, 535],
+      graphic: [768, 120, 1188, 535],
       cjkPerLine: 6,
     },
     headline: { text: [80, 150, 1160, 530], graphic: null, cjkPerLine: 8 },
@@ -157,6 +160,8 @@ export type ThumbnailResult =
     };
 
 const contrastFloor = 4.5;
+const cjkPreviewInkMinimum = 11;
+const previewScale = 90 / thumbnailSize.height;
 const stops = [0, 0.55, 1] as const;
 const { width, height } = thumbnailSize;
 
@@ -236,8 +241,8 @@ export function thumbnailChecks(layoutMetadata: ThumbnailLayoutMetadata) {
             thumbnailContrastRatio(wordmarkInk, color),
           ]),
         );
-  const minimum = script === "cjk" ? 8 : 6;
-  const pixels = inkHeight === null ? null : inkHeight * (90 / height);
+  const minimum = script === "cjk" ? cjkPreviewInkMinimum : 6;
+  const pixels = inkHeight === null ? null : inkHeight * previewScale;
   return {
     bounds:
       headlineBounds.length > 0 &&
@@ -439,87 +444,132 @@ function fitHeadline(
       : top;
   const cjk = isCjkHeadline(headline);
   const min = thumbnailDesign.headlineMinSizeH * height;
-  const max = thumbnailDesign.headlineSizeH * height;
-  for (let size = max; ; size = Math.max(min, size - 1)) {
+  const max =
+    (cjk ? thumbnailDesign.cjkHeadlineSizeH : thumbnailDesign.headlineSizeH) *
+    height;
+  const keepTogether =
+    cjk && typeof Intl.Segmenter !== "function"
+      ? headline.match(/[\p{L}\p{M}\p{N}]+/gu) ?? []
+      : cjkHeadlinePhrases(headline);
+
+  function fitAtSize(size: number, maxLines: number): HeadlineLayout | null {
     ctx.font = videoFont(designTokens.common.weight.thumbnail, size);
-    const lines = wrapText(
-      {
-        measureText(line) {
-          if (cjk && cjkHeadlineLength(line, locale) > cjkPerLine) {
-            return { width: maxWidth + 1 };
-          }
-          const metrics = ctx.measureText(line);
-          return {
-            width:
-              Math.max(metrics.width, metrics.actualBoundingBoxRight ?? 0) +
-              Math.max(0, metrics.actualBoundingBoxLeft ?? 0),
-          };
-        },
+    const measurer = {
+      measureText(line: string) {
+        if (cjk && cjkHeadlineLength(line, locale) > cjkPerLine) {
+          return { width: maxWidth + 1 };
+        }
+        const metrics = ctx.measureText(line);
+        return {
+          width:
+            Math.max(metrics.width, metrics.actualBoundingBoxRight ?? 0) +
+            Math.max(0, metrics.actualBoundingBoxLeft ?? 0),
+        };
       },
-      headline,
-      maxWidth,
-      locale,
-    );
+    };
+    const lines =
+      maxLines === 1
+        ? [headline]
+        : cjk
+          ? wrapDisplayText(
+              measurer,
+              headline,
+              maxWidth,
+              {
+                locale,
+                limits: [maxLines, cjkPerLine, Infinity],
+                keepTogether,
+                preferClauses: true,
+              },
+              false,
+            )
+          : wrapText(measurer, headline, maxWidth, locale);
     const last = lines.at(-1)?.replace(/[^\p{L}\p{M}\p{N}]/gu, "") ?? "";
     if (
-      lines.length <= thumbnailDesign.maxLines &&
-      (lines.length === 1 || headlineGraphemes(last, locale).length > 1) &&
-      (!cjk ||
-        lines.every((line) => cjkHeadlineLength(line, locale) <= cjkPerLine))
-    ) {
-      const measures = lines.map((line) => ctx.measureText(line));
-      const offset = Math.max(
-        0,
-        ...measures.map((metrics) => metrics.actualBoundingBoxLeft ?? 0),
-      );
-      const requiredWidth = Math.max(
-        ...measures.map((m) =>
-          Math.max(m.width, m.actualBoundingBoxRight ?? 0),
-        ),
-      );
-      const leading = size * thumbnailDesign.headlineLeading;
-      const inkTop = Math.min(
-        ...measures.map(
-          (m, i) => i * leading - (m.actualBoundingBoxAscent ?? size * 0.82),
-        ),
-      );
-      const inkBottom = Math.max(
-        ...measures.map(
-          (m, i) => i * leading + (m.actualBoundingBoxDescent ?? size * 0.18),
-        ),
-      );
-      if (
-        requiredWidth + offset <= maxWidth &&
-        inkBottom - inkTop <= bottom - inkStart
-      ) {
-        const baseline =
-          variant === "headline"
-            ? inkStart - inkTop
-            : (top + bottom - inkTop - inkBottom) / 2;
-        const x = left + offset;
-        const baselines = lines.map((_, i) => baseline + i * leading);
-        const inkMetrics = cjk ? measures : [ctx.measureText("x")];
-        const inkHeight = Math.min(
-          ...inkMetrics.map(
-            (metrics) =>
-              (metrics.actualBoundingBoxAscent ?? NaN) +
-              (metrics.actualBoundingBoxDescent ?? NaN),
-          ),
-        );
-        return {
-          lines,
-          x,
-          baselines,
-          fontSize: size,
-          bounds: measures.map((metrics, i) =>
-            inkBounds(metrics, x, baselines[i], size),
-          ),
-          inkHeight: Number.isFinite(inkHeight) ? inkHeight : null,
-        };
-      }
-    }
-    if (size === min) return null;
+      !lines.length ||
+      lines.length > maxLines ||
+      (lines.length > 1 && headlineGraphemes(last, locale).length <= 1) ||
+      (cjk &&
+        lines.some((line) => cjkHeadlineLength(line, locale) > cjkPerLine)) ||
+      // The shared wrapper can split an overwide atom as a last resort.
+      (cjk &&
+        lines.length === 2 &&
+        !isCjkHeadlineBreak(
+          headline,
+          headline.length - lines[1].length,
+          keepTogether,
+        ))
+    )
+      return null;
+
+    const measures = lines.map((line) => ctx.measureText(line));
+    const offset = Math.max(
+      0,
+      ...measures.map((metrics) => metrics.actualBoundingBoxLeft ?? 0),
+    );
+    const requiredWidth = Math.max(
+      ...measures.map((m) => Math.max(m.width, m.actualBoundingBoxRight ?? 0)),
+    );
+    const leading = size * thumbnailDesign.headlineLeading;
+    const inkTop = Math.min(
+      ...measures.map(
+        (m, i) => i * leading - (m.actualBoundingBoxAscent ?? size * 0.82),
+      ),
+    );
+    const inkBottom = Math.max(
+      ...measures.map(
+        (m, i) => i * leading + (m.actualBoundingBoxDescent ?? size * 0.18),
+      ),
+    );
+    const inkMetrics = cjk ? measures : [ctx.measureText("x")];
+    const measuredInk = Math.min(
+      ...inkMetrics.map(
+        (m) =>
+          (m.actualBoundingBoxAscent ?? NaN) +
+          (m.actualBoundingBoxDescent ?? NaN),
+      ),
+    );
+    const inkHeight = Number.isFinite(measuredInk) ? measuredInk : null;
+    if (
+      requiredWidth + offset > maxWidth ||
+      inkBottom - inkTop > bottom - inkStart ||
+      (cjk &&
+        inkHeight !== null &&
+        inkHeight * previewScale < cjkPreviewInkMinimum)
+    )
+      return null;
+
+    const baseline =
+      variant === "headline"
+        ? inkStart - inkTop
+        : (top + bottom - inkTop - inkBottom) / 2;
+    const x = left + offset;
+    const baselines = lines.map((_, i) => baseline + i * leading);
+    return {
+      lines,
+      x,
+      baselines,
+      fontSize: size,
+      bounds: measures.map((metrics, i) =>
+        inkBounds(metrics, x, baselines[i], size),
+      ),
+      inkHeight,
+    };
   }
+
+  const lineLimits = cjk
+    ? [1, thumbnailDesign.maxLines]
+    : [thumbnailDesign.maxLines];
+  for (const maxLines of lineLimits) {
+    if (maxLines === 1 && cjkHeadlineLength(headline, locale) > cjkPerLine)
+      continue;
+    for (let size = max; ; size = Math.max(min, size - 1)) {
+      const layout = fitAtSize(size, maxLines);
+      if (layout) return layout;
+      if (size === min) break;
+    }
+  }
+  return null;
 }
 
 function drawPreparedThumbnail(
@@ -572,9 +622,17 @@ function drawPreparedThumbnail(
 
     if (graphicBox) {
       if (variant === "topic-graphic" && graphic)
-        drawTopicGraphic(ctx, graphic, graphicBox, palette, seed, reduced);
+        drawTopicGraphic(
+          ctx,
+          graphic,
+          graphicBox,
+          palette,
+          seed,
+          reduced,
+          "thumbnail",
+        );
       if (variant === "host-pair")
-        drawHostPair(ctx, graphicBox, palette, reduced);
+        drawHostPair(ctx, graphicBox, palette, reduced, "thumbnail");
     } else {
       ctx.fillStyle = palette.hostA;
       ctx.fillRect(ruleLeft, ruleTop, ruleWidth, ruleHeight);

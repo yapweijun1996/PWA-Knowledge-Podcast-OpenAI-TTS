@@ -10,6 +10,7 @@ export type GraphicBox = readonly [
 ];
 type Point = readonly [number, number];
 type Path = readonly Point[];
+type GraphicComposition = "video" | "thumbnail";
 
 export type GraphicContext = Pick<
   CanvasRenderingContext2D,
@@ -103,14 +104,26 @@ function ellipse(
   ctx.fill();
 }
 
-function inGraphicBox(ctx: GraphicContext, box: GraphicBox, draw: () => void) {
+function inGraphicBox(
+  ctx: GraphicContext,
+  box: GraphicBox,
+  draw: (scale: number) => void,
+  viewBox: GraphicBox = [0, 0, 1, 1],
+) {
   const [left, top, right, bottom] = box;
-  const scale = Math.min(right - left, bottom - top);
+  const [minX, minY, maxX, maxY] = viewBox;
+  const scale = Math.min(
+    (right - left) / (maxX - minX),
+    (bottom - top) / (maxY - minY),
+  );
   ctx.save();
   try {
-    ctx.translate((left + right - scale) / 2, (top + bottom - scale) / 2);
+    ctx.translate(
+      (left + right - (minX + maxX) * scale) / 2,
+      (top + bottom - (minY + maxY) * scale) / 2,
+    );
     ctx.scale(scale, scale);
-    draw();
+    draw(scale);
   } finally {
     ctx.restore();
   }
@@ -315,20 +328,32 @@ export function drawTopicGraphic(
   palette: Palette,
   seed: number,
   reduced = false,
+  composition: GraphicComposition = "video",
 ) {
-  inGraphicBox(ctx, box, () => {
-    switch (graphic) {
-      case "housing-blocks":
-        housingBlocks(ctx, palette, seed, reduced);
-        break;
-      case "open-book":
-        openBook(ctx, palette, reduced);
-        break;
-      case "network-nodes":
-        networkNodes(ctx, palette);
-        break;
-    }
-  });
+  // Trim the housing drawing's internal margins for the thumbnail. Keep
+  // clearance inside the art box for the roofs and the ground shadow.
+  const viewBox =
+    composition === "thumbnail" && graphic === "housing-blocks"
+      ? ([0, 0.055, 0.965, 0.91] as const)
+      : undefined;
+  inGraphicBox(
+    ctx,
+    box,
+    () => {
+      switch (graphic) {
+        case "housing-blocks":
+          housingBlocks(ctx, palette, seed, reduced);
+          break;
+        case "open-book":
+          openBook(ctx, palette, reduced);
+          break;
+        case "network-nodes":
+          networkNodes(ctx, palette);
+          break;
+      }
+    },
+    viewBox,
+  );
 }
 
 function orbBand(
@@ -354,19 +379,37 @@ function orbBand(
   ctx.stroke();
 }
 
+function bandTint(host: string, plate: string) {
+  const channel = (color: string, start: number) =>
+    Number.parseInt(color.slice(start, start + 2), 16);
+  return (
+    "#" +
+    [1, 3, 5]
+      .map((start) =>
+        Math.round((channel(host, start) + channel(plate, start)) / 2)
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
+}
+
 export function drawHostPair(
   ctx: GraphicContext,
   box: GraphicBox,
   palette: Palette,
   reduced = false,
+  composition: GraphicComposition = "video",
 ) {
-  inGraphicBox(ctx, box, () => {
+  inGraphicBox(ctx, box, (scale) => {
+    const thumbnail = composition === "thumbnail";
+    const bandWidth = thumbnail ? 13 / scale : 0.029;
     // Leave roughly 20 px between silhouettes in the native thumbnail box.
     const ax = 0.244,
-      ay = 0.456,
+      ay = thumbnail ? 0.51 : 0.456,
       ar = 0.22;
     const bx = 0.743,
-      by = 0.523,
+      by = thumbnail ? ay : 0.523,
       br = 0.231;
     ellipse(ctx, 0.5, 0.791, 0.43, 0.054, palette.track + "40");
 
@@ -390,7 +433,14 @@ export function drawHostPair(
     ellipse(ctx, ax, ay, ar, ar, smooth);
     ctx.save();
     ctx.clip();
-    orbBand(ctx, ax, ay + ar * 0.1, ar, palette.plate, 0.029);
+    orbBand(
+      ctx,
+      ax,
+      ay + ar * 0.1,
+      ar,
+      thumbnail ? bandTint(palette.hostA, palette.plate) : palette.plate,
+      bandWidth,
+    );
     ctx.restore();
 
     const contour: Path = [
@@ -416,6 +466,23 @@ export function drawHostPair(
     }
     tracePolygon(ctx, contour);
     ctx.clip();
+    if (thumbnail) {
+      const color = bandTint(palette.hostB, palette.plate);
+      for (const offset of [0, 0.3]) {
+        line(
+          ctx,
+          [
+            [bx - br, by + br * (0.145 + offset)],
+            [bx - br * 0.33, by + br * (0.34 + offset)],
+            [bx + br * 0.36, by + br * (0.295 + offset)],
+            [bx + br, by + br * (-0.04 + offset)],
+          ],
+          color,
+          bandWidth,
+        );
+      }
+      return;
+    }
     polygon(
       ctx,
       [

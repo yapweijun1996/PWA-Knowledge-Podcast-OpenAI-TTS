@@ -23,8 +23,14 @@ import {
 } from "../src/publish/topic-graphics.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 
-function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {}) {
+function recordingContext({
+  hanEm = 1,
+  hanInkEm = 0.92,
+  latinEm = 0.55,
+  xHeightEm = 0.536,
+} = {}) {
   const calls = [];
+  const strokes = [];
   const states = [];
   let transform = [1, 1, 0, 0];
   let path;
@@ -45,6 +51,7 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
   }
   return {
     calls,
+    strokes,
     save() {
       states.push(transform);
     },
@@ -85,6 +92,7 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
     },
     stroke() {
       const [sx, sy] = transform;
+      strokes.push([this.strokeStyle, this.lineWidth * sx]);
       const deltaX = (this.lineWidth * sx) / 2;
       const deltaY = (this.lineWidth * sy) / 2;
       const [x, y, right, bottom] = path;
@@ -138,7 +146,10 @@ function recordingContext({ hanEm = 1, latinEm = 0.55, xHeightEm = 0.536 } = {})
         actualBoundingBoxLeft: 1,
         actualBoundingBoxRight: width,
         actualBoundingBoxAscent: size * (text === "x" ? xHeightEm : 0.8),
-        actualBoundingBoxDescent: text === "x" ? 0 : size * 0.12,
+        actualBoundingBoxDescent:
+          text === "x"
+            ? 0
+            : size * (/\p{Script=Han}/u.test(text) ? hanInkEm - 0.8 : 0.12),
       };
     },
     createLinearGradient(...args) {
@@ -157,7 +168,7 @@ const textBounds = {
 };
 const graphicBounds = {
   "topic-graphic": [800, 112, 1190, 530],
-  "host-pair": [756, 120, 1176, 535],
+  "host-pair": [768, 120, 1188, 535],
 };
 
 function inside([x, y, right, bottom], box) {
@@ -183,7 +194,7 @@ test("places actual text and all key ink inside the variant, inset and badge bou
     assert.equal(result.headline, headline);
     assert.equal(result.lines.join(""), headline);
     assert.equal(result.lines.length, 2);
-    assert.equal(result.fontSize, 0.136 * 720);
+    assert.equal(result.fontSize, 0.145 * 720);
 
     const text = context.calls.filter(([kind]) => kind === "text");
     const [[, , markFont, markColor, markBounds], ...headlines] = text;
@@ -192,7 +203,7 @@ test("places actual text and all key ink inside the variant, inset and badge bou
     assert.match(markFont, /^600 15\.84px/u);
     assert.equal(markColor, palettes[paletteId].secondaryInk);
     for (const [, , font, color, box] of headlines) {
-      assert.match(font, /^800 97\.92px/u);
+      assert.match(font, /^800 104\.4px/u);
       assert.equal(color, palettes[paletteId].ink);
       assert.ok(
         inside(box, textBounds[variant]),
@@ -213,23 +224,36 @@ test("places actual text and all key ink inside the variant, inset and badge bou
     }
     for (const [, , box] of keyInk)
       assert.ok(inside(box, graphicBounds[variant] ?? textBounds[variant]));
+    if (variant === "topic-graphic") {
+      const right = Math.max(...keyInk.map(([, , box]) => box[2]));
+      assert.ok(right >= 1180, `Housing graphic right edge: ${right}px`);
+    }
     if (variant === "headline") {
       assert.equal(keyInk.length, 1);
-      assert.equal(keyInk[0][2][1], 0.33 * 720);
-      assert.equal(keyInk[0][2][3], (0.33 * 720) + (0.009 * 720));
+      assert.deepEqual(keyInk[0][2], [80, 277.6, 174, 277.6 + 6.48]);
+      assert.equal(headlines[0][4][0], 80);
+      assert.ok(Math.abs(headlines[0][4][1] - 305.68) < 0.001);
       assert.ok(headlines[0][4][1] - keyInk[0][2][3] >= 21.5);
     }
 
     const { layoutMetadata } = result;
     assert.deepEqual(layoutMetadata.wordmarkBounds, markBounds);
     assert.deepEqual(layoutMetadata.headlineBounds, headlines.map((draw) => draw[4]));
+    assert.deepEqual(
+      layoutMetadata.decorationBounds,
+      graphicBounds[variant] ?? keyInk[0][2],
+    );
     const checks = thumbnailChecks(layoutMetadata);
     assert.equal(checks.bounds, true);
     assert.equal(checks.contrast.passed, true);
     assert.equal(checks.badgeClearance, true);
-    assert.equal(checks.inkHeight160x90.minimum, 8);
-    assert.ok(checks.inkHeight160x90.pixels >= 8);
+    assert.equal(checks.inkHeight160x90.minimum, 11);
+    assert.ok(checks.inkHeight160x90.pixels >= 11);
     assert.equal(checks.inkHeight160x90.passed, true);
+    assert.equal(
+      thumbnailChecks({ ...layoutMetadata, inkHeight: 87 }).inkHeight160x90.passed,
+      false,
+    );
   }
 });
 
@@ -264,19 +288,35 @@ test("scores actual Latin x-height, low contrast, overflowing ink and badge coll
   });
 });
 
-test("keeps both host silhouettes inside their art box with a 16–24 px gap", () => {
+test("aligns both host silhouettes and keeps a 16–24 px gap and one or two tinted bands", () => {
   const context = recordingContext();
-  drawHostPair(context, graphicBounds["host-pair"], palettes.aurora, true);
+  drawHostPair(
+    context,
+    graphicBounds["host-pair"],
+    palettes.aurora,
+    true,
+    "thumbnail",
+  );
   const paints = context.calls.filter(([kind]) => kind === "paint");
   const [, , a] = paints.find(([, color]) => color === palettes.aurora.hostA);
   const [, , b] = paints.find(([, color]) => color === palettes.aurora.hostB);
   const gap = b[0] - a[2];
   assert.ok(gap >= 16 && gap <= 24, `Silhouette gap: ${gap}px`);
+  const centerY = ([, top, , bottom]) => (top + bottom) / 2;
+  assert.ok(Math.abs(centerY(a) - centerY(b)) <= 0.015 * 720);
   for (const box of [a, b]) {
     assert.ok(inside(box, graphicBounds["host-pair"]));
+    assert.ok(Math.abs(centerY(box) / 720 - 0.46) <= 0.015);
     assert.ok((box[2] - box[0]) / 8 >= 22);
     assert.ok((box[3] - box[1]) / 8 >= 22);
   }
+  assert.deepEqual(context.strokes.map(([color]) => color), [
+    "#49837e",
+    "#615889",
+    "#615889",
+  ]);
+  for (const [, width] of context.strokes)
+    assert.ok(width >= 12 && width <= 14, `Band width: ${width}px`);
 });
 
 test("balances the six, six and eight character line limits without an orphan", () => {
@@ -300,13 +340,40 @@ test("balances the six, six and eight character line limits without an orphan", 
   }
 });
 
+test("shrinks a single line before wrapping and preserves words and phrase boundaries", () => {
+  const headline = "组屋如何混居";
+  for (const variant of ["topic-graphic", "host-pair"]) {
+    const options = { headline, variant, language: "zh" };
+    const single = drawThumbnail(recordingContext({ hanEm: 1.11 }), options);
+    assert.deepEqual(single.lines, [headline]);
+    assert.ok(single.fontSize < 0.145 * 720);
+    assert.ok(thumbnailChecks(single.layoutMetadata).inkHeight160x90.passed);
+
+    const wrapped = drawThumbnail(recordingContext({ hanEm: 1.4 }), options);
+    assert.equal(wrapped.lines.length, 2);
+    assert.equal(wrapped.lines.join(""), headline);
+    assert.ok(wrapped.lines.some((line) => line.includes("如何")));
+    assert.ok(wrapped.lines.some((line) => line.includes("组屋")));
+    assert.ok(wrapped.lines.some((line) => line.includes("混居")));
+  }
+  const phrase = drawThumbnail(recordingContext(), {
+    headline: "组屋如何混居，邻里共建",
+    language: "zh",
+    variant: "headline",
+  });
+  assert.deepEqual(phrase.lines, ["组屋如何混居，", "邻里共建"]);
+});
+
 test("tries the exact minimum size and reports a shorter headline when it cannot fit", () => {
   const options = {
     headline: "住房邻里如何共享资源天地",
     language: "zh",
     variant: "host-pair",
   };
-  const atMinimum = drawThumbnail(recordingContext({ hanEm: 1.27 }), options);
+  const atMinimum = drawThumbnail(
+    recordingContext({ hanEm: 1.27, hanInkEm: 1.04 }),
+    options,
+  );
   assert.equal(atMinimum.fontSize, 0.119 * 720);
   assert.equal(atMinimum.lines.join(""), options.headline);
 
@@ -315,6 +382,9 @@ test("tries the exact minimum size and reports a shorter headline when it cannot
   assert.equal(result.error, thumbnailHeadlineErrors.needsShorterHeadline);
   assert.equal(result.needsShorterHeadline, true);
   assert.equal(context.calls.filter(([kind]) => kind === "text").length, 1);
+
+  const shortInk = drawThumbnail(recordingContext({ hanInkEm: 0.8 }), options);
+  assert.equal(shortInk.error, thumbnailHeadlineErrors.needsShorterHeadline);
 });
 
 test("validates headline limits as words and graphemes in Chinese, English and Malay", () => {
@@ -478,6 +548,8 @@ test("draws repeatable topic graphics with seed-dependent window lighting", () =
       [800, 112, 1190, 530],
       palettes.aurora,
       seed,
+      false,
+      "thumbnail",
     );
     return context.calls;
   }
