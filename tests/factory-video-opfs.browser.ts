@@ -72,6 +72,18 @@ test("renders to OPFS, reopens the MP4 and plays it in Chromium", async ({
     unexpected.push(`${request.method()} ${url.origin}${url.pathname}`);
     await route.abort();
   });
+  for (const fontFile of [
+    "noto-sans-sc-core-v1.woff2",
+    "noto-sans-latin-v1.woff2",
+  ]) {
+    await page.route(`${origin}${prefix}fonts/${fontFile}`, (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      return route.fulfill({
+        contentType: "font/woff2",
+        path: resolve("public/fonts", fontFile),
+      });
+    });
+  }
   await page.goto(`${prefix}index.html`);
 
   const result = await page.evaluate(async (moduleUrl) => {
