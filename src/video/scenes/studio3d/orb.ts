@@ -3,27 +3,39 @@ import * as THREE from "three";
 const luminance = ({ r, g, b }: THREE.Color) =>
   0.2126 * r + 0.7152 * g + 0.0722 * b;
 
-const lavenderLuminance = luminance(new THREE.Color("#B29AF0"));
 const keyDirection = new THREE.Vector3(-3, 5, 6).normalize();
 const fillDirection = new THREE.Vector3(2, 3, -5).normalize();
 const keyTint = new THREE.Color("#F5F7FC");
 
-export function orbMaterial(color: THREE.Color, matchLavenderLuminance: boolean) {
+function idleBodyTint(color: THREE.Color) {
+  const gray = luminance(color);
+  return color.clone()
+    .lerp(new THREE.Color(gray, gray, gray), 0.12)
+    .multiplyScalar(0.915);
+}
+
+export function orbMaterial(color: THREE.Color, otherHostColor: THREE.Color) {
   const lightness = luminance(color);
-  // Lower the brighter aurora rim in linear light to preserve its teal hue.
+  // Balance the hosts in linear light while keeping both palette hues.
+  const bodyLuminance = 0.49;
+  const bodyTint = color.clone().multiplyScalar(bodyLuminance / lightness);
   const rimTint = color.clone().multiplyScalar(
-    Math.min(1, (matchLavenderLuminance ? lavenderLuminance : 0.48) / lightness),
+    Math.min(1, luminance(otherHostColor) / lightness),
   );
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      bodyTint: { value: color },
-      bodyLift: { value: color.clone().multiplyScalar(0.031 / lightness) },
-      rimTint: { value: rimTint },
-      keyDirection: { value: keyDirection },
-      keyTint: { value: keyTint },
-      fillDirection: { value: fillDirection },
-      emphasis: { value: 0 },
-    },
+  const specularTint = keyTint.clone().lerp(bodyTint, 0.45);
+  const idleBody = idleBodyTint(bodyTint);
+  const idleSpecular = idleBodyTint(specularTint);
+  const idleRim = rimTint.clone().multiplyScalar(0.62);
+  const uniforms = {
+    bodyTint: { value: idleBody.clone() },
+    bodyLift: { value: 0.031 / bodyLuminance },
+    specularTint: { value: idleSpecular.clone() },
+    rimTint: { value: idleRim.clone() },
+    keyDirection: { value: keyDirection },
+    fillDirection: { value: fillDirection },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
     vertexShader: `
       uniform vec3 keyDirection;
       uniform vec3 fillDirection;
@@ -44,10 +56,9 @@ export function orbMaterial(color: THREE.Color, matchLavenderLuminance: boolean)
     `,
     fragmentShader: `
       uniform vec3 bodyTint;
-      uniform vec3 bodyLift;
+      uniform float bodyLift;
+      uniform vec3 specularTint;
       uniform vec3 rimTint;
-      uniform vec3 keyTint;
-      uniform float emphasis;
       varying float diffuse;
       varying vec3 radialNormal;
       varying vec3 towardCamera;
@@ -62,15 +73,23 @@ export function orbMaterial(color: THREE.Color, matchLavenderLuminance: boolean)
         broad *= broad;
         float glint = broad * broad;
         glint *= glint;
-        vec3 specular = mix(keyTint, bodyTint, 0.45) * (0.085 * broad + 0.075 * glint);
-        vec3 body = bodyTint * diffuse + emphasis * bodyLift + specular;
-        // The radial Fresnel rolloff stays continuous over the shaded facets.
-        float rim = smoothstep(0.36, 0.77, 1.0 - facing);
-        vec3 edge = rimTint * mix(0.62, 1.0, emphasis);
+        vec3 specular = specularTint * (0.085 * broad + 0.075 * glint);
+        vec3 body = bodyTint * (diffuse + bodyLift) + specular;
+        // Start the Fresnel rolloff farther inside the silhouette so the
+        // palette-colored rim stays visible at preview sizes.
+        float rim = smoothstep(0.25, 0.66, 1.0 - facing);
         // 0.8275 in linear light bounds the displayed channels at 0.92 sRGB.
-        gl_FragColor = vec4(min(mix(body, edge, rim), vec3(0.8275)), 1.0);
+        gl_FragColor = vec4(min(mix(body, rimTint, rim), vec3(0.8275)), 1.0);
         #include <colorspace_fragment>
       }
     `,
   });
+  return {
+    material,
+    setEmphasis(emphasis: number) {
+      uniforms.bodyTint.value.lerpColors(idleBody, bodyTint, emphasis);
+      uniforms.specularTint.value.lerpColors(idleSpecular, specularTint, emphasis);
+      uniforms.rimTint.value.lerpColors(idleRim, rimTint, emphasis);
+    },
+  };
 }

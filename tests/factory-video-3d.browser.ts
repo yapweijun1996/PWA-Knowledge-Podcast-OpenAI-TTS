@@ -647,6 +647,7 @@ async function inspectStagePixels({
         body.push(luminance(x + column * 0.05 * orbRadius, y + (row * 0.05 - 0.37) * orbRadius));
 
     const rim = [];
+    const halo = [];
     const contrast = [];
     const rimRGB = [[], [], []] as number[][];
     for (let ray = -6; ray <= 6; ray++) {
@@ -662,13 +663,15 @@ async function inspectStagePixels({
           peakOffset = at;
         }
       }
+      const outer = radial(orbRadius * 1.17);
       rim.push(peak);
+      halo.push(luma(pixels, outer, srgb));
       rimRGB.forEach((samples, channel) => samples.push(pixels[peakOffset + channel]));
-      contrast.push((peak + 0.05) / (luma(pixels, radial(orbRadius * 1.17), linear) + 0.05));
+      contrast.push((peak + 0.05) / (luma(pixels, outer, linear) + 0.05));
     }
     return {
       body: mean(body), disc: discTotal / discPixels, highlight,
-      rim: mean(rim), rimRGB: rimRGB.map(mean), rimContrast: Math.min(...contrast),
+      rim: mean(rim), rimRGB: rimRGB.map(mean), rimContrast: Math.min(...contrast), halo: mean(halo),
     };
   }
   // This static reduced-motion fixture exercises both turn cues in silent PCM.
@@ -786,12 +789,13 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
   ]) {
     const layout = studioLayout(width, height);
     const pose = cameraPoseAt("static", 0);
-    const { centerX, centerY, hostX, floorY, pedestalHeight, pedestalRadius } = layout;
+    const { centerX, centerY, hostX, floorY, pedestalHeight, pedestalRadius, pedestalBevelStart } = layout;
+    const bevelCenterY = floorY + (1 + pedestalBevelStart) * 0.5 * pedestalHeight;
     const orbRadius = height * Math.tan(Math.asin(layout.orbRadius / pose.distance)) /
       (2 * Math.tan((cameraFov * Math.PI) / 360));
     const hostSamples = [-hostX, hostX].map((x) => ({
       orb: projectStagePoint(layout, pose, [x, 0, 0]),
-      bevel: projectStagePoint(layout, pose, [x, floorY + 0.795 * pedestalHeight, 0.921 * pedestalRadius]),
+      bevel: projectStagePoint(layout, pose, [x, bevelCenterY, 0.92 * pedestalRadius]),
       floor: projectStagePoint(layout, pose, [x, floorY, 1.68 * pedestalRadius]),
       top: projectStagePoint(layout, pose, [x, floorY + pedestalHeight, 0.70 * pedestalRadius]),
       side: projectStagePoint(layout, pose, [x, floorY + 0.35 * pedestalHeight, pedestalRadius]),
@@ -814,7 +818,7 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
       expect(pixels.drawCalls, `${label} draw calls`).toBeLessThanOrEqual(16);
       expect(pixels.triangles, `${label} triangles`).toBeLessThanOrEqual(12_000);
       const [aSpeaking, bSpeaking] = pixels.visualFrames;
-      for (const frame of [aSpeaking, bSpeaking]) {
+      for (const [host, frame] of [aSpeaking, bSpeaking].entries()) {
         expect(
           frame.horizontalStep,
           `${label} horizontal luma step`,
@@ -824,6 +828,10 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
           `${label} vertical luma step`,
         ).toBeLessThanOrEqual(2 / 255 + 1e-9);
         expect(frame.gapShift, `${label} inter-orb luminance shift`).toBeLessThanOrEqual(0.15);
+        const active = frame.hosts[host];
+        const idle = frame.hosts[1 - host];
+        expect(active.disc, `${label} host ${host === 0 ? "A" : "B"} orb-disc lift over the idle host`)
+          .toBeGreaterThanOrEqual(1.15 * idle.disc);
       }
       for (const [host, active, idle] of [
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
@@ -840,7 +848,9 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         expect(
           (active.disc - idle.disc) / idle.disc,
           `${label} host ${host} orb-disc luminance lift without chips`,
-        ).toBeGreaterThanOrEqual(0.08);
+        ).toBeGreaterThanOrEqual(0.15);
+        expect(active.halo - idle.halo, `${label} host ${host} halo luminance lift`)
+          .toBeGreaterThanOrEqual(1 / 255);
         expect(
           active.rim,
           `${label} host ${host} rim emphasis`,

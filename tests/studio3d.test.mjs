@@ -23,6 +23,7 @@ import {
   studioLayout,
   studioParticles,
 } from "../src/video/scenes/studio3d/layout.ts";
+import { orbMaterial } from "../src/video/scenes/studio3d/orb.ts";
 import {
   activePedestalBevel,
   contactShadowRadii,
@@ -129,9 +130,50 @@ test("studio clamps intensity and applies the specified mood multipliers", () =>
   near(orbScaleAt(2, 2), 1.053);
   assert.ok(orbScaleAt(2, 2) <= 1.06);
   assert.equal(orbScaleAt(1, 1, true), orbScaleAt(1, 0, true));
-  assert.equal(haloOpacityAt(2), 0.12);
-  assert.ok(haloOpacityAt(2) - haloOpacityAt(0) <= 0.03);
-  assert.equal(haloOpacityAt(2, true), haloOpacityAt(0, true));
+  near(orbScaleAt(1, 1, true), 1.013);
+  assert.equal(haloOpacityAt(-1), 0.04);
+  assert.equal(haloOpacityAt(0), 0.04);
+  near(haloOpacityAt(0.5), 0.10);
+  assert.equal(haloOpacityAt(1), 0.16);
+  assert.equal(haloOpacityAt(2), 0.16);
+});
+
+test("orb material eases between a muted body and a palette-colored active rim", () => {
+  const luminance = ({ r, g, b }) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const chroma = ({ r, g, b }) => Math.max(r, g, b) - Math.min(r, g, b);
+  for (const id of Object.keys(paletteLabels)) {
+    const { hostA, hostB } = getPalette(id);
+    for (const [hex, otherHex] of [[hostA, hostB], [hostB, hostA]]) {
+      const accent = new Color(hex);
+      const otherAccent = new Color(otherHex);
+      const { material, setEmphasis } = orbMaterial(accent, otherAccent);
+      try {
+        const { bodyTint, specularTint, rimTint } = material.uniforms;
+        const idle = [bodyTint, specularTint].map(({ value }) => value.clone());
+        const idleRim = luminance(rimTint.value);
+        setEmphasis(1);
+        near(luminance(bodyTint.value), 0.49);
+        for (const [index, { value }] of [bodyTint, specularTint].entries()) {
+          near(luminance(idle[index]) / luminance(value), 0.915);
+          near(chroma(idle[index]) / chroma(value), 0.915 * 0.88);
+        }
+        const { r, g, b } = rimTint.value;
+        near(r / accent.r, g / accent.g);
+        near(g / accent.g, b / accent.b);
+        const activeRim = luminance(rimTint.value);
+        near(activeRim, Math.min(luminance(accent), luminance(otherAccent)));
+        near(idleRim / activeRim, 0.62);
+        setEmphasis(0.5);
+        near(luminance(rimTint.value), (idleRim + activeRim) / 2);
+        setEmphasis(0);
+        assert.deepEqual(bodyTint.value, idle[0]);
+        assert.deepEqual(specularTint.value, idle[1]);
+        near(luminance(rimTint.value), idleRim);
+      } finally {
+        material.dispose();
+      }
+    }
+  }
 });
 
 test("the active bevel clears 3:1 over every studio floor palette", () => {
@@ -154,6 +196,21 @@ test("the active bevel clears 3:1 over every studio floor palette", () => {
       const quantized = new Color(bevel.getHex());
       assert.ok((luminance(quantized) + 0.05) / (brightestFloor + 0.05) >= 3, id);
     }
+  }
+});
+
+test("the front pedestal bevel projects near 0.010H in both orientations", () => {
+  const pose = cameraPoseAt("static", 0);
+  for (const [width, height] of [[960, 540], [390, 694]]) {
+    const layout = studioLayout(width, height);
+    const { hostX, floorY, pedestalHeight, pedestalRadius, pedestalBevelStart } = layout;
+    const [, bottom] = projectStagePoint(layout, pose, [
+      hostX, floorY + pedestalBevelStart * pedestalHeight, pedestalRadius,
+    ]);
+    const [, top] = projectStagePoint(layout, pose, [
+      hostX, floorY + pedestalHeight, 0.84 * pedestalRadius,
+    ]);
+    near(bottom - top, 0.010, 0.0005);
   }
 });
 

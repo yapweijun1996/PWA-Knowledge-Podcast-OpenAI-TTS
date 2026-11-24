@@ -23,6 +23,8 @@ export function studioLayout(width: number, height: number) {
   const floorY = portrait ? -0.59 : -0.93;
   const pedestalHeight = portrait ? 0.155 : 0.2;
   const pedestalRadius = orbRadius * (portrait ? 0.71 : 1.04);
+  // Project the front bevel to about 0.010H at the reference camera pose.
+  const pedestalBevelStart = portrait ? 0.63 : 0.79;
   const barWidth = portrait ? 0.05 : 0.129;
   const ringWidth = portrait ? 1.21 : 3.61;
   const ringDepth = 1.24 * (portrait ? 0.55 : 1);
@@ -76,6 +78,7 @@ export function studioLayout(width: number, height: number) {
     floorY,
     pedestalHeight,
     pedestalRadius,
+    pedestalBevelStart,
     pedestalBounds,
     barWidth,
     ringWidth,
@@ -192,8 +195,8 @@ export const orbScaleAt = (
 ) =>
   1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.04 * unit(emphasis));
 
-export const haloOpacityAt = (energy: number, reducedMotion = false) =>
-  0.09 + (reducedMotion ? 0 : 0.03 * unit(energy));
+export const haloOpacityAt = (emphasis: number) =>
+  0.04 + (0.16 - 0.04) * unit(emphasis);
 
 export const studioParticleCount = 12;
 

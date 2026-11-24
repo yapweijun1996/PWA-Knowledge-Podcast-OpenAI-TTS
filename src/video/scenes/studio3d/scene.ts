@@ -77,7 +77,7 @@ function radialMaterial(color: THREE.Color, opacity: number) {
       varying vec2 planeUv;
       void main() {
         float radius = length(planeUv * 2.0 - 1.0);
-        float alpha = 1.0 - smoothstep(0.0, 1.0, radius);
+        float alpha = 1.0 - smoothstep(0.45, 1.0, radius);
         gl_FragColor = vec4(tint, alpha * strength);
       }
     `,
@@ -153,10 +153,10 @@ function buildStudio(
     depthWrite: false,
     fog: false,
   });
-  const { pedestalRadius, pedestalHeight } = layout;
-  const base = pedestalGeometry(pedestalRadius, pedestalHeight);
+  const { pedestalRadius, pedestalHeight, pedestalBevelStart } = layout;
+  const base = pedestalGeometry(pedestalRadius, pedestalHeight, pedestalBevelStart);
   const contactExtent = pedestalRadius * contactShadowExtent;
-  function addHost(x: number, color: THREE.Color, faceted: boolean) {
+  function addHost(x: number, color: THREE.Color, otherHostColor: THREE.Color, faceted: boolean) {
     const contact = new THREE.Mesh(plane, shadowMaterial);
     contact.rotation.x = -Math.PI / 2;
     contact.position.set(x, floorY + 0.001, 0);
@@ -172,7 +172,8 @@ function buildStudio(
       ? new THREE.IcosahedronGeometry(orbRadius, 2)
       : new THREE.SphereGeometry(orbRadius, 36, 24);
     if (faceted) orbGeometry.computeVertexNormals();
-    const orb = new THREE.Mesh(orbGeometry, orbMaterial(color, settings.paletteId === "aurora"));
+    const { material, setEmphasis } = orbMaterial(color, otherHostColor);
+    const orb = new THREE.Mesh(orbGeometry, material);
     orb.position.set(x, 0, 0);
     const bandMaterial = new THREE.MeshBasicMaterial({ color, fog: false });
     for (const offset of faceted ? [-0.25, 0.25] : [0]) {
@@ -198,9 +199,9 @@ function buildStudio(
     halo.scale.setScalar(orbRadius * 1.36);
     halo.renderOrder = 3;
     scene.add(halo);
-    return { color, orb, halo, bandMaterial, pedestal };
+    return { color, orb, halo, bandMaterial, pedestal, setEmphasis };
   }
-  const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
+  const hosts = [addHost(-hostX, hostA, hostB, false), addHost(hostX, hostB, hostA, true)];
 
   const points = new THREE.BufferGeometry();
   points.setAttribute(
@@ -245,9 +246,19 @@ function buildStudio(
   const pose = cameraPoseAt("static", 0);
   const foreground = prepareForegroundSpectrum(layout, pose);
   const fixedCamera = settings.cameraPresetId === "static" || settings.reducedMotion;
+  const haloDepth = orbRadius * 0.3;
   function applyPose() {
     camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
     camera.lookAt(0, 0, 0);
+    for (let host = 0; host < hosts.length; host++) {
+      const { orb, halo } = hosts[host];
+      halo.quaternion.copy(camera.quaternion);
+      halo.position.set(
+        orb.position.x - pose.back[0] * haloDepth,
+        -pose.back[1] * haloDepth,
+        -pose.back[2] * haloDepth,
+      );
+    }
     foreground.update();
   }
   if (fixedCamera) applyPose();
@@ -259,25 +270,16 @@ function buildStudio(
     }
 
     for (let host = 0; host < hosts.length; host++) {
-      const { color, orb, halo, bandMaterial, pedestal } = hosts[host];
+      const { color, orb, halo, bandMaterial, pedestal, setEmphasis } = hosts[host];
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
-      orb.material.uniforms.emphasis.value = emphasis;
+      setEmphasis(emphasis);
       pedestal.material.uniforms.emphasis.value = emphasis;
       bandMaterial.color
         .copy(color)
         .multiplyScalar(0.57 + 0.30 * emphasis);
-      halo.quaternion.copy(camera.quaternion);
-      halo.position.set(
-        orb.position.x - pose.back[0] * orbRadius * 0.3,
-        -pose.back[1] * orbRadius * 0.3,
-        -pose.back[2] * orbRadius * 0.3,
-      );
-      halo.material.uniforms.strength.value = haloOpacityAt(
-        energy,
-        settings.reducedMotion,
-      );
+      halo.material.uniforms.strength.value = haloOpacityAt(emphasis);
     }
 
     for (let bin = 0; bin < layout.ring.length; bin++) {

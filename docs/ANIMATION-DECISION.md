@@ -184,3 +184,18 @@ clear the existing chip and caption rails. Layout assertions use the projected
 sphere to bound the larger silhouette and retain the camera-travel limit.
 Browser pixel assertions follow the new geometry and retain the contrast and
 speaker-emphasis thresholds. Chromium and the 30 ms median gate are `NOT_RUN`.
+
+### Studio 3D active-speaker emphasis (P1)
+
+The eased turn drives the palette-colored rim and halo, with .16 peak halo
+alpha for the active host and .04 for the idle host. Balance the two body and
+rim tints in linear light so either host can be the brighter orb. The idle
+body and reflection mix 12% toward neutral gray and dim by 8.5%. The browser
+checks require a 15% orb-disc lift across hosts and across turns for each
+host, plus 3:1 idle rim contrast.
+Reduced motion retains these cues and omits the 4% turn-scale accent. The
+combined PCM and turn excursion caps at 5.3%.
+
+The matte #253247 pedestals use a front bevel near .010H at the reference
+pose. The radial contact shadow and stage wash remain baked at .28 and .024
+peak alpha. Chromium pixel checks and the 30 ms median gate are `NOT_RUN`.

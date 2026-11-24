@@ -7,7 +7,7 @@ export function activePedestalBevel(accent: THREE.Color) {
   return pedestalBevel.clone().lerp(accent, 0.55);
 }
 
-export function pedestalGeometry(radius: number, height: number) {
+export function pedestalGeometry(radius: number, height: number, bevelStart: number) {
   // Duplicate the bevel endpoints for crisp seams. The top rings bake a
   // shallow highlight and the orb's contact shadow into the same mesh.
   const topTint = 0.42;
@@ -16,8 +16,8 @@ export function pedestalGeometry(radius: number, height: number) {
     [0, 0, 0, 0.82],
     [0.96, 0, 0, 0.82],
     [1, 0.10, 0, 0.92],
-    [1, 0.60, 0, 1.08],
-    [1, 0.60, 1, 1],
+    [1, bevelStart, 0, 1.08],
+    [1, bevelStart, 1, 1],
     [0.84, 1, 1, 1],
     [0.84, 1, topTint, 1.03],
     [0.62, 1, topTint, 1],
