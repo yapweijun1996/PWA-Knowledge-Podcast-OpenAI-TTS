@@ -64,8 +64,10 @@ runs across `factory`, `render` and `perf`, with automated visual QA at 62/62.
   card and faint gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
 - **Long-episode export.** Browser generation preferences still allow up to 420 s
   and finished WAV validation allows up to 500 s. Studio’s 300 s cap blocks
-  export of 30–60 minute episodes. OPFS streaming and chapter parts remain
-  later, owner-gated work. [Long-episode plan](LONG-EPISODES.md)
+  export of 30–60 minute episodes. T1 windowed PCM and scene envelopes are
+  implemented. Long Episode intake, the T2 OPFS writer and T3 receipts and
+  cap work remain pending. Chapter parts remain later, owner-gated work.
+  [Long-episode plan](LONG-EPISODES.md)
 - **Owner-only checks and decisions are UNVERIFIED.** Real-device and Safari/iOS
   checks, YouTube acceptance of Opus, listening review of real TTS, native-speaker
   review of Malay and English consent and cost copy, real-GPU frame timing,

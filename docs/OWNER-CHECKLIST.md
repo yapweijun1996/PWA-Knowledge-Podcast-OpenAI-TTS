@@ -52,11 +52,12 @@ evidence and result for each item.
   Use a verified 300 s local WAV on the target 8 GB laptop and physical iPhone
   and Android devices. Export Waveform and Studio 3D in both orientations.
   Record codecs, estimated and actual MP4 size, available quota, elapsed time,
-  and baseline and peak browser, renderer and GPU memory through decode,
-  finalization, save and download. Reopen the saved video and check complete
-  playback and seeking. **Pass when** the exports finish, reopen and play
-  through without a crash, memory error or tab reload. Record browser and
-  device versions, including Safari and iOS standalone where tested.
+  and baseline and peak browser, renderer and GPU memory through source
+  preparation, encoding, finalization, save and download. Reopen the saved
+  video and check complete playback and seeking. **Pass when** the exports
+  finish, reopen and play through without a crash, memory error or tab reload.
+  Record browser and device versions, including Safari and iOS standalone
+  where tested.
   [R1 model](LONG-EPISODES.md#r1-five-minute-export)
 - [ ] **30–60 minute export memory.** **BLOCKED on this revision.** The Episode
   view caps the audio and planned video at 300 s. OPFS streaming and chapter

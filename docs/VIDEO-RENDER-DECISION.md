@@ -62,10 +62,10 @@ Waveform is the default and draws directly into the export canvas in 2D.
 WebGL scenes draw into a private canvas that the renderer composites under the
 shared overlay. `VideoSceneEnvironment` and `VideoSceneFrame` receive the
 orientation, active palette ID, and mood. These fields are optional for
-existing scene callers. The waveform keeps a fixed idle tick on each rail
-and precomputes the amplitude envelope with 67 ms attack and 220 ms release
-against the clipped 480 ms PCM window. Draws look up the envelope by frame
-index. The overlay uses the matching palette and orientation tokens.
+existing scene callers. Waveform keeps a fixed idle tick and computes its
+envelope from a clipped 480 ms PCM window with 67 ms attack and 220 ms release.
+It retains the latest 32 frames. The overlay uses the matching palette and
+orientation tokens.
 
 Set `chapterSceneIds` on the builder for scene overrides, including the
 opening chapter. A legacy plan can carry its override on a chapter scene.

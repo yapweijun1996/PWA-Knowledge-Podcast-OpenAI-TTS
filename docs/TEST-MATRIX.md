@@ -30,6 +30,13 @@ recheck and IndexedDB quota rollback. Real-device memory at 300 s is
 **owner-only, UNVERIFIED**.
 [Model tests](../tests/video-limits.test.mjs) · [Options browser cases](../tests/factory-video-options.browser.ts) · [Quota browser cases](../tests/factory-video.browser.ts) · [Owner checklist](OWNER-CHECKLIST.md)
 
+## T1 Episode export at `6c7acfa` on `main`
+
+T1 windowed PCM — typecheck and build PASS. Node tests 313 passed, 0 failed,
+1 skipped. i18n scan 0 findings across 85 files. The 30- and 60-minute synthetic
+scans read 86,400,044 and 172,800,044 bytes respectively, with a 46,080-byte peak
+Float32 request. Browser and real-device memory checks NOT_RUN.
+
 ## Intermittent failure follow-up
 
 - The `offline filters…` failure in `tests/factory-library.browser.ts` was

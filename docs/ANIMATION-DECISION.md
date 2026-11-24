@@ -123,8 +123,9 @@ single-band host and faceted, double-band host sit above beveled pedestals
 with radial contact shadows. The portrait camera centers the stage at x=.43
 and uses .55× ring depth and .65× camera excursion.
 
-The scene analyzes centered 40 ms PCM windows and precomputes per-frame
-envelopes before drawing. Each draw reads its envelope by frame index.
+Studio 3D analyzes centered 40 ms PCM windows, advances its envelopes in
+episode order and retains the latest 32 frames. A seek outside the cache
+replays the same smoothing.
 The default profile is aurora, drift, calm, and .55 intensity. Reduced motion
 selects the static camera and holds halo opacity. The [visual design spec](VISUAL-DESIGN-SPEC.md#5-studio-3d-art-direction-and-motion)
 defines the motion limits. Run `node scripts/studio3d-bench.mjs` on the
