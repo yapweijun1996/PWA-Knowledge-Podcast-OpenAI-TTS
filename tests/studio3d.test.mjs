@@ -15,9 +15,9 @@ import {
 } from "../src/video/scenes/studio3d/audio-state.ts";
 import { floorWashPeakAlpha } from "../src/video/scenes/studio3d/backdrop.ts";
 import {
-  foregroundSpectrumScale,
   haloOpacityAt,
   orbScaleAt,
+  prepareForegroundSpectrum,
   projectStagePoint,
   spectrumBarHeight,
   studioLayout,
@@ -374,6 +374,12 @@ test("camera presets follow bounded angular paths and a delayed smootherstep pus
       cameraPoseAt(id, 9, "urgent", "portrait", true),
       reference,
     );
+  const scratch = cameraPoseAt("static", 0);
+  for (const [preset, time] of [["push-in", 14], ["orbit", 42], ["drift", 9], ["static", 0]]) {
+    const pose = cameraPoseAt(preset, time, "urgent", "portrait", false, scratch);
+    assert.equal(pose, scratch);
+    assert.deepEqual(pose, cameraPoseAt(preset, time, "urgent", "portrait"));
+  }
 });
 
 test("studio particles are a fixed seeded batch behind the ring", () => {
@@ -402,16 +408,27 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
     const [width, height] = tokens.frame;
     const [left, top, right, bottom] = tokens.stageBox;
     const isPortrait = layout.orientation === "portrait";
-    const chipTop = Math.min(
-      ...videoLayout(width, height, layout.orientation).hostChips.map(
-        ({ y }) => y / height,
-      ),
-    );
+    const { hostChips, caption, safe } = videoLayout(width, height, layout.orientation);
+    const chipTop = Math.min(...hostChips.map(({ y }) => y / height));
+    const chipBottom = Math.max(...hostChips.map(({ y, height }) => y + height));
+    assert.ok(chipBottom < caption.y);
+    if (isPortrait) {
+      near((caption.y + caption.height) / height, 0.68);
+      for (const box of [...hostChips, caption]) {
+        assert.ok(box.x >= safe.x - 1e-9 && box.y >= safe.y);
+        assert.ok(box.x + box.width <= safe.x + safe.width + 1e-9);
+        assert.ok(box.y + box.height <= safe.y + safe.height);
+      }
+    }
     const reference = cameraPoseAt("static", 0);
     const diameterH =
       Math.tan(Math.asin(layout.orbRadius / reference.distance)) /
       Math.tan((cameraFov * Math.PI) / 360);
-    near(diameterH, isPortrait ? 0.118 : tokens.orbDiameterH);
+    near(diameterH, isPortrait ? 0.138 : tokens.orbDiameterH);
+    if (isPortrait) {
+      assert.ok(diameterH / 0.118 >= 1.15 && diameterH / 0.118 <= 1.20);
+      near(layout.centerY, 0.36);
+    }
     const pedestalCorners = [];
     const contactShadowPoints = [];
     const orbCorners = [];
@@ -423,7 +440,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
         ),
         [
           tokens.orbCenters[sign === -1 ? 0 : 1][0],
-          isPortrait ? 0.30 : tokens.orbCenters[0][1],
+          isPortrait ? 0.36 : tokens.orbCenters[0][1],
         ],
       );
       for (let index = 0; index < 16; index++) {
@@ -442,7 +459,8 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
         ]);
       }
       const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
-      // The axis-aligned bounding cube is conservative for the orb and bands.
+      // Keep the conservative cube for speed, and use the containing sphere
+      // for the silhouette so empty corners do not count as visible ink.
       for (const dx of [-radius, radius])
         for (const dy of [-radius, radius])
           for (const dz of [-radius, radius]) orbCorners.push([x + dx, dy, dz]);
@@ -466,10 +484,10 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           "urgent",
           layout.orientation,
         );
-        function fit(point) {
+        function fit(point, checkBounds = true) {
           const [x, y] = projectStagePoint(layout, pose, point);
           const [nextX, nextY] = projectStagePoint(layout, next, point);
-          assert.ok(
+          if (checkBounds) assert.ok(
             x >= left && x <= right && y >= top && y <= bottom,
             `${layout.orientation} ${preset} at ${time}: ${x}, ${y}`,
           );
@@ -480,7 +498,25 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           return y;
         }
 
-        for (const point of orbCorners) fit(point);
+        for (const point of orbCorners) fit(point, !isPortrait);
+        if (isPortrait) {
+          const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
+          const viewHeight = 2 * Math.tan((cameraFov * Math.PI) / 360);
+          for (const x of [-layout.hostX, layout.hostX]) {
+            const depth = pose.distance - x * pose.back[0];
+            function tangent(component, sign) {
+              const divisor = depth ** 2 - radius ** 2;
+              return (component * depth + sign * radius * Math.sqrt(divisor + component ** 2)) /
+                (divisor * viewHeight);
+            }
+            for (const sign of [-1, 1]) {
+              const edgeX = layout.centerX + tangent(x * pose.right[0], sign) / layout.aspect;
+              const edgeY = layout.centerY - tangent(x * pose.up[0], sign);
+              assert.ok(edgeX >= left && edgeX <= right && edgeY >= top && edgeY <= bottom,
+                `${preset} portrait orb silhouette at ${time}: ${edgeX}, ${edgeY}`);
+            }
+          }
+        }
         for (const point of pedestalCorners)
           lowestPedestal = Math.max(lowestPedestal, fit(point));
         for (const point of contactShadowPoints)
@@ -494,7 +530,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
             highest = Math.min(highest, fit([x, y + blockHeight, z]));
           }
           assert.ok(lowest - highest <= block.heightCap + 1e-9);
-          if (block.z >= 0) {
+          if (block.near) {
             assert.ok(
               lowest <= chipTop - 0.02,
               `${layout.orientation} ${preset}: ${chipTop - lowest}H ring clearance`,
@@ -510,7 +546,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
       lowestPedestal < Math.min(...tokens.hostTagCenters.map(([, y]) => y)),
     );
     assert.ok(maxTravel <= 0.015);
-    near(maxRingHeight, 0.055);
+    near(maxRingHeight, 0.04);
   }
 });
 
@@ -519,12 +555,13 @@ test("near spectrum leaves room for the pedestal rim in both orientations", () =
     const layout = studioLayout(width, height);
     for (const preset of ["static", "orbit", "push-in"]) {
       const pose = cameraPoseAt(preset, 14, "urgent", layout.orientation);
-      const nearScale = foregroundSpectrumScale(layout, pose);
+      const foreground = prepareForegroundSpectrum(layout, pose);
+      foreground.update();
       const byScale = layout.ring.map((block) =>
-        nearScale(block, spectrumBarHeight(pose, block, 1)),
+        foreground.scale(block, spectrumBarHeight(pose, block, 1)),
       );
       assert.ok(byScale.some((scale) => scale === 0));
-      assert.ok(byScale.some((scale, index) => scale > 0 && layout.ring[index].z >= 0));
+      assert.ok(byScale.some((scale, index) => scale > 0 && layout.ring[index].near));
       function projectedBox(corners) {
         const points = corners.map((corner) => projectStagePoint(layout, pose, corner));
         const x = points.map((p) => p[0] * layout.aspect);
@@ -533,7 +570,7 @@ test("near spectrum leaves room for the pedestal rim in both orientations", () =
       }
       const pedestalBoxes = layout.pedestalBounds.map(projectedBox);
       for (const [index, block] of layout.ring.entries()) {
-        if (block.z < 0) {
+        if (!block.near) {
           assert.equal(byScale[index], 1);
           continue;
         }

@@ -12,13 +12,14 @@ import {
 } from "./audio-state.ts";
 import { bakeBackdrop } from "./backdrop.ts";
 import {
-  foregroundSpectrumScale,
   haloOpacityAt,
   orbScaleAt,
+  prepareForegroundSpectrum,
   spectrumBarHeight,
   studioLayout,
   studioParticles,
 } from "./layout.ts";
+import { orbMaterial } from "./orb.ts";
 import {
   contactShadowExtent,
   contactShadowTexture,
@@ -85,63 +86,25 @@ function radialMaterial(color: THREE.Color, opacity: number) {
   });
 }
 
-const rimFlareGain = 0.12;
-
-function orbMaterial(color: THREE.Color, faceted: boolean, keyPosition: THREE.Vector3) {
-  const material = new THREE.MeshStandardMaterial({
-    color: color.clone().multiplyScalar(0.47),
-    emissive: color,
-    emissiveIntensity: 0.047,
-    roughness: faceted ? 0.72 : 0.50,
-    flatShading: faceted,
-    fog: false,
+function spectrumMaterial() {
+  return new THREE.ShaderMaterial({
+    vertexShader: `
+      attribute float barOpacity;
+      varying vec4 spectrumColor;
+      void main() {
+        spectrumColor = vec4(instanceColor, barOpacity);
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec4 spectrumColor;
+      void main() {
+        gl_FragColor = spectrumColor;
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
   });
-  const rim = { value: 0 };
-  const idleRim = color.clone().multiplyScalar(0.58 * 0.8);
-  const activeRim = color.clone().lerp(new THREE.Color(1, 1, 1), 0.38);
-  // Leave room for the full flare in highlight channels near white.
-  const peak = Math.max(activeRim.r, activeRim.g, activeRim.b);
-  activeRim.multiplyScalar(1 / Math.max(1, peak * (1 + rimFlareGain)));
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.studioRimEmphasis = rim;
-    shader.uniforms.studioIdleRim = { value: idleRim };
-    shader.uniforms.studioActiveRim = { value: activeRim };
-    shader.uniforms.studioKeyPosition = { value: keyPosition };
-    // Use the radial normal for rim placement so B keeps its shaded facets
-    // and still has a continuous silhouette accent.
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `
-        #include <common>
-        uniform vec3 studioKeyPosition;
-        varying vec3 studioRadial;
-        varying vec2 studioLitSide;
-      `)
-      .replace("#include <begin_vertex>", `
-        #include <begin_vertex>
-        studioRadial = normalMatrix * normalize(position);
-        studioLitSide = normalize((mat3(viewMatrix) * studioKeyPosition).xy);
-      `);
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `
-        #include <common>
-        varying vec3 studioRadial;
-        varying vec2 studioLitSide;
-        uniform float studioRimEmphasis;
-        uniform vec3 studioIdleRim;
-        uniform vec3 studioActiveRim;
-      `)
-      .replace("#include <opaque_fragment>", `
-        vec3 radial = normalize(studioRadial);
-        float facing = max(0.0, dot(radial, normalize(vViewPosition)));
-        float rimMask = smoothstep(0.45, 0.72, 1.0 - facing);
-        float litArc = smoothstep(0.88, 0.98, dot(radial.xy, studioLitSide));
-        vec3 activeRim = studioActiveRim * (1.0 + ${rimFlareGain} * litArc);
-        vec3 rimColor = mix(studioIdleRim, activeRim, studioRimEmphasis);
-        outgoingLight = mix(outgoingLight, rimColor, rimMask);
-        #include <opaque_fragment>
-      `);
-  };
-  return { material, rim };
 }
 
 function buildStudio(
@@ -173,13 +136,6 @@ function buildStudio(
     width,
     height,
   );
-  scene.add(new THREE.HemisphereLight("#C4CDDE", "#253247", 1.15));
-  const key = new THREE.DirectionalLight("#F5F7FC", 1.55);
-  key.position.set(-3, 5, 6);
-  scene.add(key);
-  const backlight = new THREE.DirectionalLight("#C4CDDE", 0.65);
-  backlight.position.set(2, 3, -5);
-  scene.add(backlight);
 
   const { backdrop, pixels: backdropPixels } = bakeBackdrop(
     renderer, width, height, layout, palette,
@@ -212,13 +168,11 @@ function buildStudio(
     pedestal.position.set(x, floorY, 0);
     scene.add(pedestal);
 
-    const { material, rim } = orbMaterial(color, faceted, key.position);
-    const orb = new THREE.Mesh(
-      faceted
-        ? new THREE.IcosahedronGeometry(orbRadius, 2)
-        : new THREE.SphereGeometry(orbRadius, 36, 24),
-      material,
-    );
+    const orbGeometry = faceted
+      ? new THREE.IcosahedronGeometry(orbRadius, 2)
+      : new THREE.SphereGeometry(orbRadius, 36, 24);
+    if (faceted) orbGeometry.computeVertexNormals();
+    const orb = new THREE.Mesh(orbGeometry, orbMaterial(color, settings.paletteId === "aurora"));
     orb.position.set(x, 0, 0);
     const bandMaterial = new THREE.MeshBasicMaterial({ color, fog: false });
     for (const offset of faceted ? [-0.25, 0.25] : [0]) {
@@ -244,7 +198,7 @@ function buildStudio(
     halo.scale.setScalar(orbRadius * 1.36);
     halo.renderOrder = 3;
     scene.add(halo);
-    return { orb, halo, rim, bandMaterial, pedestal };
+    return { color, orb, halo, bandMaterial, pedestal };
   }
   const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
 
@@ -269,44 +223,51 @@ function buildStudio(
 
   const bars = new THREE.InstancedMesh(
     new THREE.BoxGeometry(layout.barWidth, 1, layout.barWidth),
-    new THREE.MeshBasicMaterial({ color: "#ffffff" }),
+    spectrumMaterial(),
     spectrumBins,
   );
   bars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   bars.frustumCulled = false;
+  bars.renderOrder = 1;
+  const barOpacity = new Float32Array(spectrumBins);
   const barColor = new THREE.Color();
-  for (const [index, { bias, z }] of layout.ring.entries()) {
-    const tint = 0.16 - 0.08 * (z / layout.ringDepth);
+  for (const [index, { bias, near }] of layout.ring.entries()) {
+    barOpacity[index] = near ? 0.10 : 0.34;
     bars.setColorAt(
       index,
-      barColor.copy(hostA).lerp(hostB, bias).multiplyScalar(tint),
+      barColor.copy(hostA).lerp(hostB, bias).convertLinearToSRGB(),
     );
   }
+  bars.geometry.setAttribute("barOpacity", new THREE.InstancedBufferAttribute(barOpacity, 1));
   scene.add(bars);
 
   const bar = new THREE.Object3D();
+  const pose = cameraPoseAt("static", 0);
+  const foreground = prepareForegroundSpectrum(layout, pose);
+  const fixedCamera = settings.cameraPresetId === "static" || settings.reducedMotion;
+  function applyPose() {
+    camera.position.set(pose.position[0], pose.position[1], pose.position[2]);
+    camera.lookAt(0, 0, 0);
+    foreground.update();
+  }
+  if (fixedCamera) applyPose();
   function renderAt(index: number, sceneTime = index / fps) {
     const offset = index * envelopeStride;
-    const pose = cameraPoseAt(
-      settings.cameraPresetId,
-      sceneTime,
-      mood,
-      orientation,
-      settings.reducedMotion,
-    );
-    camera.position.set(...pose.position);
-    camera.lookAt(...pose.target);
+    if (!fixedCamera) {
+      cameraPoseAt(settings.cameraPresetId, sceneTime, mood, orientation, false, pose);
+      applyPose();
+    }
 
-    for (const [host, { orb, halo, rim, bandMaterial, pedestal }] of hosts.entries()) {
+    for (let host = 0; host < hosts.length; host++) {
+      const { color, orb, halo, bandMaterial, pedestal } = hosts[host];
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
-      orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
-      rim.value = emphasis;
+      orb.material.uniforms.emphasis.value = emphasis;
       pedestal.material.uniforms.emphasis.value = emphasis;
       bandMaterial.color
-        .copy(orb.material.emissive)
-        .multiplyScalar(0.57 + 0.33 * emphasis);
+        .copy(color)
+        .multiplyScalar(0.57 + 0.30 * emphasis);
       halo.quaternion.copy(camera.quaternion);
       halo.position.set(
         orb.position.x - pose.back[0] * orbRadius * 0.3,
@@ -319,11 +280,14 @@ function buildStudio(
       );
     }
 
-    const nearBarScale = foregroundSpectrumScale(layout, pose);
-    for (const [bin, block] of layout.ring.entries()) {
+    for (let bin = 0; bin < layout.ring.length; bin++) {
+      const block = layout.ring[bin];
       const energy = (envelopes[offset + 2 + bin] ?? 0) * motion.audio;
-      const maximum = spectrumBarHeight(pose, block, energy);
-      const scale = nearBarScale(block, maximum);
+      // Keep the rear ticks as a continuous rail. The near arc appears only
+      // when there is enough energy to read as a bar above the floor.
+      const activity = block.near ? Math.max(0, (energy - 0.12) / 0.88) : 1;
+      const maximum = activity > 0 ? spectrumBarHeight(pose, block, energy) : 0;
+      const scale = activity > 0 ? activity * foreground.scale(block, maximum) : 0;
       const height = maximum * scale;
       bar.scale.set(scale, height, scale);
       bar.position.set(block.x, block.baseY + height / 2, block.z);

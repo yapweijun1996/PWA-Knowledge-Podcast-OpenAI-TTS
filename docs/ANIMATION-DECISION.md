@@ -169,3 +169,18 @@ its clearance above the chips. The browser pixel checks compare against the card
 gradient and require 3:1 active-bevel contrast. Browser execution for this
 documentation update was `NOT_RUN`. Real-GPU frame timing and long-episode
 memory remain **owner-only and unverified**. [Open items](ROADMAP.md#open-items)
+
+### Studio 3D materials and portrait framing (N2)
+
+The orb shaders use a soft key reflection and a continuous Fresnel rim. Aurora
+uses the lavender accent for B and matches its linear luminance in teal for A.
+The single pedestal bevel keeps the speaker cue. The top face gradient and
+contact darkening are baked into the pedestal mesh. The foreground spectrum
+appears above the audio floor at up to .10 alpha. All bars cap at .04H.
+
+Portrait orb centers move from .30H to .36H and the rest diameter grows from
+.118H to .138H. The shallower pedestal stack and the adjusted spectrum rail
+clear the existing chip and caption rails. Layout assertions use the projected
+sphere to bound the larger silhouette and retain the camera-travel limit.
+Browser pixel assertions follow the new geometry and retain the contrast and
+speaker-emphasis thresholds. Chromium and the 30 ms median gate are `NOT_RUN`.

@@ -8,25 +8,33 @@ export function activePedestalBevel(accent: THREE.Color) {
 }
 
 export function pedestalGeometry(radius: number, height: number) {
-  // Duplicate the bevel endpoints so its color ends at the two seams.
+  // Duplicate the bevel endpoints for crisp seams. The top rings bake a
+  // shallow highlight and the orb's contact shadow into the same mesh.
+  const topTint = 0.42;
+  const contactShade = 0.26;
   const profile = [
-    [0, 0, 0],
-    [0.9, 0, 0],
-    [1, 0.12, 0],
-    [0.97, 0.55, 0],
-    [0.97, 0.55, 1],
-    [0.79, 1, 1],
-    [0.79, 1, 0],
-    [0, 1, 0],
+    [0, 0, 0, 0.82],
+    [0.96, 0, 0, 0.82],
+    [1, 0.10, 0, 0.92],
+    [1, 0.60, 0, 1.08],
+    [1, 0.60, 1, 1],
+    [0.84, 1, 1, 1],
+    [0.84, 1, topTint, 1.03],
+    [0.62, 1, topTint, 1],
+    [0.32, 1, topTint, 1 - contactShade / 2],
+    [0, 1, topTint, 1 - contactShade],
   ] as const;
   const geometry = new THREE.LatheGeometry(
     profile.map(([r, y]) => new THREE.Vector2(r * radius, y * height)),
     40,
   );
-  const bevels = new Float32Array(geometry.getAttribute("position").count);
-  for (let index = 0; index < bevels.length; index++)
-    bevels[index] = profile[index % profile.length][2];
-  geometry.setAttribute("bevel", new THREE.BufferAttribute(bevels, 1));
+  const finish = new Float32Array(2 * geometry.getAttribute("position").count);
+  for (let index = 0; index < finish.length / 2; index++) {
+    const [, , tint, shade] = profile[index % profile.length];
+    finish[2 * index] = tint;
+    finish[2 * index + 1] = shade;
+  }
+  geometry.setAttribute("finish", new THREE.BufferAttribute(finish, 2));
   return geometry;
 }
 
@@ -39,14 +47,17 @@ export function pedestalMaterial(accent: THREE.Color) {
       emphasis: { value: 0 },
     },
     vertexShader: `
-      attribute float bevel;
+      attribute vec2 finish;
       uniform vec3 bodyTint;
       uniform vec3 idleBevel;
       uniform vec3 activeBevel;
       uniform float emphasis;
       varying vec3 tint;
       void main() {
-        tint = mix(bodyTint, mix(idleBevel, activeBevel, emphasis), bevel);
+        vec3 bevelTint = mix(idleBevel, activeBevel, emphasis);
+        // The top face keeps its neutral finish through the turn cue.
+        vec3 topOrSide = mix(bodyTint, idleBevel, finish.x) * finish.y;
+        tint = finish.x == 1.0 ? bevelTint : topOrSide;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,

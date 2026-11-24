@@ -101,6 +101,15 @@ export const cameraFov = 38;
 export const cameraDistance = 10;
 const radians = Math.PI / 180;
 const target = [0, 0, 0] as const;
+type Vector = [number, number, number];
+type CameraPose = {
+  position: Vector;
+  target: typeof target;
+  distance: number;
+  back: Vector;
+  right: Vector;
+  up: Vector;
+};
 
 export function cameraPoseAt(
   preset: CameraPresetId,
@@ -108,12 +117,15 @@ export function cameraPoseAt(
   moodId: MoodId = "curious",
   orientation: Orientation = "landscape",
   reducedMotion = false,
-) {
+  pose: CameraPose = {
+    position: [0, 0, 0], target, distance: 0,
+    back: [0, 0, 0], right: [0, 0, 0], up: [0, 0, 0],
+  },
+): CameraPose {
   let yaw = 0;
   let pitch = 8 * radians;
   let distance = cameraDistance;
-  const excursion =
-    motionMultipliers(moodId).camera * (orientation === "portrait" ? 0.65 : 1);
+  const excursion = Math.min(1, moods[moodId]) * (orientation === "portrait" ? 0.65 : 1);
   if (!reducedMotion) {
     switch (preset) {
       case "static":
@@ -139,14 +151,19 @@ export function cameraPoseAt(
   const cosYaw = Math.cos(yaw);
   const sinPitch = Math.sin(pitch);
   const cosPitch = Math.cos(pitch);
-  const back = [sinYaw * cosPitch, sinPitch, cosYaw * cosPitch] as const;
-  const right = [cosYaw, 0, -sinYaw] as const;
-  const up = [-sinYaw * sinPitch, cosPitch, -cosYaw * sinPitch] as const;
-  const position = [
-    distance * back[0],
-    distance * back[1],
-    distance * back[2],
-  ] as const;
-
-  return { position, target, distance, back, right, up };
+  const { back, right, up, position } = pose;
+  back[0] = sinYaw * cosPitch;
+  back[1] = sinPitch;
+  back[2] = cosYaw * cosPitch;
+  right[0] = cosYaw;
+  right[1] = 0;
+  right[2] = -sinYaw;
+  up[0] = -sinYaw * sinPitch;
+  up[1] = cosPitch;
+  up[2] = -cosYaw * sinPitch;
+  position[0] = distance * back[0];
+  position[1] = distance * back[1];
+  position[2] = distance * back[2];
+  pose.distance = distance;
+  return pose;
 }

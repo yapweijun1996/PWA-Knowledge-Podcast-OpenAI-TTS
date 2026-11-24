@@ -34,7 +34,7 @@ export function bakeBackdrop(
   const bakeMaterial = new THREE.ShaderMaterial({
     uniforms: {
       projection: { value: projection },
-      washCenter: { value: new THREE.Vector2(layout.centerX, portrait ? 0.416 : 0.476) },
+      washCenter: { value: new THREE.Vector2(layout.centerX, portrait ? 0.448 : 0.476) },
       washRadii: { value: new THREE.Vector2(portrait ? 0.31 : 0.33, portrait ? 0.043 : 0.054) },
       washTint: { value: washTint },
       first: { value: new THREE.Color(palette.stops[0]) },

@@ -2,14 +2,14 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build, transformWithOxc } from "vite";
-import { bundleStudio3d, measureStudio3d } from "../scripts/studio3d-bench.mjs";
+import { bundleStudio3d } from "../scripts/studio3d-bench.mjs";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
 import { paletteIds, palettes, type Palette } from "../src/video/design/palettes.ts";
 import { projectStagePoint, studioLayout } from "../src/video/scenes/studio3d/layout.ts";
-import { cameraPoseAt } from "../src/video/scenes/studio3d/presets.ts";
+import { cameraFov, cameraPoseAt } from "../src/video/scenes/studio3d/presets.ts";
 import { beforeEnd, buildTimeline, type TimelinePlan } from "../src/video/timeline.ts";
 import { test } from "./fixtures/guards";
 import {
@@ -552,7 +552,8 @@ test("cancelling after Studio 3D starts leaves no video artifact", async ({
 });
 
 async function inspectStagePixels({
-  bundle, backgroundModule, width, height, paletteId, palette, pedestalSamples,
+  bundle, backgroundModule, width, height, paletteId, palette, centerX, centerY,
+  orbRadius, hostSamples,
 }: {
   bundle: string;
   backgroundModule: string;
@@ -560,7 +561,10 @@ async function inspectStagePixels({
   height: number;
   paletteId: string;
   palette: Palette;
-  pedestalSamples: { bevel: readonly [number, number]; floor: readonly [number, number] }[];
+  centerX: number;
+  centerY: number;
+  orbRadius: number;
+  hostSamples: Record<"orb" | "bevel" | "floor" | "top" | "side", readonly [number, number]>[];
 }) {
   const load = async (code: string) => {
     const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
@@ -579,11 +583,10 @@ async function inspectStagePixels({
   const cardPixels = card.getImageData(0, 0, width, height).data;
   const small = context(Math.floor(width / 4), Math.floor(height / 4));
   small.drawImage(card.canvas, 0, 0, small.canvas.width, small.canvas.height);
-  const smallPixels = small.getImageData(0, 0, small.canvas.width, small.canvas.height).data;
+  const { width: smallWidth, height: smallHeight } = small.canvas;
+  const smallCard = small.getImageData(0, 0, smallWidth, smallHeight).data;
 
   const portrait = width < height;
-  const centerX = portrait ? 0.43 : 0.5;
-  const centerY = portrait ? 0.30 : 0.345;
   const weights = [0.2126, 0.7152, 0.0722];
   const linear = (channel: number) => {
     const value = channel / 255;
@@ -592,20 +595,82 @@ async function inspectStagePixels({
   const offset = (w: number, x: number, y: number) => 4 * (Math.floor(y) * w + Math.floor(x));
   const luma = (pixels: Uint8ClampedArray, at: number, decode: (v: number) => number) =>
     weights.reduce((sum, weight, channel) => sum + weight * decode(pixels[at + channel]), 0);
-  const strip = (x: number, halfWidth: number) => {
+  const srgb = (channel: number) => channel / 255;
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const strip = (smallPixels: Uint8ClampedArray, x: number, halfWidth: number) => {
     let total = 0;
     for (let row = 0; row < 12; row++) {
       for (let column = -2; column <= 2; column++) {
         const at = offset(
-          small.canvas.width,
-          (x + column * halfWidth / 2) * small.canvas.width,
-          (centerY + (row - 5.5) * 0.009) * small.canvas.height,
+          smallWidth,
+          (x + column * halfWidth / 2) * smallWidth,
+          (centerY + (row - 5.5) * 0.009) * smallHeight,
         );
         total += luma(smallPixels, at, linear);
       }
     }
     return total / 60;
   };
+  const frameEdge = (pixels: Uint8ClampedArray) =>
+    mean([strip(pixels, 0.04, 0.02), strip(pixels, 0.96, 0.02)]);
+  const backdropGap = (pixels: Uint8ClampedArray) => strip(pixels, centerX, 0.014) - frameEdge(pixels);
+  const maxStep = (length: number, read: (index: number) => number) => {
+    let largest = 0;
+    for (let index = 1; index < length; index++)
+      largest = Math.max(largest, Math.abs(read(index) - read(index - 1)));
+    return largest;
+  };
+  function sampleOrb(pixels: Uint8ClampedArray, [orbX, orbY]: readonly [number, number]) {
+    const x = orbX * width;
+    const y = orbY * height;
+    const luminance = (px: number, py: number) => luma(pixels, offset(width, px, py), linear);
+    const discRadius = 0.95 * orbRadius;
+    // Include the full silhouette and the bands in the highlight check.
+    const highlightRadius = 1.09 * orbRadius;
+    let discTotal = 0;
+    let discPixels = 0;
+    let highlight = 0;
+    for (let py = Math.floor(y - highlightRadius); py < y + highlightRadius; py++) {
+      for (let px = Math.floor(x - highlightRadius); px < x + highlightRadius; px++) {
+        const distanceSquared = (px + 0.5 - x) ** 2 + (py + 0.5 - y) ** 2;
+        if (distanceSquared <= highlightRadius ** 2)
+          highlight = Math.max(highlight, luma(pixels, offset(width, px, py), srgb));
+        if (distanceSquared <= discRadius ** 2) {
+          discTotal += luminance(px, py);
+          discPixels++;
+        }
+      }
+    }
+    const body = [];
+    for (let row = -2; row <= 2; row++)
+      for (let column = -2; column <= 2; column++)
+        body.push(luminance(x + column * 0.05 * orbRadius, y + (row * 0.05 - 0.37) * orbRadius));
+
+    const rim = [];
+    const contrast = [];
+    const rimRGB = [[], [], []] as number[][];
+    for (let ray = -6; ray <= 6; ray++) {
+      const angle = -Math.PI / 2 + ray * Math.PI / 36;
+      const radial = (radius: number) => offset(width, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+      let peak = 0;
+      let peakOffset = 0;
+      for (let radius = orbRadius * 0.88; radius <= orbRadius * 1.10; radius++) {
+        const at = radial(radius);
+        const brightness = luma(pixels, at, linear);
+        if (brightness > peak) {
+          peak = brightness;
+          peakOffset = at;
+        }
+      }
+      rim.push(peak);
+      rimRGB.forEach((samples, channel) => samples.push(pixels[peakOffset + channel]));
+      contrast.push((peak + 0.05) / (luma(pixels, radial(orbRadius * 1.17), linear) + 0.05));
+    }
+    return {
+      body: mean(body), disc: discTotal / discPixels, highlight,
+      rim: mean(rim), rimRGB: rimRGB.map(mean), rimContrast: Math.min(...contrast),
+    };
+  }
   // This static reduced-motion fixture exercises both turn cues in silent PCM.
   const sampleRate = 8_000;
   const scenes = (["A", "B"] as const).map((speakerId, index) => ({
@@ -633,6 +698,10 @@ async function inspectStagePixels({
     if (unavailable) throw new Error(unavailable);
     const contrasts = [];
     const bevels: number[][] = [[], []];
+    const topLifts: number[] = [];
+    const visualFrames = [];
+    let drawCalls = 0;
+    let triangles = 0;
     let rowStep = 0;
     let washEdgeStep = 0;
     let gradientDelta = 0;
@@ -644,6 +713,18 @@ async function inspectStagePixels({
       });
       frame.drawImage(canvas, 0, 0);
       const pixels = frame.getImageData(0, 0, width, height).data;
+      const stats = scene.getRenderStats()!;
+      drawCalls = Math.max(drawCalls, stats.calls);
+      triangles = Math.max(triangles, stats.triangles);
+      small.drawImage(frame.canvas, 0, 0, smallWidth, smallHeight);
+      const preview = small.getImageData(0, 0, smallWidth, smallHeight).data;
+      const previewLuma = (x: number, y: number) => luma(preview, offset(smallWidth, x, y), srgb);
+      visualFrames.push({
+        horizontalStep: maxStep(smallWidth, (x) => previewLuma(x, smallHeight * 0.13)),
+        verticalStep: maxStep(smallHeight, (y) => previewLuma(smallWidth * 0.92, y)),
+        gapShift: Math.abs(backdropGap(preview) - backdropGap(smallCard)) / frameEdge(preview),
+        hosts: hostSamples.map(({ orb }) => sampleOrb(pixels, orb)),
+      });
       for (const y of [0.13, 0.62]) {
         for (const x of [0.04, 0.23, 0.43, 0.64, 0.79, 0.96]) {
           const at = offset(width, x * width, y * height);
@@ -652,9 +733,9 @@ async function inspectStagePixels({
         }
       }
       // These two lines run between the orbs, pedestals and nearest spectrum blocks.
-      const washEdges = portrait ? [0.373, 0.459] : [0.422, 0.530];
+      const washEdges = portrait ? [0.405, 0.491] : [0.422, 0.530];
       for (const x of [centerX - 0.024, centerX + 0.024]) {
-        const read = (y: number) => luma(pixels, offset(width, x * width, y), (v) => v / 255);
+        const read = (y: number) => luma(pixels, offset(width, x * width, y), srgb);
         for (let y = Math.ceil((washEdges[0] - 0.005) * height); y < 0.62 * height; y++) {
           const step = Math.abs(read(y) - read(y - 1));
           rowStep = Math.max(rowStep, step);
@@ -664,19 +745,26 @@ async function inspectStagePixels({
       }
       const sample = ([x, y]: readonly [number, number]) =>
         luma(pixels, offset(width, x * width, y * height), linear);
-      const { bevel, floor } = pedestalSamples[host];
+      const { bevel, floor, top, side } = hostSamples[host];
       contrasts.push((sample(bevel) + 0.05) / (sample(floor) + 0.05));
-      pedestalSamples.forEach(({ bevel }, index) => bevels[index].push(sample(bevel)));
+      topLifts.push(sample(top) - sample(side));
+      hostSamples.forEach(({ bevel }, index) => bevels[index].push(sample(bevel)));
     }
     return {
-      rowStep, washEdgeStep, gradientDelta, contrasts,
+      rowStep, washEdgeStep, gradientDelta, contrasts, topLifts, visualFrames, drawCalls, triangles,
       bevelLift: bevels.map((samples, host) => samples[host] - samples[1 - host]),
-      betweenOrbs: strip(centerX, 0.014),
-      frameEdge: (strip(0.04, 0.02) + strip(0.96, 0.02)) / 2,
     };
   } finally {
     scene.dispose();
   }
+}
+
+function hueDegrees([r, g, b]: number[]) {
+  const max = Math.max(r, g, b);
+  const range = max - Math.min(r, g, b);
+  if (!range) return 0;
+  const hue = max === r ? (g - b) / range : max === g ? 2 + (b - r) / range : 4 + (r - g) / range;
+  return (hue * 60 + 360) % 360;
 }
 
 test("Studio 3D keeps the backdrop continuous and makes the speaker visible at preview sizes", async ({
@@ -698,15 +786,21 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
   ]) {
     const layout = studioLayout(width, height);
     const pose = cameraPoseAt("static", 0);
-    const { hostX, floorY, pedestalHeight, pedestalRadius } = layout;
-    const pedestalSamples = [-hostX, hostX].map((x) => ({
-      bevel: projectStagePoint(layout, pose, [x, floorY + 0.775 * pedestalHeight, 0.88 * pedestalRadius]),
+    const { centerX, centerY, hostX, floorY, pedestalHeight, pedestalRadius } = layout;
+    const orbRadius = height * Math.tan(Math.asin(layout.orbRadius / pose.distance)) /
+      (2 * Math.tan((cameraFov * Math.PI) / 360));
+    const hostSamples = [-hostX, hostX].map((x) => ({
+      orb: projectStagePoint(layout, pose, [x, 0, 0]),
+      bevel: projectStagePoint(layout, pose, [x, floorY + 0.795 * pedestalHeight, 0.921 * pedestalRadius]),
       floor: projectStagePoint(layout, pose, [x, floorY, 1.68 * pedestalRadius]),
+      top: projectStagePoint(layout, pose, [x, floorY + pedestalHeight, 0.70 * pedestalRadius]),
+      side: projectStagePoint(layout, pose, [x, floorY + 0.35 * pedestalHeight, pedestalRadius]),
     }));
     for (const paletteId of paletteIds) {
       const label = `${paletteId} at ${width}×${height}`;
       const pixels = await page.evaluate(inspectStagePixels, {
-        bundle, backgroundModule, width, height, paletteId, palette: palettes[paletteId], pedestalSamples,
+        bundle, backgroundModule, width, height, paletteId, palette: palettes[paletteId],
+        centerX, centerY, orbRadius, hostSamples,
       });
       expect(pixels.gradientDelta, `${label} card-to-stage background code values`).toBeLessThanOrEqual(1);
       expect(pixels.rowStep, `${label} raw floor luma step`).toBeLessThanOrEqual(3 / 255 + 1e-9);
@@ -715,19 +809,11 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         expect(ratio, `${label} active bevel versus adjacent floor`).toBeGreaterThanOrEqual(3);
       for (const lift of pixels.bevelLift)
         expect(lift, `${label} active bevel versus idle`).toBeGreaterThanOrEqual(0.05);
-      // The synthetic turn plan has stable A and B samples at 1s and 2s.
-      const result = await page.evaluate(measureStudio3d, {
-        bundle,
-        width,
-        height,
-        frameOrder: [30, 60],
-        visualPalette: paletteId,
-      });
-      expect(result.status, label).toBe("PASS");
-      expect(result.drawCalls, `${label} draw calls`).toBeLessThanOrEqual(16);
-      expect(result.triangles, `${label} triangles`).toBeLessThanOrEqual(12_000);
-      const aSpeaking = result.visuals[30];
-      const bSpeaking = result.visuals[60];
+      for (const lift of pixels.topLifts)
+        expect(lift, `${label} pedestal top versus side`).toBeGreaterThanOrEqual(0.02);
+      expect(pixels.drawCalls, `${label} draw calls`).toBeLessThanOrEqual(16);
+      expect(pixels.triangles, `${label} triangles`).toBeLessThanOrEqual(12_000);
+      const [aSpeaking, bSpeaking] = pixels.visualFrames;
       for (const frame of [aSpeaking, bSpeaking]) {
         expect(
           frame.horizontalStep,
@@ -737,15 +823,12 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
           frame.verticalStep,
           `${label} vertical luma step`,
         ).toBeLessThanOrEqual(2 / 255 + 1e-9);
-        const stageGap = frame.betweenOrbs - frame.frameEdge;
-        const cardGap = pixels.betweenOrbs - pixels.frameEdge;
-        expect(Math.abs(stageGap - cardGap) / frame.frameEdge, `${label} inter-orb luminance shift`)
-          .toBeLessThanOrEqual(0.15);
+        expect(frame.gapShift, `${label} inter-orb luminance shift`).toBeLessThanOrEqual(0.15);
       }
       for (const [host, active, idle] of [
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],
         ["B", bSpeaking.hosts[1], aSpeaking.hosts[1]],
-      ]) {
+      ] as const) {
         expect(
           active.body - idle.body,
           `${label} host ${host} body emphasis`,
@@ -765,11 +848,22 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
         for (const [state, sample] of [
           ["active", active],
           ["idle", idle],
-        ] as const)
+        ] as const) {
           expect(
             sample.rimContrast,
             `${label} host ${host} ${state} rim contrast`,
           ).toBeGreaterThanOrEqual(3);
+          expect(sample.highlight, `${label} host ${host} ${state} peak orb luma in sRGB`)
+            .toBeLessThanOrEqual(0.92);
+        }
+      }
+      if (paletteId === "aurora") {
+        const a = aSpeaking.hosts[0];
+        const b = bSpeaking.hosts[1];
+        const hueDelta = Math.abs(hueDegrees(a.rimRGB) - hueDegrees(b.rimRGB));
+        expect(Math.min(hueDelta, 360 - hueDelta), `${label} active rim hue distance`)
+          .toBeGreaterThanOrEqual(65);
+        expect(Math.abs(a.rim - b.rim), `${label} active rim luminance match`).toBeLessThanOrEqual(0.035);
       }
     }
   }
