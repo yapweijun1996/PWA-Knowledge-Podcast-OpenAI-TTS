@@ -221,6 +221,19 @@ export async function measureStudio3d({
           const x = anchorX * width;
           const y = centerY * height;
           const luminance = (px, py) => sample(pixels, px, py, linear);
+          // Use the same inset orb disc in both states. These pixels come
+          // from the scene alone, with no labels or other overlay elements.
+          const discRadius = 0.95 * orbRadius;
+          let discTotal = 0;
+          let discPixels = 0;
+          for (let py = Math.floor(y - discRadius); py < y + discRadius; py++) {
+            for (let px = Math.floor(x - discRadius); px < x + discRadius; px++) {
+              if ((px + 0.5 - x) ** 2 + (py + 0.5 - y) ** 2 <= discRadius ** 2) {
+                discTotal += luminance(px, py);
+                discPixels++;
+              }
+            }
+          }
           // Sample above the equatorial bands to isolate body light from band light.
           const body = [];
           for (let row = -2; row <= 2; row++)
@@ -244,7 +257,12 @@ export async function measureStudio3d({
             rim.push(peak);
             contrast.push((peak + 0.05) / (radial(orbRadius * 1.17) + 0.05));
           }
-          return { body: mean(body), rim: mean(rim), rimContrast: Math.min(...contrast) };
+          return {
+            body: mean(body),
+            disc: discTotal / discPixels,
+            rim: mean(rim),
+            rimContrast: Math.min(...contrast),
+          };
         });
         return { horizontalStep, verticalStep, betweenOrbs, frameEdge, hosts };
       }

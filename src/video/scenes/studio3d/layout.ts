@@ -78,6 +78,7 @@ export function studioLayout(width: number, height: number) {
     pedestalHeight,
     pedestalRadius,
     pedestalBounds,
+    groundRingRadius: pedestalRadius * (portrait ? 1.52 : 1.20),
     barWidth,
     ringWidth,
     ringDepth,
@@ -165,7 +166,10 @@ export const orbScaleAt = (
   emphasis: number,
   reducedMotion = false,
 ) =>
-  1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.035 * unit(emphasis));
+  1 + 0.013 * unit(energy) + (reducedMotion ? 0 : 0.04 * unit(emphasis));
+
+export const groundRingWidthH = 0.003;
+export const groundRingOpacityAt = (emphasis: number) => 0.18 * unit(emphasis);
 
 export const haloOpacityAt = (energy: number, reducedMotion = false) =>
   0.09 + (reducedMotion ? 0 : 0.03 * unit(energy));

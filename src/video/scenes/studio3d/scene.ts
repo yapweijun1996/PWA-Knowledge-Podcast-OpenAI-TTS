@@ -10,8 +10,11 @@ import {
   speakerEmphasisOffset,
   spectrumBins,
 } from "./audio-state.ts";
+import { bakeBackdrop } from "./backdrop.ts";
 import {
   foregroundSpectrumScale,
+  groundRingOpacityAt,
+  groundRingWidthH,
   haloOpacityAt,
   orbScaleAt,
   spectrumBarHeight,
@@ -30,19 +33,39 @@ import {
   type Studio3dSettings,
 } from "./presets.ts";
 
-function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
+const stagePlaneVertexShader = `
+  varying vec2 planeUv;
+  void main() {
+    planeUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+function radialPlaneGeometry() {
+  // Trim the corners outside the unit disc without clipping its falloff.
+  const corner = Math.SQRT2 - 1;
+  const points = [
+    [-corner, -1], [corner, -1], [1, -corner], [1, corner],
+    [corner, 1], [-corner, 1], [-1, corner], [-1, -corner],
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(
+    points.flatMap(([x, y]) => [x, y, 0]), 3,
+  ));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(
+    points.flatMap(([x, y]) => [0.5 + x / 2, 0.5 + y / 2]), 2,
+  ));
+  geometry.setIndex([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 7]);
+  return geometry;
+}
+
+function radialMaterial(color: THREE.Color, opacity: number) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      tint: { value: new THREE.Color(color) },
+      tint: { value: color.clone().convertLinearToSRGB() },
       strength: { value: opacity },
     },
-    vertexShader: `
-      varying vec2 planeUv;
-      void main() {
-        planeUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
+    vertexShader: stagePlaneVertexShader,
     fragmentShader: `
       uniform vec3 tint;
       uniform float strength;
@@ -51,10 +74,57 @@ function radialMaterial(color: THREE.ColorRepresentation, opacity: number) {
         float radius = length(planeUv * 2.0 - 1.0);
         float alpha = 1.0 - smoothstep(0.0, 1.0, radius);
         gl_FragColor = vec4(tint, alpha * strength);
-        #include <colorspace_fragment>
       }
     `,
     transparent: true,
+    depthWrite: false,
+  });
+}
+
+function contactMaterial(
+  color: THREE.Color,
+  pedestalRadius: number,
+  ringRadius: number,
+  extent: number,
+  frameHeight: number,
+) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      tint: { value: color.clone().convertLinearToSRGB() },
+      shadowScale: { value: new THREE.Vector2(
+        extent / (1.40 * pedestalRadius), extent / (1.32 * pedestalRadius),
+      ) },
+      ringRadius: { value: ringRadius / extent },
+      ringOpacity: { value: 0 },
+      halfWidthPx: { value: (groundRingWidthH * frameHeight) / 2 },
+    },
+    vertexShader: stagePlaneVertexShader,
+    fragmentShader: `
+      uniform vec3 tint;
+      uniform vec2 shadowScale;
+      uniform float ringRadius;
+      uniform float ringOpacity;
+      uniform float halfWidthPx;
+      varying vec2 planeUv;
+      void main() {
+        vec2 point = planeUv * 2.0 - 1.0;
+        float shadow = 0.28 * (1.0 - smoothstep(0.0, 1.0, length(point * shadowScale)));
+        float ring = 0.0;
+        if (ringOpacity > 0.0) {
+          // Convert the annulus distance to pixels for a crisp, antialiased
+          // stroke of consistent width on the foreshortened floor.
+          float radius = length(point);
+          float slope = length(vec2(dFdx(radius), dFdy(radius)));
+          float distancePx = abs(radius - ringRadius) / max(slope, 0.00001);
+          float coverage = clamp(halfWidthPx + 0.5 - distancePx, 0.0, min(1.0, 2.0 * halfWidthPx));
+          ring = ringOpacity * coverage;
+        }
+        // Composite the accent over the black contact shadow in one pass.
+        gl_FragColor = vec4(tint * ring, ring + shadow * (1.0 - ring));
+      }
+    `,
+    transparent: true,
+    premultipliedAlpha: true,
     depthWrite: false,
   });
 }
@@ -97,7 +167,9 @@ function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
   return geometry;
 }
 
-function orbMaterial(color: THREE.Color, faceted: boolean) {
+const rimFlareGain = 0.12;
+
+function orbMaterial(color: THREE.Color, faceted: boolean, keyPosition: THREE.Vector3) {
   const material = new THREE.MeshStandardMaterial({
     color: color.clone().multiplyScalar(0.47),
     emissive: color,
@@ -107,33 +179,46 @@ function orbMaterial(color: THREE.Color, faceted: boolean) {
     fog: false,
   });
   const rim = { value: 0 };
+  const idleRim = color.clone().multiplyScalar(0.58 * 0.8);
+  const activeRim = color.clone().lerp(new THREE.Color(1, 1, 1), 0.38);
+  // Leave room for the full flare in highlight channels near white.
+  const peak = Math.max(activeRim.r, activeRim.g, activeRim.b);
+  activeRim.multiplyScalar(1 / Math.max(1, peak * (1 + rimFlareGain)));
   material.onBeforeCompile = (shader) => {
     shader.uniforms.studioRimEmphasis = rim;
-    shader.uniforms.studioRimAccent = { value: color };
+    shader.uniforms.studioIdleRim = { value: idleRim };
+    shader.uniforms.studioActiveRim = { value: activeRim };
+    shader.uniforms.studioKeyPosition = { value: keyPosition };
     // Use the radial normal for rim placement so B keeps its shaded facets
     // and still has a continuous silhouette accent.
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `
         #include <common>
+        uniform vec3 studioKeyPosition;
         varying vec3 studioRadial;
+        varying vec2 studioLitSide;
       `)
       .replace("#include <begin_vertex>", `
         #include <begin_vertex>
         studioRadial = normalMatrix * normalize(position);
+        studioLitSide = normalize((mat3(viewMatrix) * studioKeyPosition).xy);
       `);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `
         #include <common>
         varying vec3 studioRadial;
+        varying vec2 studioLitSide;
         uniform float studioRimEmphasis;
-        uniform vec3 studioRimAccent;
+        uniform vec3 studioIdleRim;
+        uniform vec3 studioActiveRim;
       `)
       .replace("#include <opaque_fragment>", `
-        float facing = max(0.0, dot(normalize(studioRadial), normalize(vViewPosition)));
+        vec3 radial = normalize(studioRadial);
+        float facing = max(0.0, dot(radial, normalize(vViewPosition)));
         float rimMask = smoothstep(0.45, 0.72, 1.0 - facing);
-        vec3 idleRim = 0.58 * studioRimAccent;
-        vec3 activeRim = mix(studioRimAccent, vec3(1.0), 0.38);
-        vec3 rimColor = mix(idleRim, activeRim, studioRimEmphasis);
+        float litArc = smoothstep(0.88, 0.98, dot(radial.xy, studioLitSide));
+        vec3 activeRim = studioActiveRim * (1.0 + ${rimFlareGain} * litArc);
+        vec3 rimColor = mix(studioIdleRim, activeRim, studioRimEmphasis);
         outgoingLight = mix(outgoingLight, rimColor, rimMask);
         #include <opaque_fragment>
       `);
@@ -178,59 +263,14 @@ function buildStudio(
   backlight.position.set(2, 3, -5);
   scene.add(backlight);
 
-  const plane = new THREE.PlaneGeometry(2, 2);
-  const backdrop = new THREE.Mesh(
-    plane,
-    new THREE.ShaderMaterial({
-      uniforms: {
-        stageWash: { value: new THREE.Color(palette.hostA) },
-        portrait: { value: orientation === "portrait" ? 1 : 0 },
-        top: { value: new THREE.Color(palette.stops[0]) },
-        middle: { value: new THREE.Color(palette.stops[1]) },
-        bottom: { value: new THREE.Color(palette.stops[2]) },
-      },
-      vertexShader: `
-        varying vec2 screenUv;
-        void main() {
-          screenUv = uv;
-          gl_Position = vec4(position.xy, 0.999, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 stageWash;
-        uniform float portrait;
-        uniform vec3 top;
-        uniform vec3 middle;
-        uniform vec3 bottom;
-        varying vec2 screenUv;
-        float bayer2(vec2 cell) {
-          return 2.0 * abs(cell.x - cell.y) + cell.y;
-        }
-        void main() {
-          float y = 1.0 - screenUv.y;
-          vec3 tint = y < 0.55
-            ? mix(top, middle, y / 0.55)
-            : mix(middle, bottom, (y - 0.55) / 0.45);
-          float wash = smoothstep(0.35, 0.44, y) * (1.0 - smoothstep(0.44, 0.52, y));
-          wash *= 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - 0.43));
-          gl_FragColor = vec4(mix(tint, stageWash, portrait * 0.035 * wash), 1.0);
-          #include <colorspace_fragment>
-          // Repeat a 4px Bayer matrix at fixed screen coordinates. Apply the
-          // bias in sRGB so it spans one 8-bit quantization interval.
-          vec2 pixel = floor(gl_FragCoord.xy);
-          float rank = 4.0 * bayer2(mod(pixel, 2.0)) + bayer2(mod(floor(pixel * 0.5), 2.0));
-          gl_FragColor.rgb += ((rank + 0.5) / 16.0 - 0.5) / 255.0;
-        }
-      `,
-      depthTest: false,
-      depthWrite: false,
-    }),
+  const { backdrop, pixels: backdropPixels } = bakeBackdrop(
+    renderer, width, height, orientation, palette,
   );
-  backdrop.frustumCulled = false;
-  backdrop.renderOrder = -1;
   scene.add(backdrop);
+  // The opaque backdrop covers the color buffer before the stage draws.
+  renderer.autoClearColor = false;
 
-  const shadowMaterial = radialMaterial("#000000", 0.28);
+  const plane = radialPlaneGeometry();
   const wash = new THREE.Mesh(
     plane,
     radialMaterial(hostA.clone().lerp(hostB, 0.5), 0.06),
@@ -247,14 +287,18 @@ function buildStudio(
     vertexColors: true,
     fog: false,
   });
-  const { pedestalRadius, pedestalHeight } = layout;
+  const { pedestalRadius, pedestalHeight, groundRingRadius } = layout;
+  const contactExtent = pedestalRadius * (orientation === "portrait" ? 1.80 : 1.42);
   function addHost(x: number, color: THREE.Color, faceted: boolean) {
-    const shadow = new THREE.Mesh(plane, shadowMaterial);
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.set(x, floorY + 0.001, 0);
-    shadow.scale.set(pedestalRadius * 1.40, pedestalRadius * 1.32, 1);
-    shadow.renderOrder = 2;
-    scene.add(shadow);
+    const contact = new THREE.Mesh(
+      plane,
+      contactMaterial(color, pedestalRadius, groundRingRadius, contactExtent, height),
+    );
+    contact.rotation.x = -Math.PI / 2;
+    contact.position.set(x, floorY + 0.001, 0);
+    contact.scale.set(contactExtent, contactExtent, 1);
+    contact.renderOrder = 2;
+    scene.add(contact);
 
     const pedestal = new THREE.Mesh(
       pedestalGeometry(pedestalRadius, pedestalHeight, color),
@@ -263,7 +307,7 @@ function buildStudio(
     pedestal.position.set(x, floorY, 0);
     scene.add(pedestal);
 
-    const { material, rim } = orbMaterial(color, faceted);
+    const { material, rim } = orbMaterial(color, faceted, key.position);
     const orb = new THREE.Mesh(
       faceted
         ? new THREE.IcosahedronGeometry(orbRadius, 2)
@@ -295,7 +339,7 @@ function buildStudio(
     halo.scale.setScalar(orbRadius * 1.36);
     halo.renderOrder = 3;
     scene.add(halo);
-    return { orb, halo, rim, bandMaterial };
+    return { orb, halo, rim, bandMaterial, contact };
   }
   const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
 
@@ -348,12 +392,13 @@ function buildStudio(
     camera.position.set(...pose.position);
     camera.lookAt(...pose.target);
 
-    for (const [host, { orb, halo, rim, bandMaterial }] of hosts.entries()) {
+    for (const [host, { orb, halo, rim, bandMaterial, contact }] of hosts.entries()) {
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
       orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
       rim.value = emphasis;
+      contact.material.uniforms.ringOpacity.value = groundRingOpacityAt(emphasis);
       bandMaterial.color
         .copy(orb.material.emissive)
         .multiplyScalar(0.57 + 0.33 * emphasis);
@@ -394,6 +439,7 @@ function buildStudio(
       for (const material of [object.material].flat()) materials.add(material);
     });
     bars.dispose();
+    backdropPixels.dispose();
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
   }

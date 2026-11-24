@@ -133,3 +133,18 @@ Reduced motion holds the camera and halos and omits the turn-driven scale accent
 Portrait centers are at .30H with .118H rest diameters and near bars capped at
 .022H. Both orientations reserve .02H above the speaker chips. The browser
 pixel checks and SwiftShader benchmark qualify the rendered result.
+
+### Studio 3D frame-time and speaker cues
+
+The gradient, 4×4 dither and portrait wash bake once per scene. Landscape
+reuses four texture columns. The opaque backdrop replaces the per-frame color
+clear and the stage retains its depth clear and antialiasing. Tight radial meshes
+reduce glow overdraw. The existing contact pass draws the active host's .003H
+floor ring at up to .18 alpha.
+
+The turn cue adds 4% to the active orb, with a combined PCM and turn cap of
+5.3%. Reduced motion omits the turn scale accent and keeps the color cues.
+The key-facing arc gains up to 12% in linear light and the idle rim uses 80%
+of its previous strength. The `perf` Playwright project follows `render` and
+checks both aspects in a fresh browser process. Current Chromium timing and
+pixel checks are `NOT_RUN` in the K2 worktree.

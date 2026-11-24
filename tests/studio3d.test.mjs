@@ -14,6 +14,8 @@ import {
 } from "../src/video/scenes/studio3d/audio-state.ts";
 import {
   foregroundSpectrumScale,
+  groundRingOpacityAt,
+  groundRingWidthH,
   haloOpacityAt,
   orbScaleAt,
   projectStagePoint,
@@ -117,13 +119,16 @@ test("studio clamps intensity and applies the specified mood multipliers", () =>
   assert.deepEqual(motionMultipliers("urgent", 4), { audio: 1, camera: 1 });
   assert.deepEqual(motionMultipliers("urgent", -1), { audio: 0, camera: 1 });
   assert.equal(orbScaleAt(-1, -1), 1);
-  near(orbScaleAt(0, 1), 1.035);
-  near(orbScaleAt(2, 2), 1.048);
+  near(orbScaleAt(0, 1), 1.04);
+  near(orbScaleAt(2, 2), 1.053);
   assert.ok(orbScaleAt(2, 2) <= 1.06);
   assert.equal(orbScaleAt(1, 1, true), orbScaleAt(1, 0, true));
   assert.equal(haloOpacityAt(2), 0.12);
   assert.ok(haloOpacityAt(2) - haloOpacityAt(0) <= 0.03);
   assert.equal(haloOpacityAt(2, true), haloOpacityAt(0, true));
+  assert.equal(groundRingOpacityAt(-1), 0);
+  near(groundRingOpacityAt(0.5), 0.09);
+  assert.equal(groundRingOpacityAt(2), 0.18);
 });
 
 test("studio spectrum uses a centered 40 ms window and 32 log bands through Nyquist", () => {
@@ -363,6 +368,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
       Math.tan((cameraFov * Math.PI) / 360);
     near(diameterH, isPortrait ? 0.118 : tokens.orbDiameterH);
     const pedestalCorners = [];
+    const groundRingPoints = [];
     const orbCorners = [];
     for (const sign of [-1, 1]) {
       const x = sign * layout.hostX;
@@ -383,6 +389,11 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           x + dx * layout.pedestalRadius,
           layout.floorY,
           dz * layout.pedestalRadius,
+        ]);
+        groundRingPoints.push([
+          x + dx * layout.groundRingRadius,
+          layout.floorY + 0.001,
+          dz * layout.groundRingRadius,
         ]);
       }
       const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
@@ -427,6 +438,10 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
         for (const point of orbCorners) fit(point);
         for (const point of pedestalCorners)
           lowestPedestal = Math.max(lowestPedestal, fit(point));
+        for (const point of groundRingPoints) {
+          const ringY = fit(point);
+          assert.ok(ringY + groundRingWidthH / 2 + 0.5 / height < chipTop);
+        }
         for (const block of layout.ring) {
           const blockHeight = spectrumBarHeight(pose, block, 1);
           let lowest = 0;
