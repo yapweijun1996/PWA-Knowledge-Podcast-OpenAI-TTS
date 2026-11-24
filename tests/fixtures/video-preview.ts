@@ -12,7 +12,9 @@ export function loadedCaptionCues(element: Element) {
   if (track.readyState === track.ERROR)
     throw new Error("Preview caption track failed to load");
   if (track.readyState !== track.LOADED) return null;
-  return Array.from(video.textTracks[0]?.cues ?? [], (cue) => [
+  const cues = video.textTracks[0]?.cues;
+  if (!cues) return null;
+  return Array.from(cues, (cue) => [
     cue.id,
     Math.round(cue.startTime * 1000),
     Math.round(cue.endTime * 1000),

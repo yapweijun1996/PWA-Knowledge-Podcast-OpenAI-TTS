@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import { wave } from "../server/audio.mjs";
 import { defaultPreferences, type Episode } from "../shared/factory";
+import { waitForOfflineShell } from "./fixtures/offline-shell.ts";
 
 const origin = "/";
 const wavHeader = [...wave([Buffer.alloc(48_000 * 2)]).subarray(0, 44)];
@@ -421,13 +422,17 @@ test("offline filters preserve the selected detail and drafts across tabs, edits
   });
   await expect(opener).toBeVisible();
 
+  // Finish the first install before opening the deep link in the second tab.
+  await page.evaluate(waitForOfflineShell, 20_000);
   const second = await context.newPage();
   await second.goto(`/?studio=factory&episode=${first.id}`);
+  await second.evaluate(waitForOfflineShell, 20_000);
   await expect(second.locator("#episode-title")).toHaveText("Park Stories");
-  await second.waitForFunction(() => !!navigator.serviceWorker.controller);
-  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await context.setOffline(true);
-  await expect(second.getByText("离线", { exact: true })).toBeVisible();
+  await Promise.all([
+    expect(page.getByText("离线", { exact: true })).toBeVisible(),
+    expect(second.getByText("离线", { exact: true })).toBeVisible(),
+  ]);
   const search = libraryFor(second).getByRole("searchbox", {
     name: "搜索节目",
   });
@@ -496,6 +501,7 @@ test("offline filters preserve the selected detail and drafts across tabs, edits
   await expect(second).toHaveURL(new RegExp(`episode=${first.id}`));
   await expect(firstSearch).toHaveValue("Sungai");
   await page.reload();
+  await expect(page.getByText("离线", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "上一版成品音频" }),
   ).toBeVisible();
@@ -663,8 +669,9 @@ test("offline refresh restores only the verified asset and position, with no pla
   await expect(libraryFor(page).getByText("此浏览器尚无节目。")).toBeVisible();
   const item = playableEpisode(18, "Offline story");
   await saveFixtures(page, [{ episode: item, audio: "valid", seconds: 40 }]);
-  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+  await page.evaluate(waitForOfflineShell, 20_000);
   await context.setOffline(true);
+  await expect(page.getByText("离线", { exact: true })).toBeVisible();
   await openEpisode(page, item.topic);
   await page.getByRole("button", { name: "0:12 · Main story" }).click();
   await expect.poll(() => playbackTime(page)).toBeGreaterThan(12);

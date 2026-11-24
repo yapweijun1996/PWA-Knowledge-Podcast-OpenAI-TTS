@@ -113,6 +113,7 @@ function AppContent() {
     const net = () => setOnline(navigator.onLine);
     window.addEventListener("online", net);
     window.addEventListener("offline", net);
+    net();
     return () => {
       window.removeEventListener("online", net);
       window.removeEventListener("offline", net);

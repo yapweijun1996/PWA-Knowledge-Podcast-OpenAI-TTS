@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Request } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
@@ -60,21 +60,22 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   test.setTimeout(120_000);
   const origin = new URL(baseURL!).origin;
   const unexpectedRequests: string[] = [];
-  await context.route("**/*", async (route) => {
-    const request = route.request();
+  function unexpectedRequest(request: Request) {
     const url = new URL(request.url());
     if (
       url.protocol === "blob:" ||
       (url.origin === origin && request.method() === "GET")
-    ) {
-      await route.continue();
-    } else {
-      unexpectedRequests.push(
-        `${request.method()} ${url.origin}${url.pathname}`,
-      );
-      await route.abort();
-    }
+    )
+      return;
+    return `${request.method()} ${url.origin}${url.pathname}`;
+  }
+  context.on("request", (request) => {
+    const violation = unexpectedRequest(request);
+    if (violation) unexpectedRequests.push(violation);
   });
+  await context.route("**/*", (route) =>
+    unexpectedRequest(route.request()) ? route.abort() : route.continue(),
+  );
   await page.addInitScript(() =>
     localStorage.setItem("podcast-ui-locale", "en"),
   );
@@ -185,10 +186,9 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     .toBe(true);
   await render.click();
   await expect(video).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
-  const preview = await video.elementHandle();
   const dimensions = await page.waitForFunction(
     loadedVideoDimensions,
-    preview,
+    await video.elementHandle(),
     {
       timeout: 15_000,
     },
@@ -197,28 +197,36 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     1080, 1920,
   ]);
 
-  const receipt = await page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("knowledge-podcast-agent", 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    try {
-      return await new Promise<AgentArtifact["metadata"]>((resolve, reject) => {
-        const request = db
-          .transaction("artifacts")
-          .objectStore("artifacts")
-          .getAll();
-        request.onsuccess = () =>
-          resolve(
-            request.result.find((item) => item.kind === "video")?.metadata,
-          );
+  const receipt = await page.evaluate(
+    async ({ id, revision }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("knowledge-podcast-agent", 1);
+        request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-    } finally {
-      db.close();
-    }
-  });
+      try {
+        return await new Promise<AgentArtifact["metadata"]>((resolve, reject) => {
+          const request = db
+            .transaction("artifacts")
+            .objectStore("artifacts")
+            .getAll();
+          request.onsuccess = () =>
+            resolve(
+              request.result.find(
+                (item: AgentArtifact) =>
+                  item.kind === "video" &&
+                  item.episodeId === id &&
+                  item.revision === revision,
+              )?.metadata,
+            );
+          request.onerror = () => reject(request.error);
+        });
+      } finally {
+        db.close();
+      }
+    },
+    { id, revision: episode.revision },
+  );
   expect(receipt?.studioVideo).toMatchObject({
     width: 1080,
     height: 1920,
@@ -247,9 +255,11 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     english("publish.review.previewCaptions"),
   );
   await previewCaptions.check();
-  const cues = await page.waitForFunction(loadedCaptionCues, preview, {
-    timeout: 15_000,
-  });
+  const cues = await page.waitForFunction(
+    loadedCaptionCues,
+    await video.elementHandle(),
+    { timeout: 15_000 },
+  );
   expect(
     await cues.jsonValue(),
     "loaded preview captions match the receipt",
@@ -283,6 +293,9 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   expect(buffer.includes(Buffer.from(encodeCaptionTrack(track!, "srt")))).toBe(
     true,
   );
+  await expect(
+    panel.getByText(english("publish.review.downloaded"), { exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(video).toBeVisible();
   await expect(orientation).toHaveValue("portrait");
@@ -330,6 +343,9 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   await render.click();
   await expect(video).toBeVisible({ timeout: 45_000 });
   await expect(exportPackage).toBeDisabled();
+  await expect(
+    panel.getByText(english("video.panel.done"), { exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(video).toBeVisible();
   await storyboard.locator("summary").click();
@@ -364,5 +380,7 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
       name: english("publish.review.downloadThumbnail"),
     }),
   ).toBeDisabled();
+  // End polling and media work before taking the final request snapshot.
+  await page.close();
   expect(unexpectedRequests, "unexpected requests from Studio").toEqual([]);
 });
