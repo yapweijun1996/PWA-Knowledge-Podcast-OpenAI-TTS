@@ -27,7 +27,7 @@ and 62/62 automated visual QA points. **Visual acceptance has not passed.**
 | Milestone | Status | Verification still open |
 | --- | --- | --- |
 | M0 · Browser Studio, T24 to T31 | V2 Studio, in-memory browser BYOK and IndexedDB records. | Listening review of real TTS audio and USD cost accuracy. |
-| M1 · Video, T32 to T36 and T49 | Browser MP4 export with AAC or Opus audio and an OffscreenCanvas worker. | Long-episode memory, Safari and real devices. |
+| M1 · Video, T32 to T36, T49 and R1 | Browser MP4 export with AAC or Opus audio and an OffscreenCanvas worker. R1 raises the Episode single-file limit from 210 to 300 s with resource estimates and a storage check. | Manager browser verification of R1 and owner-only memory at 300 s, Safari and real devices. |
 | M2 · Manual publish package, T38 | Publish ZIP with video, thumbnail, chapters and timed SRT when available. T37 upload is parked. | YouTube acceptance of Opus audio. |
 | M3 · Agent, T39 | Chapter storyboard generation with consent and manual review. | Real model-driven agent runs on `c22a9fe` are unverified. |
 | M4 · Optional worker, T40 and T41 | Optional private Node.js worker. | Unattended production on the target host is unverified. |
@@ -58,12 +58,14 @@ and 62/62 automated visual QA points. **Visual acceptance has not passed.**
   thumbnails alongside the automated gates. Recheck the Studio 3D speaking cue,
   pedestals and floor marks, portrait chapter title size and balance, and faint
   gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
-- **Long-episode export.** Qualify a five-minute interim cap and develop a
-  file-backed MP4 path for 30–60 minute episodes. [Long-episode plan](LONG-EPISODES.md)
+- **Long-episode export.** The 300 s Episode cap and localized preflight
+  are implemented. Browser execution for R1 is **NOT_RUN**. The OPFS
+  single-file path for 30–60 minute episodes and chapter export remain later
+  packages. [Long-episode plan](LONG-EPISODES.md)
 - **Owner-only checks and decisions.** Verify playback on real devices, private
   YouTube Opus playback, TTS quality, Malay and English copy, real-GPU frame
-  timing, long-episode memory and USD cost. Sign off on the Malay product name
-  and the default scene. The 30–60 minute memory check is blocked by the
+  timing, memory at the 300 s cap and USD cost. Sign off on the Malay product
+  name and the default scene. The 30–60 minute memory check is blocked by the
   Episode export duration limit. [Owner checklist](OWNER-CHECKLIST.md)
 
 [Production readiness](PRODUCTION-READINESS.md) · [Episode sign-off](V2-PRODUCTION-CHECKLIST.md)

@@ -44,8 +44,21 @@ open and owner visual acceptance is pending.
   renderer, warm-up time, median and p95. **Pass when** the renderer is the
   target GPU and each orientation meets the spec's ≤40 ms median and ≤60 ms
   p95 after warm-up, including compositing and readback. [Timing spec](VISUAL-DESIGN-SPEC.md#5-studio-3d-art-direction-and-motion)
+- [ ] **Five-minute export memory.** **NOT_RUN, owner-only.** R1 permits up to
+  300 s of final audio and planned video when the modeled PCM and encoded
+  budgets fit and the browser reports enough free space or gives no estimate.
+  Use a verified 300 s local WAV on the target 8 GB laptop and physical iPhone
+  and Android devices. Export Waveform and Studio 3D in both orientations.
+  Record codecs, estimated and actual MP4 size, available quota, elapsed time,
+  and baseline and peak browser, renderer and GPU memory through decode,
+  finalization, save and download. Reopen the saved video and check complete
+  playback and seeking. **Pass when** the exports finish, reopen and play
+  through without a crash, memory error or tab reload. Record browser and
+  device versions, including Safari and iOS standalone where tested.
+  [R1 model](LONG-EPISODES.md#r1-five-minute-export)
 - [ ] **30–60 minute export memory.** **BLOCKED on this revision.** The Episode
-  view caps the audio and planned video at 210 seconds.
+  view caps the audio and planned video at 300 seconds. The OPFS export path
+  is a later package.
   Once the supported duration covers the check, open a saved 30-minute episode
   with final audio and render Studio 3D from the Episode view. Repeat at 60
   minutes. Sample browser renderer and GPU process memory once per second from
@@ -53,7 +66,7 @@ open and owner visual acceptance is pending.
   Reopen the episode, play and seek through the saved MP4, and recheck memory
   after returning to Library. **Pass when** both exports save and reopen at
   full duration, playback reaches the end, and memory settles after export
-  without a crash, out-of-memory error or tab reload. [Duration guard](../src/factory/useVideoRender.ts) · [Long-episode plan](LONG-EPISODES.md)
+  without a crash, out-of-memory error or tab reload. [Duration guard](../src/video/limits.ts) · [Long-episode plan](LONG-EPISODES.md)
 - [ ] **USD cost for one real run.** Use a dedicated OpenAI project with one
   owner-approved run in the measurement window. Before consenting, record the
   Studio usage estimate and convert the covered quantities to USD using the

@@ -1,5 +1,17 @@
 # Test and device matrix
 
+## R1 five-minute Episode export
+
+| Check | Result | Evidence covered |
+| --- | --- | --- |
+| `npm run typecheck` | PASS | TypeScript project check. |
+| `npm test` | PASS. 306 total, 305 passed, 0 failed, 1 skipped. | Source and fitted video bounds, mono/stereo PCM, both orientations, preferred and fallback rates, memory, draw estimates and quota boundaries. The skipped test requires the Crucible spike dependencies. |
+| `npm run i18n:scan -- --fail-on-found` | PASS. 0 findings across 84 files. | The source scan counts CJK fragments outside the catalogues. Catalogue tests cover zh-CN, en and ms. |
+| Manager Chromium | NOT_RUN | The added cases cover an over-limit WAV without rendering, short-fixture estimates, a free-space recheck and the accessible disabled reason. The existing IndexedDB quota rollback test exercises save with an unavailable estimate. |
+| Actual memory at 300 s | NOT_RUN, owner-only | Measure real browsers and devices through decode, mux, save and download. Safari, iOS standalone and VoiceOver remain unverified. |
+
+[Model tests](../tests/video-limits.test.mjs) · [Options browser cases](../tests/factory-video-options.browser.ts) · [Quota browser cases](../tests/factory-video.browser.ts) · [Owner checklist](OWNER-CHECKLIST.md)
+
 ## Current checks at `c22a9fe`
 
 These results are from the manager’s Mac. Browser runs used Chromium 156–158

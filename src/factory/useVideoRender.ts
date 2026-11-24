@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openDB } from "idb";
 import type { Episode } from "../../shared/factory.ts";
 import {
@@ -24,6 +24,12 @@ import type {
   ThumbnailVariant,
 } from "../publish/thumbnail.ts";
 import { probeVideoSupport } from "../video/capabilities.ts";
+import {
+  estimateVideoExport,
+  maxVideoPcmBytes,
+  studioWavChannels,
+  studioWavSampleRate,
+} from "../video/limits.ts";
 import type { Studio3dSettings } from "../video/scenes/studio3d/presets.ts";
 import type { TimelineOptions, TimelinePlan } from "../video/timeline.ts";
 import {
@@ -263,33 +269,61 @@ async function hasPreviousVideo(episodeId: string) {
   }
 }
 
-const sampleRate = 24_000;
 const turnPause = 0.23;
-// Match renderVideo's encoded budget and leave room for mux overhead at
-// its configured 5 Mbps video and 64 kbps mono audio rates.
-const maxEncodedBytes = 128 * 1024 ** 2;
-const maxPcmBytes = 32 * 1024 ** 2;
-const maxVideoBytesPerSecond = (5_000_000 + 64_000) / 8;
-export const maxVideoSeconds = Math.floor(
-  (maxEncodedBytes - 1024 ** 2) / maxVideoBytesPerSecond,
-);
 
-export function videoWithinLimits(duration: number, audioDuration: number) {
-  return (
-    Number.isFinite(duration) &&
-    duration > 0 &&
-    duration <= maxVideoSeconds &&
-    Number.isFinite(audioDuration) &&
-    audioDuration > 0 &&
-    audioDuration <= maxVideoSeconds &&
-    audioDuration * sampleRate * Float32Array.BYTES_PER_ELEMENT <= maxPcmBytes
+const preflightMessages = {
+  invalid: "video.panel.planFailed",
+  duration: "video.panel.limit",
+  pcm: "video.panel.pcmLimit",
+  encoded: "video.panel.encodedLimit",
+  storage: "video.panel.storageLimit",
+} as const satisfies Record<
+  NonNullable<ReturnType<typeof estimateVideoExport>["constraint"]>,
+  MessageKey
+>;
+
+async function readStorageEstimate() {
+  try {
+    return await navigator.storage?.estimate?.();
+  } catch {
+    return undefined;
+  }
+}
+
+function estimateStudioExport(
+  plan: TimelinePlan,
+  audioDuration: number,
+  orientation: StudioVideoOptions["orientation"],
+  sceneId: string,
+  storage?: StorageEstimate,
+) {
+  const scenes = (plan.chapterWindows ?? []).map(
+    (chapter) => chapter.sceneId ?? sceneId,
   );
+  if (scenes.length === 0) scenes.push(sceneId);
+  return estimateVideoExport({
+    audioDuration,
+    videoDuration: plan.duration,
+    fps: plan.fps,
+    orientation,
+    scene: scenes.includes(studio3dSceneId)
+      ? scenes.every((id) => id === studio3dSceneId)
+        ? "studio3d"
+        : "mixed"
+      : "waveform",
+    sampleRate: studioWavSampleRate,
+    channels: studioWavChannels,
+    storage,
+  });
 }
 
 export async function planStudioVideo(
   episode: Episode,
   audioDuration: number,
-  options?: StudioVideoOptions,
+  options?: Pick<
+    StudioVideoOptions,
+    "orientation" | "paletteId" | "mood" | "reducedMotion"
+  >,
   storyboard?: Storyboard,
 ) {
   const [{ buildTimeline }, { designTokens }] = await Promise.all([
@@ -311,7 +345,10 @@ export async function planStudioVideo(
   const last = turns.at(-1);
   if (!last) throw new Error("Missing timeline turns");
   const sourceEnd = last.audioStart + last.end - last.start;
-  if (!plan.estimated && Math.abs(sourceEnd - audioDuration) <= 1 / sampleRate)
+  if (
+    !plan.estimated &&
+    Math.abs(sourceEnd - audioDuration) <= 1 / studioWavSampleRate
+  )
     return plan;
 
   // Fit timing estimates to the complete WAV. Use the final audio's chapter
@@ -647,11 +684,38 @@ export function useVideoRender(
   }>();
   const activeRender = useRef<AbortController>(null);
   const activeSave = useRef<AbortController>(null);
+  const storageRequest = useRef(0);
   const { id, revision, finished } = episode;
   const asset = finished?.asset;
   const blob = audio?.blob;
   const duration = audio?.duration;
   const loadingAudio = audio === undefined;
+  const { orientation, paletteId, mood, reducedMotion } = options;
+  const planInput = useMemo(
+    () => ({
+      episode,
+      duration,
+      storyboard,
+      options: { orientation, paletteId, mood, reducedMotion },
+    }),
+    [episode, duration, storyboard, orientation, paletteId, mood, reducedMotion],
+  );
+  const [planned, setPlanned] = useState<{
+    input: typeof planInput;
+    plan?: TimelinePlan;
+  }>();
+  const [storage, setStorage] = useState<StorageEstimate>();
+  const refreshStorage = useCallback(async () => {
+    const latest = ++storageRequest.current;
+    const estimate = await readStorageEstimate();
+    if (latest === storageRequest.current) setStorage(estimate);
+    return estimate;
+  }, []);
+  const plan = planned?.input === planInput ? planned.plan : undefined;
+  const preflight =
+    plan && duration
+      ? estimateStudioExport(plan, duration, orientation, sceneId, storage)
+      : undefined;
   const snapshot =
     stored?.revision === revision &&
     stored.asset === asset &&
@@ -681,6 +745,29 @@ export function useVideoRender(
     options.thumbnailHeadline;
   const { language, topic } = episode;
   const scriptTitle = episode.script?.title ?? "";
+
+  useEffect(() => {
+    const { episode, duration, options, storyboard } = planInput;
+    if (!duration) return;
+    let current = true;
+    void planStudioVideo(episode, duration, options, storyboard).then(
+      (plan) => current && setPlanned({ input: planInput, plan }),
+      () => current && setPlanned({ input: planInput }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [planInput]);
+
+  useEffect(() => {
+    if (!blob) return;
+    void refreshStorage();
+    window.addEventListener("focus", refreshStorage);
+    return () => {
+      storageRequest.current++;
+      window.removeEventListener("focus", refreshStorage);
+    };
+  }, [blob, savedArtifact?.blob, refreshStorage]);
 
   useEffect(() => {
     const leave = () => activeRender.current?.abort();
@@ -783,6 +870,8 @@ export function useVideoRender(
       !source ||
       !blob ||
       !duration ||
+      !plan ||
+      !preflight?.allowed ||
       !support ||
       keyInHeadline ||
       activeRender.current ||
@@ -801,23 +890,26 @@ export function useVideoRender(
         setState({ phase: "failed", message: "video.panel.keyInContent" });
         return;
       }
-      const [
-        planned,
-        { renderEpisodeVideo },
-        { buildPublishPackage },
-        { WebglContextLostError },
-      ] = await Promise.all([
-        planStudioVideo(episode, duration, options, storyboard),
-        import("../video/render-client.ts"),
-        import("../publish/package.ts"),
-        import("../video/scenes/types.ts"),
-      ]);
+      const estimate = await refreshStorage();
       signal.throwIfAborted();
-      const plan = { ...planned, allowVp9: true };
-      if (!videoWithinLimits(plan.duration, duration)) {
-        setState({ phase: "failed", message: "video.panel.limit" });
+      const { constraint } = estimateStudioExport(
+        plan,
+        duration,
+        orientation,
+        sceneId,
+        estimate,
+      );
+      if (constraint) {
+        setState({ phase: "idle" });
         return;
       }
+      const [{ renderEpisodeVideo }, { buildPublishPackage }, { WebglContextLostError }] =
+        await Promise.all([
+          import("../video/render-client.ts"),
+          import("../publish/package.ts"),
+          import("../video/scenes/types.ts"),
+        ]);
+      signal.throwIfAborted();
       let total = Math.ceil(plan.duration * plan.fps);
       // Keep the count on the same microsecond clock as renderVideo.
       if (
@@ -827,18 +919,18 @@ export function useVideoRender(
       )
         total--;
       setState({ phase: "rendering", frames: 0, total });
-      const decoder = new OfflineAudioContext(1, 1, sampleRate);
+      const decoder = new OfflineAudioContext(1, 1, studioWavSampleRate);
       const buffer = await blob.arrayBuffer();
       signal.throwIfAborted();
-      // decodeAudioData consumes the ArrayBuffer. renderVideo reads its channel
-      // views directly, avoiding a second PCM allocation.
+      // decodeAudioData consumes the ArrayBuffer. Only worker dispatch copies
+      // the decoded channel arrays.
       const pcm = await decoder.decodeAudioData(buffer);
       signal.throwIfAborted();
       if (
         pcm.length * pcm.numberOfChannels * Float32Array.BYTES_PER_ELEMENT >
-        maxPcmBytes
+        maxVideoPcmBytes
       ) {
-        setState({ phase: "failed", message: "video.panel.limit" });
+        setState({ phase: "failed", message: "video.panel.pcmLimit" });
         return;
       }
       const theme = options.paletteId === "light" ? "light" : "dark";
@@ -848,7 +940,7 @@ export function useVideoRender(
         ...receipt
       } = await renderEpisodeVideo({
         locale: resolveLocale(),
-        plan,
+        plan: { ...plan, allowVp9: true },
         audio: pcm,
         theme,
         sceneId,
@@ -960,6 +1052,13 @@ export function useVideoRender(
 
   return {
     support,
+    estimate: preflight?.estimate,
+    preflightReason: preflight?.constraint
+      ? preflightMessages[preflight.constraint]
+      : duration && planned?.input === planInput && !plan
+        ? "video.panel.planFailed" as const
+        : undefined,
+    planning: !!duration && planned?.input !== planInput,
     options,
     setOptions,
     keyInHeadline,

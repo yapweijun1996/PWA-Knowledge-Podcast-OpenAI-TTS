@@ -11,13 +11,17 @@ import {
 } from "../publish/thumbnail-headline.ts";
 import { encodeCaptionTrack } from "../video/caption-track.ts";
 import type { Orientation } from "../video/design/tokens.ts";
+import {
+  maxVideoSeconds,
+  mebibyte,
+  type estimateVideoExport,
+} from "../video/limits.ts";
 import type { SceneNotice } from "../video/scenes/types.ts";
 import { episodeLanguageTags } from "./Evidence";
 import { StoryboardEditor, useStoryboard } from "./StoryboardEditor.tsx";
 import type { AudioCheck } from "./library-model.ts";
 import {
   buildReviewedPublishPackage,
-  maxVideoSeconds,
   renameVideoChapter,
   reviewLimits,
   resolveVideoOptions,
@@ -614,6 +618,59 @@ function ReviewFields({
   );
 }
 
+function VideoExportEstimate({
+  estimate,
+}: {
+  estimate: NonNullable<ReturnType<typeof estimateVideoExport>["estimate"]>;
+}) {
+  const { t, formatters } = useI18n();
+  const format = (value: number) =>
+    formatters.number(value, { maximumFractionDigits: 2 });
+  const size = (bytes: number) => format(bytes / mebibyte);
+  const [min, max] = estimate.drawSeconds;
+  return (
+    <div className="muted video-panel-status" id="video-export-estimate">
+      <p>
+        {t("video.panel.estimate.media", {
+          duration: format(estimate.videoDuration),
+          size: size(estimate.mp4Bytes),
+        })}
+      </p>
+      <p>
+        {t(
+          estimate.memoryClass === "high"
+            ? "video.panel.estimate.memoryHigh"
+            : "video.panel.estimate.memoryLower",
+          {
+            decode: size(estimate.decodePeakBytes),
+            mux: size(estimate.muxPeakBytes),
+          },
+        )}
+      </p>
+      <p>
+        {min === max
+          ? t("video.panel.estimate.draw", { time: format(max) })
+          : t("video.panel.estimate.drawRange", {
+              min: format(min),
+              max: format(max),
+            })}
+      </p>
+      <p>
+        {t("video.panel.estimate.storage", {
+          total: size(estimate.originStorageBytes),
+          additional: size(estimate.additionalStorageBytes),
+        })}
+        {estimate.availableStorageBytes === undefined && (
+          <> {t("video.panel.estimate.storageUnknown")}</>
+        )}
+      </p>
+      {estimate.memoryClass === "high" && (
+        <p>{t("video.panel.estimate.memoryWarning")}</p>
+      )}
+    </div>
+  );
+}
+
 export function VideoPanel({
   episode,
   audio,
@@ -665,26 +722,32 @@ export function VideoPanel({
     : headlineLocale === "ms"
       ? thumbnailHeadlineLimits.malayGraphemes
       : thumbnailHeadlineLimits.latinGraphemes;
+  const readiness =
+    video.loading || board.loading || video.planning
+      ? "video.panel.checking"
+      : video.loadFailed
+        ? "video.panel.loadFailed"
+        : video.preflightReason ??
+          (video.support === undefined
+            ? "video.panel.checking"
+            : video.support === false
+              ? "video.panel.unsupported"
+              : !video.available
+                ? "video.panel.needsAudio"
+                : undefined);
   const status =
-    state.phase === "failed"
-      ? state.message
-      : state.phase === "rendering"
-        ? "video.panel.rendering"
-        : state.phase === "cancelling"
-          ? "video.panel.cancelling"
-          : state.phase === "cancelled"
-            ? "video.panel.cancelled"
-            : artifact
-              ? "video.panel.done"
-              : video.loading || video.support === undefined
-                ? "video.panel.checking"
-                : video.loadFailed
-                  ? "video.panel.loadFailed"
-                  : video.support === false
-                    ? "video.panel.unsupported"
-                    : !video.available
-                      ? "video.panel.needsAudio"
-                      : "video.panel.idle";
+    state.phase === "rendering"
+      ? "video.panel.rendering"
+      : state.phase === "cancelling"
+        ? "video.panel.cancelling"
+        : readiness ??
+          (state.phase === "failed"
+            ? state.message
+            : state.phase === "cancelled"
+              ? "video.panel.cancelled"
+              : artifact
+                ? "video.panel.done"
+                : "video.panel.idle");
 
   return (
     <section
@@ -874,17 +937,22 @@ export function VideoPanel({
           />
         </fieldset>
       )}
+      {video.estimate && <VideoExportEstimate estimate={video.estimate} />}
       <div className="video-panel-actions">
         <button
           className="primary"
           type="button"
           disabled={
-            !video.available ||
-            video.support !== true ||
-            board.loading ||
-            rendering ||
-            video.keyInHeadline ||
-            !!video.reviewEdit
+            !!readiness || rendering || video.keyInHeadline || !!video.reviewEdit
+          }
+          aria-describedby={
+            readiness || rendering
+              ? "video-render-status"
+              : video.keyInHeadline
+                ? "video-headline-status"
+                : video.estimate
+                  ? "video-export-estimate"
+                  : undefined
           }
           onClick={() => void video.start()}
         >
@@ -907,15 +975,15 @@ export function VideoPanel({
           <p>{t("video.panel.options.stale")}</p>
         )}
         <p
+          id="video-render-status"
           className={
-            state.phase === "failed" || video.loadFailed ? "error" : "muted"
+            state.phase === "failed" || video.loadFailed || video.preflightReason
+              ? "error"
+              : "muted"
           }
         >
           {t(status, { seconds: maxVideoSeconds })}
         </p>
-        {artifact && video.support === false && (
-          <p>{t("video.panel.unsupported")}</p>
-        )}
       </div>
       {state.phase === "rendering" && state.total > 0 && (
         <div className="video-panel-progress">

@@ -4,10 +4,14 @@ import { clear, set } from "../src/factory/browser-key.ts";
 import { createTranslator, setLocale } from "../src/i18n/index.ts";
 import { turnSampleRange } from "../src/video/draw.ts";
 import {
+  estimateVideoExport,
+  studioWavChannels,
+  studioWavSampleRate,
+} from "../src/video/limits.ts";
+import {
   buildReviewedPublishPackage,
   defaultVideoThumbnailVariant,
   isCurrentVideo,
-  maxVideoSeconds,
   planStudioVideo,
   renameVideoChapter,
   resolveVideoOptions,
@@ -16,7 +20,6 @@ import {
   validatePublishReview,
   videoArtifactKey,
   videoThumbnailInput,
-  videoWithinLimits,
 } from "../src/factory/useVideoRender.ts";
 
 const source = {
@@ -74,12 +77,22 @@ test("video keys and currency include the episode, script revision and verified 
   }
 });
 
-test("video preflight bounds source and timeline duration", () => {
-  assert.equal(videoWithinLimits(maxVideoSeconds, maxVideoSeconds), true);
-  assert.equal(videoWithinLimits(maxVideoSeconds + 1, 1), false);
-  assert.equal(videoWithinLimits(1, maxVideoSeconds + 1), false);
-  assert.equal(videoWithinLimits(0, 1), false);
-  assert.equal(videoWithinLimits(1, Number.NaN), false);
+test("the fitted Studio timeline qualifies for the five-minute cap", async () => {
+  const plan = await planStudioVideo(episode, 300);
+  assert.equal(plan.duration, 300);
+  assert.equal(
+    estimateVideoExport({
+      audioDuration: 300,
+      videoDuration: plan.duration,
+      fps: plan.fps,
+      orientation: "landscape",
+      scene: "waveform",
+      sampleRate: studioWavSampleRate,
+      channels: studioWavChannels,
+      storage: { usage: 128 * 1024 ** 2, quota: 256 * 1024 ** 2 },
+    }).allowed,
+    true,
+  );
 });
 
 test("new video options default to a matched topic graphic or the host pair and normalize old receipts", async () => {

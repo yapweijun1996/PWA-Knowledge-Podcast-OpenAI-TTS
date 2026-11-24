@@ -1,9 +1,48 @@
 # Long-episode video export
 
-Keep the 210-second limit for this revision. Qualify a five-minute single-file
-export as an interim step. For 30–60 minute episodes, target one local MP4
-backed by the Origin Private File System (OPFS), with chapter parts for devices
-that cannot finish one continuous render. The owner uploads manually to YouTube.
+R1 raises Episode single-file export from 210 to 300 seconds, subject to the
+PCM, nominal encoded size and estimated free-space checks below. For 30–60
+minute episodes, target one local MP4 backed by the Origin Private File System
+(OPFS), with chapter parts for devices that cannot finish one continuous
+render. The owner uploads manually to YouTube.
+
+## R1 five-minute export
+
+The preflight and renderer share the adaptive 900 kb/s to 2.4 Mb/s video rate,
+64 kb/s mono or 128 kb/s multichannel audio rate, and 900 kb/s video fallback.
+The preflight checks the source and fitted video durations against 300 s, the
+decoded PCM against 32 MiB and the nominal payload against 102.4 MiB. At 300 s,
+a Studio WAV (24 kHz mono) uses an estimated 27.47 MiB of decoded PCM and
+88.12 MiB of nominal encoded payload at the preferred rates. The renderer
+still aborts if actual encoded chunks exceed 128 MiB, and the Episode hook
+checks the decoded buffer length after decode.
+
+The estimate adds 1 MiB to the payload for the MP4 container and reserves 1 MiB
+for the receipt, including captions. At 300 s that yields about 89.12 MiB for
+the MP4, 90.12 MiB of additional free space and 103.85 MiB total including the
+WAV. Available space is the browser's estimated quota minus usage. Existing
+usage already includes the saved WAV and any prior export. Preflight checks
+room for a complete new MP4 and receipt alongside those records and refreshes
+headroom before decode. Missing or unusable estimates show a neutral note and
+allow export. IndexedDB save can still fail if actual sizes or quota differ.
+
+The buffer estimates include one WAV read plus PCM at decode, and mux capacity
+plus the finalized MP4, PCM, a worker PCM copy and per-frame scene caches at
+mux finalization. At 300 s those phases model about 41 MiB and 273 MiB,
+respectively, for landscape Waveform or Studio 3D. The panel labels a modeled
+peak above 128 MiB as higher memory demand. The model omits codec buffers,
+canvas/GPU surfaces, hashing and any additional Blob or browser copies.
+Waveform drawing is estimated at 27 seconds at 300 s. Studio 3D drawing is
+estimated at 144–270 seconds. Mixed storyboards show the range between the
+Waveform and Studio 3D rates. Encoding, hashing and saving add time. The
+panel labels these estimates in zh-CN, en and ms and gives one reason when
+preflight blocks export.
+[Model](../src/video/limits.ts) · [Episode panel](../src/factory/VideoPanel.tsx)
+
+The browser generation preference ceiling of 420 s (240 s default) controls
+the audio production budget. Finished WAV and record validation accept up to
+500 s so longer audio can remain in the Library. Single-file video has its own
+300 s ceiling, so valid saved audio can exceed the video limit.
 
 ## Verified limits at `11f8a92`
 
@@ -75,11 +114,9 @@ guard. Its timing describes that run, with its own browser and workload.
 
 ## Failure order and device hypotheses
 
-**Verified by inspection.** With a valid WAV over 210 s, the Episode duration
-guard rejects before decode. If only that guard is raised, the 32 MiB PCM
-check becomes the next export ceiling at 349.5 s. Browser-generated episodes
-also hit the 420 s preference ceiling and a long finished WAV/record hits
-the 500 s validators before normal Episode rendering. If those gates are
+The 300 s duration or a tighter resource check blocks an over-limit Episode
+before decode. Beyond the 300 s policy ceiling, mono PCM alone reaches 32 MiB
+at about 349.5 s. If the Episode, generation and finished-audio gates are
 lifted while the renderer guard remains, 30–60 minute exports at the modelled
 rates hit the encoded-byte budget before mux finalization.
 
@@ -97,29 +134,31 @@ thermal throttling and actual quota are device- and profile-specific.
 
 ## Delivery plan
 
-Each worker package below is a proposed implementation and verification
-assignment. Estimates assume the current browser-first workflow and local
-fixtures. Existing test changes are prospective.
+The first package is implemented in R1. Later packages assume the current
+browser-first workflow and local fixtures.
 
 | Approach | Effort and decision | Risks and tests to extend |
 | --- | --- | --- |
-| Raise the cap with an estimate | **1 worker package.** Qualify up to **300 s** on the Episode path. For each proposed duration require decoded PCM ≤32 MiB, nominal encoded payload ≤102.4 MiB (80% of 128 MiB), and estimated origin headroom for the new MP4, receipt and any staging overhead. At 300 s the mono estimates are 27.5 MiB PCM and 88.1 MiB encoded. Keep 210 s on unqualified profiles. Show duration, estimated size and time, slow-export/storage warnings and the reason for a block. | VBR, changing quota and codec fallback can invalidate estimates. Extend `video-panel.test.mjs` (source and plan boundaries), `video-render.test.mjs` (bitrate and actual byte guard), `factory-video-options.browser.ts` (estimates and warnings) and `factory-video.browser.ts` (cancel and rollback). Test missing quota data and mono/stereo budgets. |
+| Raise the cap with an estimate | **Implemented in R1.** The Episode applies a 300 s ceiling and gates export by estimated resources. | The model and fitted plan have unit coverage. The short-fixture quota and rollback cases and the over-limit WAV case await manager browser execution. Actual memory at 300 s is owner-only. |
 | Stream fragmented MP4 to OPFS | **3 worker packages.** Land (1) long local fixture intake, versioned audio/record handling and windowed PCM plus scene envelopes, (2) a seekable, backpressured worker writer with bounded fragments and an incremental digest of the closed file in byte order, (3) IndexedDB receipt pointers, legacy Blob playback, preview and local package/download. Stage a new file before committing the receipt, retain the last approved file until commit, and clean up orphaned files. Stream ZIP output or offer direct file download so delivery preserves the memory gains. Enable by tested capability. | The pinned muxer’s file target forwards asynchronous writes without waiting and its fragmented index grows. Bound pending writes and track skew, and spool the index or use a muxer with bounded index memory if measurements require it. Probe worker/file capabilities, fragmented seeking, upload compatibility, disk full, cancellation, reload, interrupted writes and legacy receipts. Extend `video-render.test.mjs` (queues, timestamps, digest, byte limits), `factory-video.browser.ts` (playback, quota, cancel), `publish-package.test.mjs` (ZIP), `library.test.mjs` and the backup round-trip in `factory.test.mjs`. Continue using local fixture audio while separate long AI-generation work qualifies script, narration and transcript limits in `browser-production.test.mjs`. |
 | Export chapter parts | **2 worker packages.** Render one MP4 per chapter where it fits, splitting longer chapters at clean turn boundaries within a computed time budget. Start at up to five minutes per part on qualified devices. Read only that part’s PCM, release render buffers between parts, and offer sequential downloads. The publish package lists ordered filenames, chapter titles, episode offsets, durations and per-part captions. Keep optional user-side concatenation and a global chapter/caption list. | Cut seams, AAC/Opus priming, frame rounding, incompatible parameters for concatenation and partial recovery. Test gapless joins, complete unique samples and cues, part-level retry/cancel/quota, and manifest/receipt identity. Extend `video-timeline.test.mjs` (source offsets and boundaries), `video-render.test.mjs` (A/V timing), `publish-package.test.mjs` (parts and sidecars) and `factory-video.browser.ts` (reopen parts and keep prior approval). |
 | Audio-first MP4 | **1 worker package after shared long-audio intake.** Offer a static image or slow storyboard at **2 fps** with 24 kHz mono audio, a caption sidecar and manual upload. At an illustrative 150 kb/s video target plus 64 kb/s audio, 60 minutes is 7,200 frames and 91.8 MiB of encoded payload. Qualify the bitrate and frame rate. Reuse windowed audio and storage work so PCM and saving remain feasible. | Device support at low frame rates, text legibility, caption timing and A/V sync. Test long silence, first/last sample, storyboard changes, sidecar timing and real playback/upload. Extend `video-render.test.mjs` (mode-specific bitrate and keyframe rules), `caption-timing.test.mjs` and `video-timeline.test.mjs` (timing at 2 fps), and `factory-video.browser.ts` (render/approval/playback). |
 
-Qualify the interim cap and the long local fixture path first. Prioritize the
-OPFS single-file path for normal 30–60 minute episodes so the owner has one
-file to review and upload. Use parts where a continuous run is unreliable,
-and offer audio-first when render time or scene performance is the binding
-constraint. Keep the existing short MP4 path available throughout.
+Prioritize the OPFS single-file path for normal 30–60 minute episodes so the
+owner has one file to review and upload. Use parts where a continuous run is
+unreliable and offer audio-first when render time or scene performance is the
+binding constraint. Keep the existing short MP4 path available throughout.
 
 ## Owner hardware verification
 
-Browser execution for this analysis is **NOT_RUN**. The manager’s earlier tests
-cover software WebGL and a one-byte quota rollback fixture. The owner’s target
-8 GB laptop and physical iPhone/Android devices must establish codec and OPFS
-support, real-GPU draw and encoder timings, peak renderer/GPU/whole-browser
+Browser execution for R1 is **NOT_RUN**. Real-device memory at 300 s is
+**NOT_RUN** and owner-only. On the target 8 GB laptop and physical iPhone and
+Android devices, use a valid 300 s WAV in both orientations and record memory
+and timing through decode, mux, save and download. The manager’s earlier tests
+cover software WebGL and a one-byte quota rollback fixture.
+
+For the later OPFS packages, use the target devices to establish codec and
+OPFS support, real-GPU draw and encoder timings, peak renderer/GPU/whole-browser
 memory through save and download, observed origin usage, thermal/background
 behavior, and installed-PWA recovery after interruption. Run local 10-, 30-
 and 60-minute fixtures in both orientations, capture per-phase timing and

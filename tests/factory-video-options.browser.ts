@@ -1,4 +1,4 @@
-import { expect, test, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
@@ -52,6 +52,87 @@ const episode: Episode = {
   },
 };
 
+async function openEpisode(page: Page, seconds = duration) {
+  await page.addInitScript(() =>
+    localStorage.setItem("podcast-ui-locale", "en"),
+  );
+  await page.goto("/");
+  await expect(
+    page.getByText(english("library.empty.noEpisodes")),
+  ).toBeVisible();
+  const payloadBytes = seconds * 48_000;
+  const fixture = {
+    ...episode,
+    render: {
+      ...episode.render!,
+      clips: { turn: { asset: "turn.wav", duration: seconds } },
+    },
+    finished: { ...episode.finished!, duration: seconds },
+  };
+  await page.evaluate(
+    async ({ episode, asset, header, payloadBytes }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("knowledge-podcast-library", 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction("episodes", "readwrite");
+          tx.oncomplete = () => resolve();
+          tx.onabort = () => reject(tx.error);
+          tx.objectStore("episodes").put({
+            episode,
+            assets: {
+              [asset]: new Blob(
+                [Uint8Array.from(header), new Uint8Array(payloadBytes)],
+                { type: "audio/wav" },
+              ),
+            },
+            stamp: "video-options-fixture",
+          });
+        });
+      } finally {
+        db.close();
+      }
+    },
+    {
+      episode: fixture,
+      asset,
+      header: [...wave([Buffer.alloc(payloadBytes)]).subarray(0, 44)],
+      payloadBytes,
+    },
+  );
+  await page.goto(`/?view=studio&episode=${id}`);
+  return page.getByRole("region", { name: english("episode.video.title") });
+}
+
+test("Studio estimates a verified WAV over the single-file limit and disables render", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.storage, "estimate", {
+      value: async () => ({}),
+    });
+  });
+  // Validate a real WAV header and duration without starting decode or render.
+  const panel = await openEpisode(page, 301);
+  const render = panel.getByRole("button", {
+    name: english("video.panel.render"),
+  });
+  await expect(panel.getByText(english("video.panel.estimate.media", {
+    duration: "301",
+    size: "89.41",
+  }))).toBeVisible();
+  await expect(panel.getByText(english("video.panel.estimate.storageUnknown"), {
+    exact: false,
+  })).toBeVisible();
+  const message = english("video.panel.limit", { seconds: 300 });
+  const reason = panel.getByText(message, { exact: true });
+  await expect(reason).toBeVisible();
+  await expect(reason).toHaveCount(1);
+  await expect(render).toBeDisabled();
+  await expect(render).toHaveAccessibleDescription(message);
+});
+
 test("Studio renders portrait options, restores its receipt, shows guides and gates the publish package", async ({
   page,
   context,
@@ -76,44 +157,7 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
   await context.route("**/*", (route) =>
     unexpectedRequest(route.request()) ? route.abort() : route.continue(),
   );
-  await page.addInitScript(() =>
-    localStorage.setItem("podcast-ui-locale", "en"),
-  );
-  await page.goto("/");
-  await expect(
-    page.getByText(english("library.empty.noEpisodes")),
-  ).toBeVisible();
-  await page.evaluate(
-    async ({ episode, asset, wav }) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("knowledge-podcast-library", 1);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const tx = db.transaction("episodes", "readwrite");
-          tx.oncomplete = () => resolve();
-          tx.onabort = () => reject(tx.error);
-          tx.objectStore("episodes").put({
-            episode,
-            assets: {
-              [asset]: new Blob([Uint8Array.from(wav)], { type: "audio/wav" }),
-            },
-            stamp: "video-options-fixture",
-          });
-        });
-      } finally {
-        db.close();
-      }
-    },
-    { episode, asset, wav: [...wave([Buffer.alloc(duration * 48_000)])] },
-  );
-  await page.goto(`/?view=studio&episode=${id}`);
-
-  const panel = page.getByRole("region", {
-    name: english("episode.video.title"),
-  });
+  const panel = await openEpisode(page);
   const render = panel.getByRole("button", {
     name: english("video.panel.render"),
   });
@@ -140,6 +184,10 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     name: english("publish.review.downloadPackage"),
   });
   await expect(render).toBeEnabled({ timeout: 15_000 });
+  await expect(panel.getByText(english("video.panel.estimate.media", {
+    duration: "1.5",
+    size: "1.44",
+  }))).toBeVisible();
   await expect(panel.getByLabel(english("video.panel.scene"))).toHaveValue(
     "waveform",
   );

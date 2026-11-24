@@ -545,6 +545,40 @@ function videoDigest(preview: Locator) {
   });
 }
 
+test("Studio rechecks estimated storage before decode and unblocks when space is available", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.storage, "estimate", {
+      configurable: true,
+      value: async () => ({ usage: 1, quota: 128 * 1024 ** 2 }),
+    });
+  });
+  const { panel, render, unexpected } = await openFinishedEpisode(page, context, baseURL!);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.storage, "estimate", {
+      configurable: true,
+      value: async () => ({ usage: 1, quota: 1 }),
+    });
+  });
+  await render.click();
+  const reason = english("video.panel.storageLimit");
+  await expect(panel.getByText(reason, { exact: true })).toBeVisible();
+  await expect(render).toBeDisabled();
+  await expect(render).toHaveAccessibleDescription(reason);
+  await expect(panel.locator("video")).toHaveCount(0);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.storage, "estimate", {
+      value: async () => ({ usage: 1, quota: 128 * 1024 ** 2 }),
+    });
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(render).toBeEnabled();
+  expect(unexpected).toEqual([]);
+});
+
 test("a storage quota failure preserves the last approved export", async ({
   playwright,
   baseURL,
@@ -589,6 +623,12 @@ test("a storage quota failure preserves the last approved export", async ({
     });
     const reopenedRequests = await guardFixtureNetwork(context, baseURL!);
     const reopened = await context.newPage();
+    // Exercise IndexedDB rollback when the browser cannot estimate headroom.
+    await reopened.addInitScript(() => {
+      Object.defineProperty(navigator.storage, "estimate", {
+        value: async () => ({}),
+      });
+    });
     const cdp = await context.newCDPSession(reopened);
     const origin = new URL(baseURL!).origin;
     await cdp.send("Storage.overrideQuotaForOrigin", { origin, quotaSize: 1 });

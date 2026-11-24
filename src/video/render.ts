@@ -1,6 +1,7 @@
 import { createTranslator, t } from "../i18n/index.ts";
 import { recordCaptionTrack } from "./caption-track.ts";
 import { ensureVideoFonts } from "./fonts/loader.ts";
+import { maxEncodedBytes, mebibyte, videoEncodingRates } from "./limits.ts";
 import { overlayCopy, prepareOverlay } from "./overlay.ts";
 import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
 import { defaultSceneId, getScene } from "./scenes/registry.ts";
@@ -77,9 +78,6 @@ function drawStage(
 
 const maxQueueSize = 4;
 const maxVideoFramesInFlight = 24;
-const maxEncodedBytes = 128 * 1024 * 1024;
-const minimumVideoBitrate = 900_000;
-const maximumVideoBitrate = 2_400_000;
 const keyFrameIntervalSeconds = 4;
 const audioBlockSize = 4096;
 const opusSampleRate = 48_000;
@@ -410,15 +408,8 @@ export async function renderVideo({
     throw new Error(t("video.render.noAudioEncoder"));
   if (!subtle) throw new Error(t("video.render.noHash"));
 
-  const audioBitrate = numberOfChannels === 1 ? 64_000 : 128_000;
-  // Reserve 20% of the estimated budget for variable-rate output.
-  const videoBitrate = Math.max(
-    minimumVideoBitrate,
-    Math.min(
-      maximumVideoBitrate,
-      Math.floor((maxEncodedBytes * 8 * 0.8) / duration) - audioBitrate,
-    ),
-  );
+  const { audioBitrate, videoBitrate, fallbackVideoBitrate } =
+    videoEncodingRates(duration, numberOfChannels);
   const videoSettings = {
     width,
     height,
@@ -438,9 +429,9 @@ export async function renderVideo({
   async function supportedVideoConfig(config: VideoEncoderConfig) {
     // Retain the previous target for encoders that reject the preferred rate.
     const candidates =
-      videoBitrate === minimumVideoBitrate
+      videoBitrate === fallbackVideoBitrate
         ? [config]
-        : [config, { ...config, bitrate: minimumVideoBitrate }];
+        : [config, { ...config, bitrate: fallbackVideoBitrate }];
     for (const candidate of candidates) {
       const variable = { ...candidate, bitrateMode: "variable" as const };
       for (const settings of [variable, candidate]) {
@@ -631,7 +622,7 @@ export async function renderVideo({
     if (encodedBytes > maxEncodedBytes)
       throw new Error(
         t("video.render.encodedSizeLimit", {
-          size: maxEncodedBytes / 1024 ** 2,
+          size: maxEncodedBytes / mebibyte,
         }),
       );
     const bytes = new Uint8Array(chunk.byteLength);
