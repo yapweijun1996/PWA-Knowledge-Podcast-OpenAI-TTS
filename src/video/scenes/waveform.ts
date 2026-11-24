@@ -153,7 +153,7 @@ export function drawWaveform(
   const colors = palettes[paletteId];
   const bins = geometry.waveBarsPerHost;
   const baselineHeight = geometry.stroke.waveRail;
-  const tickHeight = Math.max(3, baselineHeight + 1);
+  const tickHeight = designTokens.common.waveIdleTickPx;
   geometry.wave.forEach((rail, host) => {
     const y = rail.y + rail.height / 2;
     context.fillStyle = colors.track;
@@ -169,9 +169,12 @@ export function drawWaveform(
     context.fillStyle = host ? colors.hostB : colors.hostA;
     for (let bin = 0; bin < bins; bin++) {
       const amplitude = speaking ? (levels[index * bins + bin] ?? 0) : 0;
+      // Boost moderate portrait peaks without clipping the differences between bins.
+      const lifted =
+        amplitude + geometry.waveHeightLift * amplitude * (1 - amplitude);
       const height = Math.min(
         rail.height,
-        tickHeight + amplitude * (rail.height - tickHeight),
+        tickHeight + lifted * (rail.height - tickHeight),
       );
       const x = rail.x + (bin + 0.5) * pitch - width / 2;
       if (context.beginPath && context.roundRect && context.fill) {

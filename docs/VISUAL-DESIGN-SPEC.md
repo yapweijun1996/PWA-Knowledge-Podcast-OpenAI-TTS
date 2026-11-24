@@ -114,7 +114,11 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
 
 **Safe areas.** The centered 90% rectangle follows SMPTE’s 16:9 title-safe dimensions and is also the product’s baseline for portrait. The stricter product rectangles above reserve roughly 15% at the bottom of landscape and 22% at the right and 28% at the bottom of portrait. Use landscape top and bottom player-control masks and portrait top controls, right action rail, and bottom metadata masks in QA. Google publishes overlay templates for **ads**, which are a reference for the kinds of areas to reserve. The organic watch page and Shorts Feed masks require device checks. [SMPTE ST 2046-1](https://pub.smpte.org/pub/st2046-1/st2046-1-2009.pdf) and [Google Ads video safe-zone guidance](https://support.google.com/google-ads/answer/13547298?hl=en), accessed 2026-11-23.
 
-The portrait chapter wash spans the frame width and peaks near `.35H` using the palette’s primary ink at up to `.06` alpha. The chapter chip leaves about `.036H` above the caption plate. The card and callout rail take turns.
+**Token note.** Portrait chapter titles use `.047H` type. Short titles fit in the `[.08, .30, .64, .45]` box. Longer titles can extend to `.78W`, and three-line titles start at `.285H` and end before `.485H`. This clears the chapter chip centered at `.53H`. The portrait chapter wash spans the frame width and peaks near `.35H` using the palette’s primary ink at up to `.06` alpha. The card and callout rail take turns.
+
+The portrait waveform center at `.355H` brings the rails closer to the host chips at `.480H`. The HUD stays at `.120H`. Caption vertical padding is `.007H`, which lowers the center of the two-line plate by `.003H` while keeping its bottom at or below `.68H` and its right edge at `.78W`.
+
+Both scenes use a `.003H` inset outline in the active host's palette accent. Waveform rails use a `.001H` baseline with 3 px native idle ticks. Portrait adds `.65 × a × (1 − a)` to the smoothed normalized amplitude `a` to bring moderate sustained peaks near `.04H` in total height. The half-height caps are `.039H` in portrait and `.058H` in landscape.
 
 Use primary ink for the video wordmark, both host labels, progress and chapter index labels, and captions. Use the episode language for the video and publish-thumbnail wordmark. Singapore mixed episodes use the English mark and keep their mixed-script caption layout. A fitting custom show name takes precedence on the video.
 

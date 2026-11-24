@@ -6,6 +6,7 @@ import { drawFrame } from "../src/video/draw.ts";
 import { renderVideo } from "../src/video/render.ts";
 import { registerScene } from "../src/video/scenes/registry.ts";
 import { WebglContextLostError } from "../src/video/scenes/types.ts";
+import { videoLayout } from "../src/video/design/layout.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 import { buildTimeline } from "../src/video/timeline.ts";
 
@@ -402,26 +403,26 @@ test("landscape waveform drawing snapshot covers the live opening, chapter overl
   assert.deepEqual(
     trace.frames.map(drawingHash),
     [
-      "bd5175dc01b564aaab1e7806f76391b6bd24d66d22aba58d7425edeae5471de7",
-      "a2a6522fc1f5715699aa81c16d9f6af49936006b00b286eaae99203d8c7b98c9",
-      "6d072d8ebfe6456542bd8a24b7370cd14337347f6e55c6940bd44615e049c1db",
-      "60fbaaf99eff26b58ad08c1432e8f8e201044a51b97e17fb79383e7a246b1d70",
-      "dbf3f379ad93bc8b557d9db0e4e7665a997c4ebe2153ff98e90d9c79e19a6743",
-      "f55eb8a440414006c8513e6763327e4fe346deeb349f14cc384ca66885ea3238",
-      "7e87f674826d12ee097e95cf9930f1c8b78c237a1b736f7c73739e67170ee53e",
-      "240f06fc2dc2d35c128443036a8a4a9718421755801ecb3eccb190b2efdf478b",
-      "0c9224562466c22092f1bed8c5e65629d99d9d44bfecacfef87dfcae3bcd6cfe",
-      "a5b9f5670e11d5bce59f3ff4ac642f664716a0b8d7b9e10381901d31445f4258",
-      "413c13a1b8263b55812f2edf9e8ff91995cd68f92a69954fd0b4674e814e5464",
-      "7377c7bd6b71d39389407cded661a73a7ce8a3626401b7de3272d5c0856af6c2",
-      "db1d4857abd87932bd0e6e1407ce9454e9ae4862216df24e03131ac4d6af9aec",
-      "53b9ff6e3a4329140d07dfce00c7adc6f4be6402a058e618fb420b85a130473d",
-      "96a1b6d75922c9e6ab7fa58bfe1d621be7dd8c11cafa0ca79db30851219fa062",
-      "8a851d8e70c390b3a5b8b4e8ab0e046214b6ed0614ca7c5c82ddb2eadf84ec1a",
-      "132f0eb40b932b5921c99a2fc38bc1ecb871850ed3c11e4be7872eb6e43f321d",
-      "f61408ba493c7ab3cd898eaff84aa940724e6d05920ceeb7868f12ef20613d5a",
-      "6876fc61bbf6ac475dfd08d3f56c6d8ab673d301c5143b1cad897c6a5bc40a30",
-      "24fae7ed8b504ebf4535c048326960d5c869d8fe890ed520f1781d6962ced76a",
+      "9443625a88ca16af894b6e0444deda192e0eca5715f1030495c770fc1ee06f0b",
+      "38b97b6d38a406c52fb66ba2ab0f62d96185f0c7e4ee31ec2903e69ab8d3e71a",
+      "ec7febcc124a6cfe8c17e822daf071b89e1d55e67cb612225abe3640ed79330c",
+      "0f19f275bea8cd2852abdacd8f0b4ac4c5b1905b3b3011ff0cdb8ea224e3e865",
+      "ba0ff909cdcaca5a865d366a42bed1673c957c759db1449c3f65854d3bf33056",
+      "d2f2318aa237a3f67b38901ffd438e1e2b37fd5585eb1b7c007e1831eb115a88",
+      "76c8df54162ae64df4b195a6cdbf3c212ccb56cdb2ba402f8b83142caf4e82e6",
+      "fd996226a2fb758f6dab17b4d2750bb9fb379304872cace5cbdff5cf88d3a3db",
+      "ab76b662dfc5ba106f1cdad85fea047d223083209f0aaf6ff56295057c96261b",
+      "19dbba43728f4c8e8641a0c6f523d6ff290a66e0231b51c8aa108098986a88dd",
+      "71dcc628d7606c720d4fcc883d870871c4ca5df8bc8a2373672f51017ac303f5",
+      "aae016aa31909f92d072e730e8b977e2636607eacb584cf11be026d31ba3c12b",
+      "16fefdea52d65ea2cb38dcd7117df1707e0902eab446abdf02364e900cf2d025",
+      "2efbec1809da8072d229b63a615b82de094ab898bb092c739667f3f263207a3d",
+      "12bc29d0b90e37243e041b011937eda879028e7d7b3ad600d1891f56bf9b8209",
+      "b90b9fd532a7455f53795b34c33138b66c5189e4d878743d65ff265f5d288031",
+      "883adb02f2ceed8af8d4f9c40b209097ca70761fe434b55d151ef2d6c1b4f49c",
+      "a090ae10ba1f5d204d8d933f69cbf45a2acc251c273e4836e2e44c05652d2cd1",
+      "f6d1d763814e86d9fb865cf08935115e0ff30b82a6409174e9152be5719c5cd7",
+      "c37b762c0df7011188ef2d33032b1531653af09ec2195dc7f8bf0b2817c7fdac",
     ],
   );
 });
@@ -451,11 +452,11 @@ test("portrait waveform drawing snapshot pins the chapter wash and chapter chip"
   assert.deepEqual(
     [9, 10, 12, 14, 15].map((index) => drawingHash(trace.frames[index])),
     [
-      "d2619a6ce6bba05fc8265906f012ff2b63fed96359662b258a9a896152b532a8",
-      "6b8bec8001e6a95e7113ef000c2a0e46d44b94d9569a3d61e30019212fbe2bc3",
-      "53c518477115bfff2b3aed1047a55887e78e800f89381113b9d51c8c5417997b",
-      "3509f8d48ce6c671655dfe2a072f2b40d9a7e45383a3cec3f17ebc15acc12cf6",
-      "e942ec65ee5994fb27036cce33ba18975ac62d6b0cf1b5d12cdc3c474b5240a2",
+      "1c6555468fc139c97378290cdcce52eb5dae9ba7b1aa2249c73fb513aaa328df",
+      "40dc6eb4cd1a93a3bc5f37a3b6402c2120d5f96302aea291fd7cefcbfce9cbc8",
+      "d2ce008824a37a10c00983f3bb8a1f37300fc45c9a0db0f67b7c14026094d4c5",
+      "62df024f051d66587349ef9092db1cc75b79c4c44ed19a80564f13f516364667",
+      "05f314dfc774a36ef8e7f99d707a32f1b7bdcb5ea3e62fae54fa3d2d87759df7",
     ],
   );
 });
@@ -761,6 +762,23 @@ test("composites a chapter's WebGL scene before its text and reports actual scen
     trace.frames[6].calls.some(([method]) => method === "image"),
     false,
   );
+  const { hostChips } = videoLayout(1920, 1080, "landscape");
+  for (const [index, expected] of [
+    [2, [palettes.aurora.hostA]],
+    [5, []],
+    [7, [palettes.aurora.hostB]],
+  ]) {
+    const outlines = trace.frames[index].calls.filter((call) => {
+      const [method, ink, , y, , height] = call;
+      return (
+        method === "rect" &&
+        [palettes.aurora.hostA, palettes.aurora.hostB].includes(ink) &&
+        y === hostChips[0].y &&
+        height === hostChips[0].height
+      );
+    });
+    assert.deepEqual(outlines.map(([, color]) => color), expected);
+  }
   for (const frame of trace.frames.slice(7)) {
     assert.deepEqual(frame.calls[1], ["image", layer, 0, 0]);
     assert.equal(

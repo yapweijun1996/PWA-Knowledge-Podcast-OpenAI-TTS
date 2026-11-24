@@ -282,13 +282,17 @@ export function prepareOverlay(
     geometry.callout.width - 3 * calloutPad.x - stroke.calloutRule;
   const hostWidth =
     geometry.hostChips[0].width - 2 * hostPad.x - marker - markerGap;
-  const chapterWidth = geometry.chapter.width - stroke.cardRule - calloutPad.x;
-  const titleWidth = geometry.title.width - stroke.cardRule - calloutPad.x;
+  const cardTextWidth = (box: PixelBox) =>
+    box.width - stroke.cardRule - calloutPad.x;
+  const captionBottom =
+    orientation === "portrait"
+      ? Math.floor(bottom(caption))
+      : Math.round(bottom(caption));
   const captionPlate = {
     x: Math.round(caption.x),
     y: Math.round(caption.y),
     width: Math.round(right(caption)) - Math.round(caption.x),
-    height: Math.round(bottom(caption)) - Math.round(caption.y),
+    height: captionBottom - Math.round(caption.y),
   };
   const canvasFont = (role: keyof typeof type) =>
     videoFont(weight[role], type[role]);
@@ -363,12 +367,19 @@ export function prepareOverlay(
     }),
   );
   const cardLayouts = new Map(
-    cards.map((card) => [
-      card,
-      card.kind === "chapter"
-        ? wrap("chapter", card.title, chapterWidth)
-        : wrap("title", card.title, titleWidth),
-    ]),
+    cards.map((card) => {
+      const role = card.kind === "chapter" ? "chapter" : "title";
+      const shortBox = role === "chapter" ? geometry.chapterShort : undefined;
+      if (shortBox) {
+        const width = cardTextWidth(shortBox);
+        const lines = wrap(role, card.title, width, false);
+        if (lines.length > 0 && lines.length <= 2)
+          return [card, { box: shortBox, width, lines }] as const;
+      }
+      const box = geometry[role];
+      const width = cardTextWidth(box);
+      return [card, { box, width, lines: wrap(role, card.title, width) }] as const;
+    }),
   );
   const opening = cards.find(
     (card) => card.kind === "intro" && card.start === 0,
@@ -520,12 +531,27 @@ export function prepareOverlay(
       hostNameWidths[host] + 2 * hostPad.x + marker + markerGap,
     );
     const badge = { ...box, x: centerX(box) - width / 2, width };
-    rect(context, badge, palette.plate, radius.host);
+    const accent = host === "B" ? palette.hostB : palette.hostA;
+    if (active) {
+      const outline = stroke.activeHostChip;
+      rect(context, badge, accent, radius.host);
+      rect(
+        context,
+        {
+          x: badge.x + outline,
+          y: badge.y + outline,
+          width: badge.width - 2 * outline,
+          height: badge.height - 2 * outline,
+        },
+        palette.plate,
+        radius.host - outline,
+      );
+    } else rect(context, badge, palette.plate, radius.host);
     markerShape(
       badge.x + hostPad.x + marker / 2,
       centerY(badge),
       host,
-      host === "B" ? palette.hostB : palette.hostA,
+      accent,
       active,
       emphasis,
     );
@@ -644,21 +670,20 @@ export function prepareOverlay(
             stroke.progress / 2,
           );
       }
-      if (card) {
+      const cardLayout = card && cardLayouts.get(card);
+      if (card && cardLayout) {
         const chapterCard = card.kind === "chapter";
         const role = chapterCard ? "chapter" : "title";
-        const box = geometry[role];
-        const width = chapterCard ? chapterWidth : titleWidth;
+        const { box, width, lines: inkLines } = cardLayout;
         const x = box.x + stroke.cardRule + calloutPad.x;
-        const inkLines = cardLayouts.get(card) ?? [];
         const step = type[role] * leading[role];
         const label = chapterCard && copy.chapterLabels[chapterIndex];
         const total =
           step * inkLines.length +
           (label ? type.progress * leading.caption + geometry.progressGap : 0);
         const top =
-          chapterCard && orientation === "portrait"
-            ? box.y
+          chapterCard && geometry.chapterShort
+            ? (inkLines.length > 2 ? box : geometry.chapterShort).y
             : centerY(box) - total / 2;
         const motionAmount = decoration(
           time,

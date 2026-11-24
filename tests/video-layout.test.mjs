@@ -92,6 +92,7 @@ for (const [
       layout.title,
       layout.titleGraphic,
       layout.chapter,
+      ...(layout.chapterShort ? [layout.chapterShort] : []),
       layout.stage,
     ];
     for (const box of boxes) {
@@ -101,6 +102,7 @@ for (const [
       );
     }
     close(layout.type.caption, fontSize);
+    close(layout.stroke.activeHostChip / height, 0.003);
     close(layout.marker, (orientation === "landscape" ? 0.026 : 0.018) * height);
     close(
       layout.type.wordmark,
@@ -121,17 +123,25 @@ for (const [
     }
     assert.equal(layout.waveBarsPerHost, bars);
     if (orientation === "portrait") {
-      close(layout.chapter.y / height, 0.30);
-      close(layout.type.chapter / height, 0.041);
+      close(layout.chapter.y / height, 0.285);
+      close(layout.chapterShort.x / width, 0.08);
+      close(layout.chapterShort.y / height, 0.30);
+      close(right(layout.chapterShort) / width, 0.64);
+      close(bottom(layout.chapterShort) / height, 0.45);
+      close(layout.type.chapter / height, 0.047);
       close(center(layout.chapterChip) / height, 0.53);
       close(center(layout.cardChip) / height, 0.505);
+      close(center(hostChips[0]) / height, 0.48);
+      close(wordmark.y / height, 0.12);
+      close(progress.y / height, 0.12);
       close((caption.x + caption.width / 2) / width, 0.43);
-      close((caption.y - bottom(layout.chapterChip)) / height, 0.03572);
+      close(center(caption) / height, 0.63396);
+      assert.ok((caption.y - bottom(layout.chapterChip)) / height >= 0.03572);
       assert.ok(bottom(progress) < layout.chapter.y);
       assert.ok(bottom(layout.chapter) < callout.y);
       assert.ok(bottom(layout.chapter) < layout.chapterChip.y);
       close(layout.stage.y / height, 0.17);
-      for (const rail of wave) close(center(rail) / height, 0.3);
+      for (const rail of wave) close(center(rail) / height, 0.355);
       for (const [, y] of designTokens.portrait.orbCenters) close(y, 0.3);
       close(designTokens.portrait.orbDiameterH, 0.118);
     }
@@ -239,11 +249,14 @@ for (const [
       );
       assert.equal(plate.color, palettes.ocean.plate);
       assert.equal(plate.alpha, 1);
+      const plateBottom = orientation === "portrait"
+        ? Math.floor(bottom(caption))
+        : Math.round(bottom(caption));
       assert.deepEqual(plate.box, [
         x,
         y,
         Math.round(right(caption)) - x,
-        Math.round(bottom(caption)) - y,
+        plateBottom - y,
         Math.round(layout.radius.caption),
       ]);
       if (previousPlate) assert.deepEqual(plate, previousPlate);
@@ -251,6 +264,9 @@ for (const [
         (line) => line.font === videoFont(600, fontSize),
       );
       assert.equal(text.length, time < 2 ? 1 : 2);
+      const lineHalf = (fontSize * 1.22) / 2;
+      assert.ok(text[0].y - lineHalf >= y);
+      assert.ok(text.at(-1).y + lineHalf <= plateBottom);
       close(
         text.reduce((sum, line) => sum + line.y, 0) / text.length,
         center(caption),
@@ -271,27 +287,22 @@ for (const [
   });
 }
 
-test("portrait chapter titles of one to three lines clear the HUD, chip and two-line caption", () => {
-  const resolution = { width: 1080, height: 1920 };
+function checkChapterRails(orientation, resolution, titles, captionText) {
   const { width, height } = resolution;
-  const { type, progress, chapter, chapterChip, callout, caption } = videoLayout(
-    width,
-    height,
-    "portrait",
-  );
-  const captionText = "We share the park and walk home.";
+  const { type, stroke, progress, chapter, chapterShort, chapterChip, callout, caption } =
+    videoLayout(width, height, orientation);
   const calloutText = "A useful detail about shared space";
   const titleFont = videoFont(800, type.chapter);
   const captionFont = videoFont(600, type.caption);
   const calloutFont = videoFont(600, type.callout);
   const chapterId = "park";
   const chapterEnd = 100 / 30;
-  const titles = [
-    "Shared spaces",
-    "Sharing spaces around the park",
-    "Shared spaces around the park near the river",
-  ];
-  for (const [index, title] of titles.entries()) {
+  const titleStep = type.chapter * 1.16;
+  const captionBottom = chapterShort
+    ? Math.floor(bottom(caption))
+    : Math.round(bottom(caption));
+  for (const { title, lines, short, truncated } of titles) {
+    const box = short ? chapterShort : chapter;
     const plan = {
       duration: 6,
       fps: 30,
@@ -327,26 +338,37 @@ test("portrait chapter titles of one to three lines clear the HUD, chip and two-
         ({ value }) => value === copy.chapterLabels[1],
       );
       const titleTop = label.y - (type.progress * 1.22) / 2;
-      close(titleTop / height, 0.30);
+      if (chapterShort) close(titleTop / height, lines === 3 ? 0.285 : 0.30);
       const track = context.shapes.find(({ color }) => color === palette.track);
       close(track.box[1] + track.box[3], bottom(progress));
       assert.ok(bottom(progress) < titleTop);
+      assert.ok(titleTop >= box.y - 1e-8);
 
       const titleLines = context.text.filter(({ font }) => font === titleFont);
-      assert.equal(titleLines.length, index + 1, title);
-      assert.equal(titleLines.map(({ value }) => value).join(" "), title);
-      const titleBottom = titleLines.at(-1).y + (type.chapter * 1.16) / 2;
-      assert.ok(titleBottom <= bottom(chapter));
+      assert.equal(titleLines.length, lines, title);
+      const displayed = titleLines.map(({ value }) => value).join(" ");
+      if (truncated) {
+        assert.ok(displayed.endsWith("…"));
+        assert.ok(title.startsWith(displayed.slice(0, -1)));
+      } else assert.equal(displayed, title);
+      const titleBottom = titleLines.at(-1).y + titleStep / 2;
+      assert.ok(titleBottom <= bottom(box));
       assert.ok(titleBottom < callout.y);
+      assert.ok(titleLines.every(({ x, width }) => x + width <= right(box) + 1e-8));
+      const rule = context.shapes.find(({ box }) => box[2] === stroke.cardRule);
+      if (rule) {
+        assert.ok(rule.box[1] >= box.y);
+        assert.ok(rule.box[1] + rule.box[3] <= bottom(box));
+      }
 
       const plates = context.shapes.filter(({ color }) => color === palette.plate);
       assert.equal(plates.length, 2);
       const [chipPlate, captionPlate] = plates.map(({ box }) => box);
-      close(chipPlate[1], chapterChip.y);
-      assert.ok(titleBottom < chipPlate[1]);
+      close(chipPlate[1] - stroke.activeHostChip, chapterChip.y);
+      assert.ok(titleBottom < chapterChip.y);
       close(captionPlate[1], Math.round(caption.y));
-      close(captionPlate[1] + captionPlate[3], Math.round(bottom(caption)));
-      assert.ok(chipPlate[1] + chipPlate[3] < captionPlate[1]);
+      close(captionPlate[1] + captionPlate[3], captionBottom);
+      assert.ok(bottom(chapterChip) < captionPlate[1]);
       const cueLines = context.text.filter(({ font }) => font === captionFont);
       assert.equal(cueLines.length, 2);
       assert.equal(cueLines.map(({ value }) => value).join(" "), captionText);
@@ -365,6 +387,36 @@ test("portrait chapter titles of one to three lines clear the HUD, chip and two-
     assert.ok(stageB[1] + stageB[3] < calloutPlate[1]);
     assert.ok(calloutPlate[1] + calloutPlate[3] < captionPlate[1]);
   }
+}
+
+test("portrait chapter titles of one to three lines clear the HUD, chip and two-line caption", () => {
+  checkChapterRails(
+    "portrait",
+    { width: 1080, height: 1920 },
+    [
+      { title: "Parks", lines: 1, short: true },
+      { title: "Shared spaces", lines: 2, short: true },
+      { title: "Sharing spaces around the park", lines: 3 },
+    ],
+    "We share the park and walk home.",
+  );
+});
+
+test("landscape chapter titles respect the two-line limit and clear the HUD, chip and two-line caption", () => {
+  checkChapterRails(
+    "landscape",
+    { width: 1920, height: 1080 },
+    [
+      { title: "Shared spaces", lines: 1 },
+      { title: "Shared spaces around the park near the river", lines: 2 },
+      {
+        title: "How parks connect neighbours across so many city blocks and shared community spaces",
+        lines: 2,
+        truncated: true,
+      },
+    ],
+    "We share the park with our neighbours and walk home together.",
+  );
 });
 
 test("compact landscape host chips fit their labels and show both marker states", () => {
@@ -420,13 +472,80 @@ test("compact landscape host chips fit their labels and show both marker states"
       assert.ok(x + context.measureText(value).width <= left + width);
     }
     const bStrokes = context.shapes.filter(
-      ({ color }) => color === palette.hostB,
+      ({ color, box }) => color === palette.hostB && box[2] <= layout.marker,
     );
     assert.equal(bStrokes.length, 2);
     for (const { box } of bStrokes) assert.ok(box[3] >= 1);
     assert.ok(bStrokes[0].box[1] + bStrokes[0].box[3] < bStrokes[1].box[1]);
     if (active === 1) assert.ok(strokes[0] >= 1);
   }
+});
+
+test("only the speaking chip has an inset accent outline and both labels clear the source contrast floor", (t) => {
+  const luminance = (hex) => hex.match(/[\da-f]{2}/giu)
+    .map((pair) => parseInt(pair, 16) / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  const minimum = { active: Infinity, idle: Infinity };
+  for (const [orientation, width, height] of cases) {
+    const { hostChips, stroke, radius } = videoLayout(width, height, orientation);
+    const scenes = ["A", "B"].map((speakerId, start) => ({
+      kind: "turn",
+      speakerId,
+      start,
+      end: start + 1,
+      audioStart: start,
+      captions: [],
+    }));
+    const context = recordingContext();
+    const overlay = prepareOverlay(context, {
+      resolution: { width, height },
+      duration: 3,
+      scenes,
+    });
+    for (const [id, palette] of Object.entries(palettes)) {
+      for (const time of [0, 1, 2]) {
+        context.shapes.length = 0;
+        context.text.length = 0;
+        overlay.drawHosts(overlay.frameAt(time), id);
+        const outlines = context.shapes.filter(({ box, color }) =>
+          box[3] === hostChips[0].height &&
+          [palette.hostA, palette.hostB].includes(color));
+        assert.deepEqual(outlines.map(({ color }) => color),
+          time === 0 ? [palette.hostA] : time === 1 ? [palette.hostB] : []);
+        const plates = context.shapes.filter(({ color }) => color === palette.plate);
+        assert.equal(plates.length, 2);
+        for (const [host, chip] of hostChips.entries()) {
+          const active = host === time;
+          const [x, y, w, h, r] = plates[host].box;
+          const { color } = context.text[host];
+          assert.equal(color, active ? palette.ink : palette.secondaryInk);
+          const colors = [luminance(color), luminance(plates[host].color)];
+          const contrast = (Math.max(...colors) + 0.05) / (Math.min(...colors) + 0.05);
+          assert.ok(contrast >= 4.5, `${orientation} ${id} host ${host} has ${contrast}:1 contrast`);
+          const state = active ? "active" : "idle";
+          minimum[state] = Math.min(minimum[state], contrast);
+          if (active) {
+            const [left, top, width, height, outerRadius] = outlines[0].box;
+            close(top, chip.y);
+            close(x - left, stroke.activeHostChip);
+            close(y - top, stroke.activeHostChip);
+            close(width - w, 2 * stroke.activeHostChip);
+            close(height - h, 2 * stroke.activeHostChip);
+            close(outerRadius - r, stroke.activeHostChip);
+            assert.ok(left >= chip.x && left + width <= right(chip));
+          } else {
+            close(y, chip.y);
+            close(h, chip.height);
+            close(r, radius.host);
+          }
+        }
+      }
+    }
+  }
+  t.diagnostic(`Minimum source contrast: active ${minimum.active.toFixed(2)}:1, idle ${minimum.idle.toFixed(2)}:1`);
 });
 
 test("localized fallback names fit and the overlay freezes catalogue copy at preparation", () => {

@@ -265,41 +265,85 @@ test("the waveform uses all bins at the start, middle and end of a turn", () => 
   }
 });
 
-test("the compact speaking rail preserves varied local PCM peaks across all 36 bars", () => {
-  const resolution = { width: 320, height: 180 };
-  const active = { ...turn, start: 0, end: 2, audioStart: 0 };
-  const plan = { resolution, fps: 30, duration: 2, scenes: [active] };
-  const pattern = [0.25, 0.75, 0.125, 1, 0.5, 0.875];
-  const peaks = Array.from(
-    { length: 36 },
-    (_, index) => pattern[index % pattern.length],
-  );
-  const samples = new Float32Array(2 * sampleRate);
-  // Put one signed peak inside each 320-sample bin of the centered 480 ms window.
-  peaks.forEach((peak, bin) => {
-    samples[0.76 * sampleRate + 320 * bin + 160] = -peak;
-  });
-  const audio = { sampleRate, channels: [samples] };
-  assert.deepEqual(wavePeaks(audio, 1, active, 36), peaks);
-  const prepared = prepareWaveform(plan, audio);
-  const calls = [];
-  drawWaveform({ fillRect: (...box) => calls.push(box) }, prepared, {
-    index: 30,
-    time: 1,
-    turn: active,
-    paletteId: "aurora",
-  });
-  const bars = calls.slice(1, 37);
-  assert.equal(bars.length, 36);
-  for (const [bin, [, , width, height]] of bars.entries()) {
-    assert.ok(Math.abs(width - (320 * 0.24 * 0.58) / 36) < 1e-10);
-    assert.ok(height <= 2 * 0.058 * 180);
-    const next = (bin + 1) % bars.length;
-    assert.ok(Math.abs(height - bars[next][3]) >= 1);
-    assert.equal(
-      Math.sign(height - bars[next][3]),
-      Math.sign(peaks[bin] - peaks[next]),
+for (const [orientation, width, height, count, railWidth, cap] of [
+  ["landscape", 320, 180, 36, 0.24, 0.058],
+  ["portrait", 1080, 1920, 20, 0.27, 0.039],
+]) {
+  test(`the ${orientation} speaking rail preserves local PCM variation across all ${count} bars`, () => {
+    const resolution = { width, height };
+    const active = { ...turn, start: 0, end: 2, audioStart: 0 };
+    const plan = { resolution, fps: 30, duration: 2, scenes: [active] };
+    const pattern = [0.25, 0.75, 0.125, 1, 0.5, 0.875];
+    const peaks = Array.from(
+      { length: count },
+      (_, index) => pattern[index % pattern.length],
     );
+    const samples = new Float32Array(2 * sampleRate);
+    const binSamples = (0.48 * sampleRate) / count;
+    // Put one signed peak inside each bin of the centered 480 ms window.
+    peaks.forEach((peak, bin) => {
+      samples[0.76 * sampleRate + binSamples * (bin + 0.5)] = -peak;
+    });
+    const audio = { sampleRate, channels: [samples] };
+    assert.deepEqual(wavePeaks(audio, 1, active, count), peaks);
+    const prepared = prepareWaveform(plan, audio);
+    const calls = [];
+    drawWaveform({ fillRect: (...box) => calls.push(box) }, prepared, {
+      index: 30,
+      time: 1,
+      turn: active,
+      paletteId: "aurora",
+    });
+    const bars = calls.slice(1, count + 1);
+    assert.equal(bars.length, count);
+    for (const [bin, [, , barWidth, barHeight]] of bars.entries()) {
+      assert.ok(Math.abs(barWidth - (width * railWidth * 0.58) / count) < 1e-10);
+      assert.ok(barHeight >= 3 && barHeight <= 2 * cap * height);
+      const next = (bin + 1) % bars.length;
+      assert.ok(Math.abs(barHeight - bars[next][3]) >= 1);
+      assert.equal(
+        Math.sign(barHeight - bars[next][3]),
+        Math.sign(peaks[bin] - peaks[next]),
+      );
+    }
+  });
+}
+
+test("native rails keep 3 px idle ticks and sustained voice peaks near 0.04H", (t) => {
+  const first = { ...turn, start: 0, end: 2, audioStart: 0 };
+  const second = { ...first, speakerId: "B", start: 2, end: 4, audioStart: 2 };
+  const samples = new Float32Array(4 * sampleRate);
+  samples.fill(0.13, 0, 2 * sampleRate);
+  samples.fill(1, 2 * sampleRate);
+  const audio = { sampleRate, channels: [samples] };
+  for (const [width, height, cap] of [[1920, 1080, 0.058], [1080, 1920, 0.039]]) {
+    const prepared = prepareWaveform({
+      resolution: { width, height },
+      fps: 30,
+      duration: 5,
+      scenes: [first, second],
+    }, audio);
+    const count = prepared.geometry.waveBarsPerHost;
+    function heights(time, turn) {
+      const calls = [];
+      drawWaveform({ fillRect: (...box) => calls.push(box[3]) }, prepared, {
+        index: time * 30,
+        time,
+        turn,
+        paletteId: "aurora",
+      });
+      assert.ok(calls[0] < 3 && calls[count + 1] < 3);
+      return [calls.slice(1, count + 1), calls.slice(count + 2)];
+    }
+    const idle = Array(count).fill(3);
+    const [speaking, resting] = heights(1, first);
+    assert.deepEqual(resting, idle);
+    for (const peak of speaking) assert.ok(peak >= 0.037 * height && peak <= 0.044 * height);
+    const [restingAfterSwitch, clipped] = heights(3, second);
+    assert.deepEqual(restingAfterSwitch, idle);
+    for (const peak of clipped) assert.ok(peak > 0.99 * 2 * cap * height && peak <= 2 * cap * height);
+    assert.deepEqual(heights(4, second), [idle, idle]);
+    t.diagnostic(`${width}×${height} sustained peak height: ${(speaking[0] / height).toFixed(4)}H`);
   }
 });
 

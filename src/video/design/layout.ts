@@ -84,6 +84,10 @@ export function videoLayout(
     title: box(tokens.titleBox),
     titleGraphic: box(tokens.titleGraphicBox),
     chapter: box(tokens.chapterBox),
+    chapterShort:
+      orientation === "portrait"
+        ? box(designTokens.portrait.chapterShortBox)
+        : undefined,
     stage: box(tokens.stageBox),
     hostChips: tokens.hostTagCenters.map(hostBox),
     cardChip: hostBox(tokens.cardHostTagCenter),
@@ -114,6 +118,7 @@ export function videoLayout(
     },
     wave,
     waveBarsPerHost: tokens.waveBarsPerHost,
+    waveHeightLift: tokens.waveHeightLift,
     text: tokens.text,
   };
 }
