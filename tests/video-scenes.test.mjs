@@ -211,10 +211,11 @@ test("the smoothed waveform is seek-independent, resets on host changes and deca
   const alpha = 1 - Math.exp(-1000 / (30 * 67));
   assert.equal(bins, 20);
   const target = Math.sqrt((0.4 - 0.012) / (1 - 0.012));
-  assert.ok(Math.abs(prepared.levels[0] - target * alpha) < 1e-7);
-  assert.ok(prepared.levels[bins] > prepared.levels[0]);
-  assert.ok(prepared.levels[bins * 30] < prepared.levels[bins * 24]);
-  assert.equal(prepared.levels[bins * 60], prepared.levels[0]);
+  const level = (index) => prepared.frame(index)[0];
+  assert.ok(Math.abs(level(0) - target * alpha) < 1e-7);
+  assert.ok(level(1) > level(0));
+  assert.ok(level(30) < level(24));
+  assert.equal(level(60), level(0));
   function draw(index, waveform) {
     const calls = [];
     const context = {

@@ -919,17 +919,9 @@ export function useVideoRender(
       )
         total--;
       setState({ phase: "rendering", frames: 0, total });
-      const decoder = new OfflineAudioContext(1, 1, studioWavSampleRate);
-      const buffer = await blob.arrayBuffer();
-      signal.throwIfAborted();
-      // decodeAudioData consumes the ArrayBuffer. Only worker dispatch copies
-      // the decoded channel arrays.
-      const pcm = await decoder.decodeAudioData(buffer);
-      signal.throwIfAborted();
-      if (
-        pcm.length * pcm.numberOfChannels * Float32Array.BYTES_PER_ELEMENT >
-        maxVideoPcmBytes
-      ) {
+      // AudioCheck has already verified the canonical 44-byte Studio WAV header.
+      const samples = (blob.size - 44) / Int16Array.BYTES_PER_ELEMENT;
+      if (samples * Float32Array.BYTES_PER_ELEMENT > maxVideoPcmBytes) {
         setState({ phase: "failed", message: "video.panel.pcmLimit" });
         return;
       }
@@ -941,7 +933,7 @@ export function useVideoRender(
       } = await renderEpisodeVideo({
         locale: resolveLocale(),
         plan: { ...plan, allowVp9: true },
-        audio: pcm,
+        audio: blob,
         theme,
         sceneId,
         studio3d,

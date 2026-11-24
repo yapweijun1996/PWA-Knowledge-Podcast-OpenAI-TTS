@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { createHash, webcrypto } from "node:crypto";
 import test from "node:test";
 import { setLocale, t } from "../src/i18n/index.ts";
+import { pcmToWav } from "../src/factory/pcm.ts";
 import { drawFrame } from "../src/video/draw.ts";
+import { memoryPcmSource, openWavPcmSource } from "../src/video/pcm-source.ts";
 import { renderVideo } from "../src/video/render.ts";
 import { registerScene } from "../src/video/scenes/registry.ts";
 import { WebglContextLostError } from "../src/video/scenes/types.ts";
@@ -1311,6 +1313,43 @@ test("falls back to Opus at the source rate when AAC is unavailable", async () =
   assert.ok(trace.audio.every((block) => block.sampleRate === sampleRate));
   assert.equal(trace.audioChecks.at(-1).bitrate, 64_000);
   await assertOpusTrack(result.blob, plan.duration, plan.fps);
+});
+
+test("WAV and in-memory sources produce identical frame, encoder input and MP4 bytes", async () => {
+  const sampleRate = 24_000;
+  const samples = Float32Array.from({ length: 38_403 }, (_, index) =>
+    (((index * 231 + 900) % 30_000) - 30_000) / 32768,
+  );
+  const wav = pcmToWav([samples], sampleRate);
+  const sources = [
+    memoryPcmSource({ sampleRate, channels: [samples] }),
+    wav,
+    await openWavPcmSource(wav),
+  ];
+  const timeline = { ...plan, fps: 30 };
+  for (const fallback of [false, true]) {
+    let expected;
+    for (const audio of sources) {
+      const { deps, trace } = fakeDependencies({
+        audioSupport: ({ codec, sampleRate }) =>
+          fallback ? codec === "opus" && sampleRate === 48_000 : true,
+      });
+      const { sha256 } = await renderVideo({
+        plan: timeline,
+        audio,
+        theme: "dark",
+        deps,
+      });
+      const output = {
+        sha256,
+        frames: trace.frames.map((frame) => ({ ...frame })),
+        audio: trace.audio.map((block) => ({ ...block })),
+      };
+      assert.equal(trace.audio[0].sampleRate, fallback ? 48_000 : sampleRate);
+      if (expected) assert.deepEqual(output, expected);
+      else expected = output;
+    }
+  }
 });
 
 test("resamples to 48 kHz with linear interpolation and keeps Opus in sync", async () => {

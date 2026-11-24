@@ -1,11 +1,10 @@
 import * as THREE from "three";
 import {
   WebglContextLostError,
-  type VideoScene,
   type VideoSceneEnvironment,
 } from "../types.ts";
+import type { WindowedVideoScene } from "../../pcm.ts";
 import {
-  envelopeStride,
   prepareAudioEnvelopes,
   speakerEmphasisOffset,
   spectrumBins,
@@ -111,8 +110,6 @@ function buildStudio(
   renderer: THREE.WebGLRenderer,
   width: number,
   height: number,
-  fps: number,
-  envelopes: Float32Array,
   settings: Readonly<Studio3dSettings>,
 ) {
   const palette = getPalette(settings.paletteId);
@@ -262,8 +259,7 @@ function buildStudio(
     foreground.update();
   }
   if (fixedCamera) applyPose();
-  function renderAt(index: number, sceneTime = index / fps) {
-    const offset = index * envelopeStride;
+  function renderAt(envelope: Float32Array, sceneTime: number) {
     if (!fixedCamera) {
       cameraPoseAt(settings.cameraPresetId, sceneTime, mood, orientation, false, pose);
       applyPose();
@@ -271,8 +267,8 @@ function buildStudio(
 
     for (let host = 0; host < hosts.length; host++) {
       const { color, orb, halo, bandMaterial, pedestal, setEmphasis } = hosts[host];
-      const energy = (envelopes[offset + host] ?? 0) * motion.audio;
-      const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
+      const energy = (envelope[host] ?? 0) * motion.audio;
+      const emphasis = envelope[speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
       setEmphasis(emphasis);
       pedestal.material.uniforms.emphasis.value = emphasis;
@@ -284,7 +280,7 @@ function buildStudio(
 
     for (let bin = 0; bin < layout.ring.length; bin++) {
       const block = layout.ring[bin];
-      const energy = (envelopes[offset + 2 + bin] ?? 0) * motion.audio;
+      const energy = (envelope[2 + bin] ?? 0) * motion.audio;
       // Keep the rear ticks as a continuous rail. The near arc appears only
       // when there is enough energy to read as a bar above the floor.
       const activity = block.near ? Math.max(0, (energy - 0.12) / 0.88) : 1;
@@ -322,10 +318,10 @@ function buildStudio(
 // Per-chapter looks use the same PCM and clock as the rest of the episode.
 const envelopesByPlan = new WeakMap<
   VideoSceneEnvironment["plan"],
-  WeakMap<VideoSceneEnvironment["audio"], Float32Array>
+  WeakMap<VideoSceneEnvironment["audio"], ReturnType<typeof prepareAudioEnvelopes>>
 >();
 
-async function audioEnvelopes({ plan, audio, signal }: VideoSceneEnvironment) {
+function audioEnvelopes({ plan, audio }: VideoSceneEnvironment) {
   let byAudio = envelopesByPlan.get(plan);
   if (!byAudio) {
     byAudio = new WeakMap();
@@ -333,23 +329,18 @@ async function audioEnvelopes({ plan, audio, signal }: VideoSceneEnvironment) {
   }
   const saved = byAudio.get(audio);
   if (saved) return saved;
-  const precompute = prepareAudioEnvelopes(audio, plan);
-  let result = precompute.next();
-  while (!result.done) {
-    await new Promise<void>((resume) => setTimeout(resume, 0));
-    signal.throwIfAborted();
-    result = precompute.next();
-  }
-  byAudio.set(audio, result.value);
-  return result.value;
+  const envelopes = prepareAudioEnvelopes(audio, plan);
+  byAudio.set(audio, envelopes);
+  return envelopes;
 }
 
-export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
+export function createStudio3dScene(options?: Studio3dOptions): WindowedVideoScene & {
   getRenderStats(): { calls: number; triangles: number } | undefined;
 } {
   const { settings } = resolveStudio3dOptions(options);
   let renderer: THREE.WebGLRenderer | undefined;
   let studio: ReturnType<typeof buildStudio> | undefined;
+  let envelopes: ReturnType<typeof audioEnvelopes> | undefined;
   let gl: WebGL2RenderingContext | null = null;
   let releaseContext: WEBGL_lose_context | null = null;
   let removeListener: (() => void) | undefined;
@@ -376,24 +367,21 @@ export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
       renderer.setPixelRatio(1);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setSize(width, height, false);
-      const envelopes = await audioEnvelopes(env);
+      envelopes = audioEnvelopes(env);
       signal.throwIfAborted();
       if (gl.isContextLost()) {
         contextLost();
         return;
       }
-      studio = buildStudio(
-        renderer,
-        width,
-        height,
-        plan.fps,
-        envelopes,
-        settings,
-      );
+      studio = buildStudio(renderer, width, height, settings);
     },
-    draw({ index, sceneTime }) {
+    prepareFrame(index, signal) {
+      return envelopes?.prepareFrame(index, signal);
+    },
+    draw({ index, plan, sceneTime }) {
       if (gl?.isContextLost()) throw new WebglContextLostError();
-      studio?.renderAt(index, sceneTime);
+      if (envelopes)
+        studio?.renderAt(envelopes.frame(index), sceneTime ?? index / plan.fps);
       if (gl?.isContextLost()) throw new WebglContextLostError();
     },
     getRenderStats() {
@@ -407,6 +395,7 @@ export function createStudio3dScene(options?: Studio3dOptions): VideoScene & {
       renderer?.dispose();
       if (gl && !gl.isContextLost()) releaseContext?.loseContext();
       removeListener = studio = renderer = undefined;
+      envelopes = undefined;
       releaseContext = gl = null;
     },
   };

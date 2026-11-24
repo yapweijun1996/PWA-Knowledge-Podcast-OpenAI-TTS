@@ -313,10 +313,13 @@ test("studio audio handles pauses, truncated PCM, clipping and stereo downmix", 
 });
 
 function finishEnvelopePass(audio, plan) {
-  const pass = prepareAudioEnvelopes(audio, plan);
-  let batch = pass.next();
-  while (!batch.done) batch = pass.next();
-  return batch.value;
+  const reader = prepareAudioEnvelopes(audio, plan);
+  const frames = Math.ceil(plan.duration * plan.fps);
+  const envelopes = new Float32Array(frames * envelopeStride);
+  for (let index = 0; index < frames; index++) {
+    envelopes.set(reader.frame(index), index * envelopeStride);
+  }
+  return envelopes;
 }
 
 test("episode envelopes reset, use separate attack and release and support shuffled seeks", () => {

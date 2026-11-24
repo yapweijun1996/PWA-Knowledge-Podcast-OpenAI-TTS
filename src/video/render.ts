@@ -3,7 +3,8 @@ import { recordCaptionTrack } from "./caption-track.ts";
 import { ensureVideoFonts } from "./fonts/loader.ts";
 import { maxEncodedBytes, mebibyte, videoEncodingRates } from "./limits.ts";
 import { overlayCopy, prepareOverlay } from "./overlay.ts";
-import { sampleAmplitude, turnSampleRange, type PcmAudio } from "./pcm.ts";
+import { memoryPcmSource, openWavPcmSource, type PcmSource } from "./pcm-source.ts";
+import { turnSampleRange, type PcmAudio, type WindowedVideoScene } from "./pcm.ts";
 import { defaultSceneId, getScene } from "./scenes/registry.ts";
 import {
   resolveStudio3dOptions,
@@ -25,6 +26,8 @@ export type VideoRenderPlan = TimelinePlan & { allowVp9?: boolean };
 
 export type VideoAudio =
   | PcmAudio
+  | PcmSource
+  | Blob
   | Pick<AudioBuffer, "sampleRate" | "numberOfChannels" | "getChannelData">;
 
 export type VideoRenderDependencies = {
@@ -133,7 +136,11 @@ function aacDecoderMetadata(metadata: EncodedAudioChunkMetadata | undefined) {
   return { ...metadata, decoderConfig: { ...config, description: asc } };
 }
 
-function getPcm(audio: VideoAudio): PcmAudio {
+async function getPcm(audio: VideoAudio): Promise<PcmAudio> {
+  if (audio instanceof Blob || "readWindow" in audio) {
+    const source = audio instanceof Blob ? await openWavPcmSource(audio) : audio;
+    return { sampleRate: source.sampleRate, channels: [], source };
+  }
   if (!Number.isInteger(audio.sampleRate) || audio.sampleRate <= 0) {
     throw new RangeError(t("video.render.invalidSampleRate"));
   }
@@ -203,7 +210,7 @@ function waitForQueue(encoder: EncoderQueue, signal: AbortSignal) {
 }
 
 /** Map source PCM onto the output sample clock, leaving uncovered gaps silent. */
-function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
+function audioBlocks(plan: TimelinePlan, audio: PcmSource, sampleRate: number) {
   const { channels, sampleRate: sourceRate } = audio;
   const resample = sourceRate !== sampleRate;
   const turns = plan.scenes
@@ -212,7 +219,7 @@ function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
       const input = turnSampleRange(scene, sourceRate);
       const { start, end } = turnSampleRange(scene, sampleRate);
       const sourceEnd = Math.min(
-        channels[0].length,
+        audio.length,
         input.source + input.end - input.start,
       );
       const available = Math.ceil(
@@ -226,8 +233,8 @@ function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
       };
     });
   let current = 0;
-  return (offset: number, count: number) => {
-    const data = new Float32Array(count * channels.length);
+  return async (offset: number, count: number, signal: AbortSignal) => {
+    const data = new Float32Array(count * channels);
     const blockEnd = offset + count;
     while (current < turns.length && turns[current].end <= offset) current++;
     for (let index = current; index < turns.length; index++) {
@@ -237,22 +244,30 @@ function audioBlocks(plan: TimelinePlan, audio: PcmAudio, sampleRate: number) {
       const turnOffset = start - turn.start;
       const length = Math.min(blockEnd, turn.end) - start;
       if (length <= 0) continue;
-      channels.forEach((channel, plane) => {
+      const positionAt = (sample: number) =>
+        turn.source + ((turnOffset + sample) * sourceRate) / sampleRate;
+      const firstSample = resample
+        ? Math.floor(positionAt(0))
+        : turn.source + turnOffset;
+      const endSample = resample
+        ? Math.min(turn.sourceEnd, Math.floor(positionAt(length - 1)) + 2)
+        : firstSample + length;
+      signal.throwIfAborted();
+      const window = await audio.readWindow(firstSample, endSample - firstSample);
+      signal.throwIfAborted();
+      window.forEach((channel, plane) => {
         const destination = plane * count + start - offset;
-        if (!resample && channel instanceof Float32Array) {
-          const source = turn.source + turnOffset;
-          data.set(channel.subarray(source, source + length), destination);
+        if (!resample) {
+          data.set(channel, destination);
           return;
         }
         for (let sample = 0; sample < length; sample++) {
-          const position =
-            turn.source + ((turnOffset + sample) * sourceRate) / sampleRate;
+          const position = positionAt(sample);
           const left = Math.floor(position);
-          const first = sampleAmplitude(channel, left);
+          const first = channel[left - firstSample];
           const right = Math.min(left + 1, turn.sourceEnd - 1);
           data[destination + sample] =
-            first +
-            (sampleAmplitude(channel, right) - first) * (position - left);
+            first + (channel[right - firstSample] - first) * (position - left);
         }
       });
     }
@@ -300,12 +315,29 @@ export async function renderVideo({
   ) {
     throw new RangeError(t("video.render.invalidPlan"));
   }
-  const pcm = getPcm(audio);
+  const sceneAudio = await waitFor(getPcm(audio), stop);
+  const pcm = sceneAudio.source ?? memoryPcmSource(sceneAudio);
+  const numberOfChannels = pcm.channels;
+  if (!Number.isSafeInteger(pcm.sampleRate) || pcm.sampleRate <= 0)
+    throw new RangeError(t("video.render.invalidSampleRate"));
+  if (
+    !Number.isSafeInteger(numberOfChannels) ||
+    numberOfChannels <= 0 ||
+    !Number.isSafeInteger(pcm.length) ||
+    pcm.length < 0
+  ) {
+    throw new Error(t("video.render.invalidChannels"));
+  }
   // Keep the encoded PCM intact while freezing audio-reactive scene geometry.
   const visualPcm = plan.reducedMotion
-    ? { ...pcm, channels: pcm.channels.map(() => new Float32Array(0)) }
-    : pcm;
-  const numberOfChannels = pcm.channels.length;
+    ? {
+        sampleRate: pcm.sampleRate,
+        channels: Array.from(
+          { length: numberOfChannels },
+          () => new Float32Array(0),
+        ),
+      }
+    : sceneAudio;
   const copy = overlayCopy(plan);
   const orientation = planOrientation(plan);
   const mood = plan.mood ?? "calm";
@@ -393,7 +425,7 @@ export async function renderVideo({
   const chapterScenes = new Map<string, string>();
   const activeScenes = new Map<
     string,
-    { scene: VideoScene; canvas: SceneCanvas }
+    { scene: WindowedVideoScene; canvas: SceneCanvas }
   >();
 
   const VideoEncoderClass = deps.VideoEncoder ?? globalThis.VideoEncoder;
@@ -554,7 +586,7 @@ export async function renderVideo({
     selected: ReturnType<typeof getScene>,
     key = selected.id,
     settings = studio?.settings,
-  ): Promise<{ scene: VideoScene; canvas: SceneCanvas }> {
+  ): Promise<{ scene: WindowedVideoScene; canvas: SceneCanvas }> {
     let layer: SceneCanvas | undefined = canvas;
     if (selected.kind === "webgl") {
       const { requiresWebgl2 } = selected;
@@ -769,6 +801,9 @@ export async function renderVideo({
         paletteId = direction?.paletteId ?? paletteFor(active.scene.id);
         overlay.drawBackground(paletteId);
         if (!card) {
+          const preparation = active.scene.prepareFrame?.(index, stop);
+          if (preparation) await waitFor(preparation, stop);
+          stop.throwIfAborted();
           drawStage(
             context,
             active.scene,
@@ -836,13 +871,15 @@ export async function renderVideo({
           await waitForQueue(audioEncoder, stop);
         stop.throwIfAborted();
         const count = Math.min(audioBlockSize, totalSamples - audioOffset);
+        const block = await waitFor(getAudioBlock(audioOffset, count, stop), stop);
+        stop.throwIfAborted();
         const data = new AudioDataClass({
           format: "f32-planar",
           sampleRate,
           numberOfChannels,
           numberOfFrames: count,
           timestamp: micros(audioOffset / sampleRate),
-          data: getAudioBlock(audioOffset, count),
+          data: block,
         });
         try {
           audioEncoder.encode(data);

@@ -1,5 +1,11 @@
 import { designTokens } from "../../design/tokens.ts";
-import { sampleAmplitude, turnSampleRange, type PcmAudio } from "../../pcm.ts";
+import {
+  mapPcmWindow,
+  memoryPcmSource,
+  type PcmSource,
+  type PcmWindow,
+} from "../../pcm-source.ts";
+import { frameEnvelope, turnSampleRange, type PcmAudio } from "../../pcm.ts";
 import type { TimelinePlan, VideoTurn } from "../../timeline.ts";
 
 export const spectrumBins = 32;
@@ -27,7 +33,17 @@ function levelInRange(amplitude: number, lowDb: number, highDb: number) {
   );
 }
 
-function createAudioAnalyzer({ sampleRate, channels }: PcmAudio) {
+function createAudioAnalyzer(audio: PcmAudio | PcmSource) {
+  const sourcePcm =
+    "readWindow" in audio ? audio : (audio.source ?? memoryPcmSource(audio));
+  const { sampleRate, channels } = sourcePcm;
+  const sampleCount =
+    "readWindow" in audio || audio.source
+      ? sourcePcm.length
+      : audio.channels.reduce(
+          (count, channel) => Math.min(count, channel.length),
+          sourcePcm.length,
+        );
   const length = analysisWindowSize(sampleRate);
   const hann = Float64Array.from(
     { length },
@@ -66,11 +82,6 @@ function createAudioAnalyzer({ sampleRate, channels }: PcmAudio) {
     };
   });
   const spectrum = new Float32Array(spectrumBins);
-  const sampleCount = channels.reduce(
-    (count, channel) => Math.min(count, channel.length),
-    channels[0]?.length ?? 0,
-  );
-
   function fft() {
     for (let width = 2; width <= fftSize; width *= 2) {
       const half = width / 2;
@@ -102,75 +113,80 @@ function createAudioAnalyzer({ sampleRate, channels }: PcmAudio) {
     if (!turn || time < turn.start || time >= turn.end)
       return { speaker: null, amplitude: 0, spectrum };
 
+    const { speakerId } = turn;
     const { start, end, source } = turnSampleRange(turn, sampleRate);
     const last = Math.min(sampleCount, source + end - start);
     const center = source + Math.round(time * sampleRate) - start;
     if (center >= last) return { speaker: null, amplitude: 0, spectrum };
 
     const first = center - Math.floor(length / 2);
-    let sumSquares = 0;
-    let hasSpectrum = false;
-    real.fill(0);
-    imaginary.fill(0);
-    // Bound the centered windows to this turn and zero-pad any uncovered samples.
-    for (
-      let index = Math.max(0, source - first);
-      index < Math.min(length, last - first);
-      index++
-    ) {
-      let mono = 0;
-      for (const channel of channels) {
-        const sample = sampleAmplitude(channel, first + index);
-        mono += sample;
-        sumSquares += sample * sample;
-      }
-      const value = (mono / channels.length) * hann[index];
-      real[reversed[index]] = value;
-      hasSpectrum ||= value !== 0;
-    }
-    if (hasSpectrum && bands.length) {
-      fft();
-      for (const [index, { first, end, midpoint }] of bands.entries()) {
-        let peak = 0;
-        for (let bin = first; bin < end; bin++)
-          peak = Math.max(peak, binAmplitude(bin));
-        if (first >= end) {
-          const left = Math.floor(midpoint);
-          const fraction = midpoint - left;
-          peak =
-            binAmplitude(left) * (1 - fraction) +
-            binAmplitude(left + 1) * fraction;
+    const from = Math.max(0, source - first);
+    const to = Math.max(from, Math.min(length, last - first));
+    function measure(planes: PcmWindow) {
+      let sumSquares = 0;
+      let hasSpectrum = false;
+      real.fill(0);
+      imaginary.fill(0);
+      // Bound the centered windows to this turn and zero-pad any uncovered samples.
+      for (let index = from; index < to; index++) {
+        let mono = 0;
+        for (const channel of planes) {
+          const sample = channel[index - from];
+          mono += sample;
+          sumSquares += sample * sample;
         }
-        spectrum[index] = levelInRange(peak, -72, -28);
+        const value = (mono / channels) * hann[index];
+        real[reversed[index]] = value;
+        hasSpectrum ||= value !== 0;
       }
+      if (hasSpectrum && bands.length) {
+        fft();
+        for (const [index, { first, end, midpoint }] of bands.entries()) {
+          let peak = 0;
+          for (let bin = first; bin < end; bin++)
+            peak = Math.max(peak, binAmplitude(bin));
+          if (first >= end) {
+            const left = Math.floor(midpoint);
+            const fraction = midpoint - left;
+            peak =
+              binAmplitude(left) * (1 - fraction) +
+              binAmplitude(left + 1) * fraction;
+          }
+          spectrum[index] = levelInRange(peak, -72, -28);
+        }
+      }
+      const rms = Math.sqrt(sumSquares / (length * channels));
+      return {
+        speaker: speakerId,
+        amplitude: levelInRange(rms, -48, -16),
+        spectrum,
+      };
     }
-    const rms = Math.sqrt(sumSquares / (length * channels.length));
-    return {
-      speaker: turn.speakerId,
-      amplitude: levelInRange(rms, -48, -16),
-      spectrum,
-    };
+    return mapPcmWindow(sourcePcm.readWindow(first + from, to - from), measure);
   }
 
   return analyze;
 }
 
 export function audioStateAt(audio: PcmAudio, time: number, turn?: VideoTurn) {
-  return createAudioAnalyzer(audio)(time, turn);
+  const state = createAudioAnalyzer(audio)(time, turn);
+  if (state instanceof Promise) throw new Error("Expected in-memory PCM");
+  return state;
 }
 
 export const speakerEmphasisOffset = spectrumBins + 2;
 export const envelopeStride = speakerEmphasisOffset + 2;
 
-/** Process in episode order, yielding between batches so init can honor cancellation. */
-export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
+export function prepareAudioEnvelopes(
+  audio: PcmAudio | PcmSource,
+  plan: TimelinePlan,
+) {
   const { fps, scenes } = plan;
   const frames = Math.ceil(plan.duration * fps);
   const turns = scenes.filter(
     (scene): scene is VideoTurn => scene.kind === "turn",
   );
   const analyze = createAudioAnalyzer(audio);
-  const envelopes = new Float32Array(frames * envelopeStride);
   const levels = new Float64Array(speakerEmphasisOffset);
   const emphasis = [0, 0];
   const { hostEmphasisMs, orbAttackReleaseMs, spectrumAttackReleaseMs } =
@@ -181,38 +197,52 @@ export function* prepareAudioEnvelopes(audio: PcmAudio, plan: TimelinePlan) {
   const [spectrumAttack, spectrumRelease] = spectrumAttackReleaseMs.map(alpha);
   let turnIndex = 0;
 
-  for (let frame = 0; frame < frames; frame++) {
-    const time = frame / fps;
-    while (turns[turnIndex]?.end <= time) turnIndex++;
-    const turn = turns[turnIndex];
-    const { speaker, amplitude, spectrum } = analyze(time, turn);
-    const active = turn && time >= turn.start ? turn.speakerId : null;
-    const offset = frame * envelopeStride;
-    for (let index = 0; index < levels.length; index++) {
-      const target =
-        index < 2
-          ? speaker === (index === 0 ? "A" : "B")
-            ? amplitude
-            : 0
-          : spectrum[index - 2];
-      const attack = index < 2 ? orbAttack : spectrumAttack;
-      const release = index < 2 ? orbRelease : spectrumRelease;
-      levels[index] +=
-        (target - levels[index]) * (target > levels[index] ? attack : release);
-      envelopes[offset + index] = levels[index];
-    }
-    for (let index = 0; index < emphasis.length; index++) {
-      // The visual cue follows the turn even when PCM is quiet. Reversing a
-      // short transition keeps the current emphasis instead of jumping.
-      const progress =
-        active === (index === 0 ? "A" : "B")
-          ? Math.min(1, emphasis[index] + emphasisStep)
-          : Math.max(0, emphasis[index] - emphasisStep);
-      emphasis[index] = progress;
-      envelopes[offset + speakerEmphasisOffset + index] =
-        progress * progress * (3 - 2 * progress);
-    }
-    if ((frame + 1) % 120 === 0 && frame + 1 < frames) yield;
-  }
-  return envelopes;
+  return frameEnvelope(
+    frames,
+    envelopeStride,
+    (frame, output) => {
+      const time = frame / fps;
+      while (turns[turnIndex]?.end <= time) turnIndex++;
+      const turn = turns[turnIndex];
+      const active = turn && time >= turn.start ? turn.speakerId : null;
+      function smooth({
+        speaker,
+        amplitude,
+        spectrum,
+      }: Awaited<ReturnType<typeof analyze>>) {
+        for (let index = 0; index < levels.length; index++) {
+          const target =
+            index < 2
+              ? speaker === (index === 0 ? "A" : "B")
+                ? amplitude
+                : 0
+              : spectrum[index - 2];
+          const attack = index < 2 ? orbAttack : spectrumAttack;
+          const release = index < 2 ? orbRelease : spectrumRelease;
+          levels[index] +=
+            (target - levels[index]) *
+            (target > levels[index] ? attack : release);
+          output[index] = levels[index];
+        }
+        for (let index = 0; index < emphasis.length; index++) {
+          // The visual cue follows the turn even when PCM is quiet. Reversing a
+          // short transition keeps the current emphasis instead of jumping.
+          const progress =
+            active === (index === 0 ? "A" : "B")
+              ? Math.min(1, emphasis[index] + emphasisStep)
+              : Math.max(0, emphasis[index] - emphasisStep);
+          emphasis[index] = progress;
+          output[speakerEmphasisOffset + index] =
+            progress * progress * (3 - 2 * progress);
+        }
+      }
+      const state = analyze(time, turn);
+      return state instanceof Promise ? state.then(smooth) : smooth(state);
+    },
+    () => {
+      turnIndex = 0;
+      levels.fill(0);
+      emphasis.fill(0);
+    },
+  );
 }

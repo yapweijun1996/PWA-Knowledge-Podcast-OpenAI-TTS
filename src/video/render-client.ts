@@ -8,7 +8,7 @@ type ClientOptions = Omit<RenderOptions, "deps"> & { locale: Locale };
 export type WorkerRenderRequest = Pick<
   ClientOptions,
   "plan" | "theme" | "sceneId" | "studio3d" | "locale"
-> & { audio: PcmAudio };
+> & { audio: PcmAudio | Blob };
 type RenderResult = Awaited<ReturnType<typeof renderVideo>>;
 export type WorkerRenderMessage =
   | { kind: "ready"; supported: boolean }
@@ -27,7 +27,12 @@ async function renderInWorker({
   onProgress,
 }: ClientOptions) {
   signal?.throwIfAborted();
-  if (typeof Worker !== "function" || typeof OffscreenCanvas !== "function")
+  // A Blob is cloneable. A caller-provided window reader runs on the page.
+  if (
+    "readWindow" in audio ||
+    typeof Worker !== "function" ||
+    typeof OffscreenCanvas !== "function"
+  )
     return;
   let worker: Worker;
   try {
@@ -58,24 +63,23 @@ async function renderInWorker({
             clearTimeout(startupTimer);
             if (!data.supported) return resolve(undefined);
             try {
-              const channels =
-                "channels" in audio
-                  ? audio.channels.map((channel) => channel.slice())
-                  : Array.from({ length: audio.numberOfChannels }, (_, index) =>
-                      audio.getChannelData(index).slice(),
-                    );
-              const request: WorkerRenderRequest = {
-                plan,
-                theme,
-                sceneId,
-                studio3d,
-                locale,
-                audio: { sampleRate: audio.sampleRate, channels },
-              };
-              worker.postMessage(
-                request,
-                channels.map((channel) => channel.buffer),
-              );
+              const options = { plan, theme, sceneId, studio3d, locale };
+              if (audio instanceof Blob) {
+                const request: WorkerRenderRequest = { ...options, audio };
+                worker.postMessage(request);
+              } else {
+                const channels =
+                  "channels" in audio
+                    ? audio.channels.map((channel) => channel.slice())
+                    : Array.from({ length: audio.numberOfChannels }, (_, index) =>
+                        audio.getChannelData(index).slice(),
+                      );
+                const request: WorkerRenderRequest = {
+                  ...options,
+                  audio: { sampleRate: audio.sampleRate, channels },
+                };
+                worker.postMessage(request, channels.map((channel) => channel.buffer));
+              }
               dispatched = true;
             } catch (error) {
               reject(error);
