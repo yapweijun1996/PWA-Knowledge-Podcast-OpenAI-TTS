@@ -148,3 +148,18 @@ The key-facing arc gains up to 12% in linear light and the idle rim uses 80%
 of its previous strength. The `perf` Playwright project follows `render` and
 checks both aspects in a fresh browser process. Current Chromium timing and
 pixel checks are `NOT_RUN` in the K2 worktree.
+
+### Studio 3D backdrop and pedestal polish (L2)
+
+Bake the card's full-bleed diagonal palette ramp and screen-aligned Bayer
+dither with a soft floor wash at .024 peak alpha in both orientations. Bake
+the contact shadows once at up to .28 alpha and keep their fade above the
+host chips. Use a #253247 pedestal with one #53617D bevel. The bevel shifts
+toward the speaking host's accent over the existing turn easing and keeps
+the cue in reduced motion. The foreground bars retain the .012H cap and use
+a more muted tint toward the camera.
+
+The projected layout assertions now track the contact-shadow extent and check
+its clearance above the chips. The browser pixel checks compare against the card
+gradient and require 3:1 active-bevel contrast. Chromium and the 30 ms median
+frame-time target are `NOT_RUN` in this worktree.

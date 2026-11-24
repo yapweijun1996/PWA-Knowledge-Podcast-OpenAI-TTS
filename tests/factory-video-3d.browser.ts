@@ -1,12 +1,16 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { build } from "vite";
+import { build, transformWithOxc } from "vite";
 import { bundleStudio3d, measureStudio3d } from "../scripts/studio3d-bench.mjs";
 import { wave } from "../server/audio.mjs";
 import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
-import { beforeEnd, buildTimeline } from "../src/video/timeline.ts";
+import { paletteIds, palettes, type Palette } from "../src/video/design/palettes.ts";
+import { projectStagePoint, studioLayout } from "../src/video/scenes/studio3d/layout.ts";
+import { cameraPoseAt } from "../src/video/scenes/studio3d/presets.ts";
+import { beforeEnd, buildTimeline, type TimelinePlan } from "../src/video/timeline.ts";
 import { test } from "./fixtures/guards";
 import {
   dialogue,
@@ -547,6 +551,134 @@ test("cancelling after Studio 3D starts leaves no video artifact", async ({
   expect(await videoReceipts(page)).toEqual([]);
 });
 
+async function inspectStagePixels({
+  bundle, backgroundModule, width, height, paletteId, palette, pedestalSamples,
+}: {
+  bundle: string;
+  backgroundModule: string;
+  width: number;
+  height: number;
+  paletteId: string;
+  palette: Palette;
+  pedestalSamples: { bevel: readonly [number, number]; floor: readonly [number, number] }[];
+}) {
+  const load = async (code: string) => {
+    const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+    try {
+      return await import(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+  const { createStudio3dScene } = await load(bundle) as typeof import("../src/video/scenes/studio3d/index.ts");
+  const { drawVideoBackground } = await load(backgroundModule) as typeof import("../src/video/design/background.ts");
+  const context = (w: number, h: number) =>
+    new OffscreenCanvas(w, h).getContext("2d", { alpha: false, willReadFrequently: true })!;
+  const card = context(width, height);
+  drawVideoBackground(card, width, height, palette);
+  const cardPixels = card.getImageData(0, 0, width, height).data;
+  const small = context(Math.floor(width / 4), Math.floor(height / 4));
+  small.drawImage(card.canvas, 0, 0, small.canvas.width, small.canvas.height);
+  const smallPixels = small.getImageData(0, 0, small.canvas.width, small.canvas.height).data;
+
+  const portrait = width < height;
+  const centerX = portrait ? 0.43 : 0.5;
+  const centerY = portrait ? 0.30 : 0.345;
+  const weights = [0.2126, 0.7152, 0.0722];
+  const linear = (channel: number) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const offset = (w: number, x: number, y: number) => 4 * (Math.floor(y) * w + Math.floor(x));
+  const luma = (pixels: Uint8ClampedArray, at: number, decode: (v: number) => number) =>
+    weights.reduce((sum, weight, channel) => sum + weight * decode(pixels[at + channel]), 0);
+  const strip = (x: number, halfWidth: number) => {
+    let total = 0;
+    for (let row = 0; row < 12; row++) {
+      for (let column = -2; column <= 2; column++) {
+        const at = offset(
+          small.canvas.width,
+          (x + column * halfWidth / 2) * small.canvas.width,
+          (centerY + (row - 5.5) * 0.009) * small.canvas.height,
+        );
+        total += luma(smallPixels, at, linear);
+      }
+    }
+    return total / 60;
+  };
+  // This static reduced-motion fixture exercises both turn cues in silent PCM.
+  const sampleRate = 8_000;
+  const scenes = (["A", "B"] as const).map((speakerId, index) => ({
+    kind: "turn" as const, start: index, end: index + 1, audioStart: index,
+    chapterId: "fixture", turnId: String(index), captions: [], speakerId,
+  }));
+  const canvas = new OffscreenCanvas(width, height);
+  const frame = context(width, height);
+  const plan: TimelinePlan = {
+    duration: 2,
+    fps: 30,
+    // The renderer also accepts smaller frames for pixel inspection.
+    resolution: { width, height } as TimelinePlan["resolution"],
+    scenes,
+    chapters: [],
+    estimated: false,
+  };
+  const audio = { sampleRate, channels: [new Float32Array(2 * sampleRate)] };
+  const input = { canvas, plan, audio, theme: "dark" as const };
+  const scene = createStudio3dScene({ paletteId, cameraPresetId: "static", reducedMotion: true });
+  try {
+    const unavailable = await scene.init({
+      ...input, signal: new AbortController().signal, fail: (error) => { throw error; },
+    });
+    if (unavailable) throw new Error(unavailable);
+    const contrasts = [];
+    const bevels: number[][] = [[], []];
+    let rowStep = 0;
+    let washEdgeStep = 0;
+    let gradientDelta = 0;
+    for (let host = 0; host < scenes.length; host++) {
+      const time = host + 0.5;
+      scene.draw({
+        ...input, kind: "webgl", time, index: 30 * time,
+        turn: scenes[host], textLayouts: new Map(),
+      });
+      frame.drawImage(canvas, 0, 0);
+      const pixels = frame.getImageData(0, 0, width, height).data;
+      for (const y of [0.13, 0.62]) {
+        for (const x of [0.04, 0.23, 0.43, 0.64, 0.79, 0.96]) {
+          const at = offset(width, x * width, y * height);
+          for (let channel = 0; channel < 3; channel++)
+            gradientDelta = Math.max(gradientDelta, Math.abs(pixels[at + channel] - cardPixels[at + channel]));
+        }
+      }
+      // These two lines run between the orbs, pedestals and nearest spectrum blocks.
+      const washEdges = portrait ? [0.373, 0.459] : [0.422, 0.530];
+      for (const x of [centerX - 0.024, centerX + 0.024]) {
+        const read = (y: number) => luma(pixels, offset(width, x * width, y), (v) => v / 255);
+        for (let y = Math.ceil((washEdges[0] - 0.005) * height); y < 0.62 * height; y++) {
+          const step = Math.abs(read(y) - read(y - 1));
+          rowStep = Math.max(rowStep, step);
+          if (washEdges.some((edge) => Math.abs(y - edge * height) <= 2))
+            washEdgeStep = Math.max(washEdgeStep, step);
+        }
+      }
+      const sample = ([x, y]: readonly [number, number]) =>
+        luma(pixels, offset(width, x * width, y * height), linear);
+      const { bevel, floor } = pedestalSamples[host];
+      contrasts.push((sample(bevel) + 0.05) / (sample(floor) + 0.05));
+      pedestalSamples.forEach(({ bevel }, index) => bevels[index].push(sample(bevel)));
+    }
+    return {
+      rowStep, washEdgeStep, gradientDelta, contrasts,
+      bevelLift: bevels.map((samples, host) => samples[host] - samples[1 - host]),
+      betweenOrbs: strip(centerX, 0.014),
+      frameEdge: (strip(0.04, 0.02) + strip(0.96, 0.02)) / 2,
+    };
+  } finally {
+    scene.dispose();
+  }
+}
+
 test("Studio 3D keeps the backdrop continuous and makes the speaker visible at preview sizes", async ({
   page,
 }) => {
@@ -556,21 +688,44 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
   );
   await page.goto("/studio3d-visuals");
   const bundle = await bundleStudio3d();
+  const backgroundSource = new URL("../src/video/design/background.ts", import.meta.url);
+  const { code: backgroundModule } = await transformWithOxc(
+    await readFile(backgroundSource, "utf8"), "background.ts",
+  );
   for (const [width, height] of [
     [960, 540],
     [390, 694],
   ]) {
-    for (const palette of ["aurora", "sunset", "mono", "ocean"]) {
-      const label = `${palette} at ${width}×${height}`;
+    const layout = studioLayout(width, height);
+    const pose = cameraPoseAt("static", 0);
+    const { hostX, floorY, pedestalHeight, pedestalRadius } = layout;
+    const pedestalSamples = [-hostX, hostX].map((x) => ({
+      bevel: projectStagePoint(layout, pose, [x, floorY + 0.775 * pedestalHeight, 0.88 * pedestalRadius]),
+      floor: projectStagePoint(layout, pose, [x, floorY, 1.68 * pedestalRadius]),
+    }));
+    for (const paletteId of paletteIds) {
+      const label = `${paletteId} at ${width}×${height}`;
+      const pixels = await page.evaluate(inspectStagePixels, {
+        bundle, backgroundModule, width, height, paletteId, palette: palettes[paletteId], pedestalSamples,
+      });
+      expect(pixels.gradientDelta, `${label} card-to-stage background code values`).toBeLessThanOrEqual(1);
+      expect(pixels.rowStep, `${label} raw floor luma step`).toBeLessThanOrEqual(3 / 255 + 1e-9);
+      expect(pixels.washEdgeStep, `${label} wash-edge luma step`).toBeLessThanOrEqual(2 / 255 + 1e-9);
+      for (const ratio of pixels.contrasts)
+        expect(ratio, `${label} active bevel versus adjacent floor`).toBeGreaterThanOrEqual(3);
+      for (const lift of pixels.bevelLift)
+        expect(lift, `${label} active bevel versus idle`).toBeGreaterThanOrEqual(0.05);
       // The synthetic turn plan has stable A and B samples at 1s and 2s.
       const result = await page.evaluate(measureStudio3d, {
         bundle,
         width,
         height,
         frameOrder: [30, 60],
-        visualPalette: palette,
+        visualPalette: paletteId,
       });
       expect(result.status, label).toBe("PASS");
+      expect(result.drawCalls, `${label} draw calls`).toBeLessThanOrEqual(16);
+      expect(result.triangles, `${label} triangles`).toBeLessThanOrEqual(12_000);
       const aSpeaking = result.visuals[30];
       const bSpeaking = result.visuals[60];
       for (const frame of [aSpeaking, bSpeaking]) {
@@ -582,10 +737,10 @@ test("Studio 3D keeps the backdrop continuous and makes the speaker visible at p
           frame.verticalStep,
           `${label} vertical luma step`,
         ).toBeLessThanOrEqual(2 / 255 + 1e-9);
-        expect(
-          Math.abs(frame.betweenOrbs - frame.frameEdge) / frame.frameEdge,
-          `${label} inter-orb luminance versus frame edge`,
-        ).toBeLessThanOrEqual(0.15);
+        const stageGap = frame.betweenOrbs - frame.frameEdge;
+        const cardGap = pixels.betweenOrbs - pixels.frameEdge;
+        expect(Math.abs(stageGap - cardGap) / frame.frameEdge, `${label} inter-orb luminance shift`)
+          .toBeLessThanOrEqual(0.15);
       }
       for (const [host, active, idle] of [
         ["A", aSpeaking.hosts[0], bSpeaking.hosts[0]],

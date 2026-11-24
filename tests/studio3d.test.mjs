@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Color } from "three";
 import { videoLayout } from "../src/video/design/layout.ts";
 import { palettes } from "../src/video/design/palettes.ts";
 import { designTokens } from "../src/video/design/tokens.ts";
@@ -12,10 +13,9 @@ import {
   spectrumBandEdges,
   spectrumBins,
 } from "../src/video/scenes/studio3d/audio-state.ts";
+import { floorWashPeakAlpha } from "../src/video/scenes/studio3d/backdrop.ts";
 import {
   foregroundSpectrumScale,
-  groundRingOpacityAt,
-  groundRingWidthH,
   haloOpacityAt,
   orbScaleAt,
   projectStagePoint,
@@ -23,6 +23,12 @@ import {
   studioLayout,
   studioParticles,
 } from "../src/video/scenes/studio3d/layout.ts";
+import {
+  activePedestalBevel,
+  contactShadowRadii,
+  contactShadowTexture,
+  pedestalBevel,
+} from "../src/video/scenes/studio3d/pedestal.ts";
 import {
   cameraLabels,
   cameraFov,
@@ -126,9 +132,48 @@ test("studio clamps intensity and applies the specified mood multipliers", () =>
   assert.equal(haloOpacityAt(2), 0.12);
   assert.ok(haloOpacityAt(2) - haloOpacityAt(0) <= 0.03);
   assert.equal(haloOpacityAt(2, true), haloOpacityAt(0, true));
-  assert.equal(groundRingOpacityAt(-1), 0);
-  near(groundRingOpacityAt(0.5), 0.09);
-  assert.equal(groundRingOpacityAt(2), 0.18);
+});
+
+test("the active bevel clears 3:1 over every studio floor palette", () => {
+  const luminance = ({ r, g, b }) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  assert.equal(pedestalBevel.getHexString(), "53617d");
+  assert.ok(floorWashPeakAlpha > 0 && floorWashPeakAlpha <= 0.06);
+  for (const id of Object.keys(paletteLabels)) {
+    const { hostA, hostB, stops } = getPalette(id);
+    const accents = [new Color(hostA), new Color(hostB)];
+    const wash = accents[0].clone().lerp(accents[1], 0.5).convertLinearToSRGB();
+    const colors = stops.map((stop) => new Color(stop).convertLinearToSRGB());
+    // Bound each channel independently, including dither and quantization.
+    const channels = ["r", "g", "b"].map((channel) => {
+      const background = Math.max(...colors.map((color) => color[channel]));
+      return background + floorWashPeakAlpha * Math.max(0, wash[channel] - background) + 1 / 255;
+    });
+    const brightestFloor = luminance(new Color(...channels).convertSRGBToLinear());
+    for (const accent of accents) {
+      const bevel = activePedestalBevel(accent);
+      const quantized = new Color(bevel.getHex());
+      assert.ok((luminance(quantized) + 0.05) / (brightestFloor + 0.05) >= 3, id);
+    }
+  }
+});
+
+test("the baked contact shadow is deterministic and fades before the texture edge", () => {
+  const first = contactShadowTexture();
+  const second = contactShadowTexture();
+  try {
+    const { data, width, height } = first.image;
+    const alpha = (x, y) => data[4 * (y * width + x) + 3];
+    assert.deepEqual(data, second.image.data);
+    for (let x = 0; x < width; x++)
+      for (const y of [0, 1, height - 2, height - 1]) assert.equal(alpha(x, y), 0);
+    for (let y = 0; y < height; y++)
+      for (const x of [0, 1, width - 2, width - 1]) assert.equal(alpha(x, y), 0);
+    assert.ok(Math.max(...data) / 255 <= 0.28);
+    assert.ok(alpha(width / 2, height / 2) / 255 > 0.27);
+  } finally {
+    first.dispose();
+    second.dispose();
+  }
 });
 
 test("studio spectrum uses a centered 40 ms window and 32 log bands through Nyquist", () => {
@@ -368,7 +413,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
       Math.tan((cameraFov * Math.PI) / 360);
     near(diameterH, isPortrait ? 0.118 : tokens.orbDiameterH);
     const pedestalCorners = [];
-    const groundRingPoints = [];
+    const contactShadowPoints = [];
     const orbCorners = [];
     for (const sign of [-1, 1]) {
       const x = sign * layout.hostX;
@@ -390,10 +435,10 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
           layout.floorY,
           dz * layout.pedestalRadius,
         ]);
-        groundRingPoints.push([
-          x + dx * layout.groundRingRadius,
+        contactShadowPoints.push([
+          x + dx * layout.pedestalRadius * contactShadowRadii[0],
           layout.floorY + 0.001,
-          dz * layout.groundRingRadius,
+          dz * layout.pedestalRadius * contactShadowRadii[1],
         ]);
       }
       const radius = layout.orbRadius * orbScaleAt(1, 1) * 1.03;
@@ -438,10 +483,8 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
         for (const point of orbCorners) fit(point);
         for (const point of pedestalCorners)
           lowestPedestal = Math.max(lowestPedestal, fit(point));
-        for (const point of groundRingPoints) {
-          const ringY = fit(point);
-          assert.ok(ringY + groundRingWidthH / 2 + 0.5 / height < chipTop);
-        }
+        for (const point of contactShadowPoints)
+          assert.ok(fit(point) + 0.5 / height < chipTop);
         for (const block of layout.ring) {
           const blockHeight = spectrumBarHeight(pose, block, 1);
           let lowest = 0;
@@ -456,6 +499,7 @@ test("both aspects fit maximum excursions and cap projected camera travel and sp
               lowest <= chipTop - 0.02,
               `${layout.orientation} ${preset}: ${chipTop - lowest}H ring clearance`,
             );
+            assert.ok(block.heightCap <= 0.012);
             assert.ok(lowest - highest <= 0.012 + 1e-9);
           }
           maxRingHeight = Math.max(maxRingHeight, lowest - highest);

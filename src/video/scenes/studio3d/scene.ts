@@ -13,14 +13,18 @@ import {
 import { bakeBackdrop } from "./backdrop.ts";
 import {
   foregroundSpectrumScale,
-  groundRingOpacityAt,
-  groundRingWidthH,
   haloOpacityAt,
   orbScaleAt,
   spectrumBarHeight,
   studioLayout,
   studioParticles,
 } from "./layout.ts";
+import {
+  contactShadowExtent,
+  contactShadowTexture,
+  pedestalGeometry,
+  pedestalMaterial,
+} from "./pedestal.ts";
 import {
   cameraFov,
   cameraPoseAt,
@@ -79,92 +83,6 @@ function radialMaterial(color: THREE.Color, opacity: number) {
     transparent: true,
     depthWrite: false,
   });
-}
-
-function contactMaterial(
-  color: THREE.Color,
-  pedestalRadius: number,
-  ringRadius: number,
-  extent: number,
-  frameHeight: number,
-) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      tint: { value: color.clone().convertLinearToSRGB() },
-      shadowScale: { value: new THREE.Vector2(
-        extent / (1.40 * pedestalRadius), extent / (1.32 * pedestalRadius),
-      ) },
-      ringRadius: { value: ringRadius / extent },
-      ringOpacity: { value: 0 },
-      halfWidthPx: { value: (groundRingWidthH * frameHeight) / 2 },
-    },
-    vertexShader: stagePlaneVertexShader,
-    fragmentShader: `
-      uniform vec3 tint;
-      uniform vec2 shadowScale;
-      uniform float ringRadius;
-      uniform float ringOpacity;
-      uniform float halfWidthPx;
-      varying vec2 planeUv;
-      void main() {
-        vec2 point = planeUv * 2.0 - 1.0;
-        float shadow = 0.28 * (1.0 - smoothstep(0.0, 1.0, length(point * shadowScale)));
-        float ring = 0.0;
-        if (ringOpacity > 0.0) {
-          // Convert the annulus distance to pixels for a crisp, antialiased
-          // stroke of consistent width on the foreshortened floor.
-          float radius = length(point);
-          float slope = length(vec2(dFdx(radius), dFdy(radius)));
-          float distancePx = abs(radius - ringRadius) / max(slope, 0.00001);
-          float coverage = clamp(halfWidthPx + 0.5 - distancePx, 0.0, min(1.0, 2.0 * halfWidthPx));
-          ring = ringOpacity * coverage;
-        }
-        // Composite the accent over the black contact shadow in one pass.
-        gl_FragColor = vec4(tint * ring, ring + shadow * (1.0 - ring));
-      }
-    `,
-    transparent: true,
-    premultipliedAlpha: true,
-    depthWrite: false,
-  });
-}
-
-function pedestalGeometry(radius: number, height: number, accent: THREE.Color) {
-  const body = new THREE.Color("#253247");
-  const rim = new THREE.Color("#53617D");
-  const pinstripe = rim.clone().lerp(accent, 0.38);
-  // Each contour point supplies the colour of one horizontal strip.
-  const profile = [
-    { radius: 0, height: 0, color: body },
-    { radius: 0.9, height: 0, color: body },
-    { radius: 1, height: 0.13, color: body },
-    { radius: 0.89, height: 0.70, color: body },
-    { radius: 0.88, height: 0.74, color: rim },
-    { radius: 0.87, height: 0.83, color: rim },
-    { radius: 0.86, height: 0.86, color: pinstripe },
-    { radius: 0.81, height: 1, color: rim },
-    { radius: 0.69, height: 1, color: rim },
-    { radius: 0.67, height: 1, color: body },
-    { radius: 0, height: 1, color: body },
-  ];
-  const geometry = new THREE.LatheGeometry(
-    profile.map(
-      (point) =>
-        new THREE.Vector2(point.radius * radius, point.height * height),
-    ),
-    40,
-  );
-  const positions = geometry.getAttribute("position");
-  const colors = new Float32Array(positions.count * 3);
-  const shaded = new THREE.Color();
-  for (let index = 0; index < positions.count; index++) {
-    const color = profile[index % profile.length].color;
-    const azimuth = Math.floor(index / profile.length) / 40 * 2 * Math.PI;
-    const light = 1 + 0.14 * Math.cos(azimuth + 0.8);
-    shaded.copy(color).multiplyScalar(light).toArray(colors, index * 3);
-  }
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return geometry;
 }
 
 const rimFlareGain = 0.12;
@@ -264,46 +182,33 @@ function buildStudio(
   scene.add(backlight);
 
   const { backdrop, pixels: backdropPixels } = bakeBackdrop(
-    renderer, width, height, orientation, palette,
+    renderer, width, height, layout, palette,
   );
   scene.add(backdrop);
   // The opaque backdrop covers the color buffer before the stage draws.
   renderer.autoClearColor = false;
 
   const plane = radialPlaneGeometry();
-  const wash = new THREE.Mesh(
-    plane,
-    radialMaterial(hostA.clone().lerp(hostB, 0.5), 0.06),
-  );
-  wash.rotation.x = -Math.PI / 2;
-  wash.position.set(0, floorY, 0);
-  wash.scale.set(layout.ringWidth * 1.03, layout.ringDepth * 1.32, 1);
-  wash.renderOrder = 1;
-  scene.add(wash);
-
-  // Bake the shallow side shading into the geometry so the palette's slate
-  // body and rim stay legible outside the scene's key light.
-  const pedestalMaterial = new THREE.MeshBasicMaterial({
-    vertexColors: true,
+  const shadowTexture = contactShadowTexture();
+  const shadowMaterial = new THREE.MeshBasicMaterial({
+    color: "#000000",
+    map: shadowTexture,
+    transparent: true,
+    depthWrite: false,
     fog: false,
   });
-  const { pedestalRadius, pedestalHeight, groundRingRadius } = layout;
-  const contactExtent = pedestalRadius * (orientation === "portrait" ? 1.80 : 1.42);
+  const { pedestalRadius, pedestalHeight } = layout;
+  const base = pedestalGeometry(pedestalRadius, pedestalHeight);
+  const contactExtent = pedestalRadius * contactShadowExtent;
   function addHost(x: number, color: THREE.Color, faceted: boolean) {
-    const contact = new THREE.Mesh(
-      plane,
-      contactMaterial(color, pedestalRadius, groundRingRadius, contactExtent, height),
-    );
+    const contact = new THREE.Mesh(plane, shadowMaterial);
     contact.rotation.x = -Math.PI / 2;
     contact.position.set(x, floorY + 0.001, 0);
     contact.scale.set(contactExtent, contactExtent, 1);
     contact.renderOrder = 2;
     scene.add(contact);
 
-    const pedestal = new THREE.Mesh(
-      pedestalGeometry(pedestalRadius, pedestalHeight, color),
-      pedestalMaterial,
-    );
+    const pedestal = new THREE.Mesh(base, pedestalMaterial(color));
     pedestal.position.set(x, floorY, 0);
     scene.add(pedestal);
 
@@ -339,7 +244,7 @@ function buildStudio(
     halo.scale.setScalar(orbRadius * 1.36);
     halo.renderOrder = 3;
     scene.add(halo);
-    return { orb, halo, rim, bandMaterial, contact };
+    return { orb, halo, rim, bandMaterial, pedestal };
   }
   const hosts = [addHost(-hostX, hostA, false), addHost(hostX, hostB, true)];
 
@@ -371,7 +276,7 @@ function buildStudio(
   bars.frustumCulled = false;
   const barColor = new THREE.Color();
   for (const [index, { bias, z }] of layout.ring.entries()) {
-    const tint = 0.34 - 0.13 * Math.max(0, z / layout.ringDepth);
+    const tint = 0.16 - 0.08 * (z / layout.ringDepth);
     bars.setColorAt(
       index,
       barColor.copy(hostA).lerp(hostB, bias).multiplyScalar(tint),
@@ -392,13 +297,13 @@ function buildStudio(
     camera.position.set(...pose.position);
     camera.lookAt(...pose.target);
 
-    for (const [host, { orb, halo, rim, bandMaterial, contact }] of hosts.entries()) {
+    for (const [host, { orb, halo, rim, bandMaterial, pedestal }] of hosts.entries()) {
       const energy = (envelopes[offset + host] ?? 0) * motion.audio;
       const emphasis = envelopes[offset + speakerEmphasisOffset + host] ?? 0;
       orb.scale.setScalar(orbScaleAt(energy, emphasis, settings.reducedMotion));
       orb.material.emissiveIntensity = 0.047 + 0.052 * emphasis;
       rim.value = emphasis;
-      contact.material.uniforms.ringOpacity.value = groundRingOpacityAt(emphasis);
+      pedestal.material.uniforms.emphasis.value = emphasis;
       bandMaterial.color
         .copy(orb.material.emissive)
         .multiplyScalar(0.57 + 0.33 * emphasis);
@@ -440,6 +345,7 @@ function buildStudio(
     });
     bars.dispose();
     backdropPixels.dispose();
+    shadowTexture.dispose();
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
   }

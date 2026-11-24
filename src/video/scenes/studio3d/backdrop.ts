@@ -1,6 +1,8 @@
 import * as THREE from "three";
-import type { Orientation } from "../../design/tokens.ts";
+import type { studioLayout } from "./layout.ts";
 import type { getPalette } from "./presets.ts";
+
+export const floorWashPeakAlpha = 0.024;
 
 const vertexShader = `
   varying vec2 screenUv;
@@ -14,49 +16,56 @@ export function bakeBackdrop(
   renderer: THREE.WebGLRenderer,
   width: number,
   height: number,
-  orientation: Orientation,
+  layout: Pick<ReturnType<typeof studioLayout>, "orientation" | "centerX">,
   palette: ReturnType<typeof getPalette>,
 ) {
-  const portrait = orientation === "portrait";
-  // The landscape gradient only varies by row and the four Bayer columns.
-  // Portrait also has a screen-space wash that varies across the frame.
-  const pixels = new THREE.WebGLRenderTarget(portrait ? width : 4, height, {
+  const portrait = layout.orientation === "portrait";
+  const projection = new THREE.Vector2(width ** 2, height ** 2);
+  projection.divideScalar(projection.x + projection.y);
+  const washTint = new THREE.Color(palette.hostA)
+    .lerp(new THREE.Color(palette.hostB), 0.5)
+    .convertLinearToSRGB();
+  const pixels = new THREE.WebGLRenderTarget(width, height, {
     minFilter: THREE.NearestFilter,
     magFilter: THREE.NearestFilter,
     colorSpace: THREE.NoColorSpace,
     depthBuffer: false,
   });
-  const defines = portrait ? { STUDIO_PORTRAIT: 1 } : {};
   const bakeMaterial = new THREE.ShaderMaterial({
-    defines,
     uniforms: {
-      stageWash: { value: new THREE.Color(palette.hostA) },
-      top: { value: new THREE.Color(palette.stops[0]) },
+      projection: { value: projection },
+      washCenter: { value: new THREE.Vector2(layout.centerX, portrait ? 0.416 : 0.476) },
+      washRadii: { value: new THREE.Vector2(portrait ? 0.31 : 0.33, portrait ? 0.043 : 0.054) },
+      washTint: { value: washTint },
+      first: { value: new THREE.Color(palette.stops[0]) },
       middle: { value: new THREE.Color(palette.stops[1]) },
-      bottom: { value: new THREE.Color(palette.stops[2]) },
+      last: { value: new THREE.Color(palette.stops[2]) },
     },
     vertexShader,
     fragmentShader: `
-      uniform vec3 stageWash;
-      uniform vec3 top;
+      uniform vec2 projection;
+      uniform vec2 washCenter;
+      uniform vec2 washRadii;
+      uniform vec3 washTint;
+      uniform vec3 first;
       uniform vec3 middle;
-      uniform vec3 bottom;
+      uniform vec3 last;
       varying vec2 screenUv;
       float bayer2(vec2 cell) {
         return 2.0 * abs(cell.x - cell.y) + cell.y;
       }
       void main() {
-        float y = 1.0 - screenUv.y;
-        vec3 tint = y < 0.55
-          ? mix(top, middle, y / 0.55)
-          : mix(middle, bottom, (y - 0.55) / 0.45);
-        #ifdef STUDIO_PORTRAIT
-          float wash = smoothstep(0.35, 0.44, y) * (1.0 - smoothstep(0.44, 0.52, y));
-          wash *= 1.0 - smoothstep(0.08, 0.36, abs(screenUv.x - 0.43));
-          tint = mix(tint, stageWash, 0.035 * wash);
-        #endif
-        // Store the final sRGB bytes, with the original screen-aligned dither.
-        gl_FragColor = sRGBTransferOETF(vec4(tint, 1.0));
+        vec2 point = vec2(screenUv.x, 1.0 - screenUv.y);
+        // Match the linear-light 4096-step diagonal ramp in drawVideoBackground.
+        float t = floor(dot(point, projection) * 4096.0 + 0.5) / 4096.0;
+        vec3 tint = t < 0.55
+          ? mix(first, middle, t / 0.55)
+          : mix(middle, last, (t - 0.55) / 0.45);
+        vec3 srgb = sRGBTransferOETF(vec4(tint, 1.0)).rgb;
+        float radius = length((point - washCenter) / washRadii);
+        float wash = ${floorWashPeakAlpha} * (1.0 - smoothstep(0.0, 1.0, radius));
+        gl_FragColor = vec4(mix(srgb, washTint, wash), 1.0);
+        // Store dithered sRGB bytes with the same screen-aligned Bayer ranks as the cards.
         vec2 pixel = floor(gl_FragCoord.xy);
         float rank = 4.0 * bayer2(mod(pixel, 2.0)) + bayer2(mod(floor(pixel * 0.5), 2.0));
         gl_FragColor.rgb += ((rank + 0.5) / 16.0 - 0.5) / 255.0;
@@ -84,17 +93,12 @@ export function bakeBackdrop(
   }
 
   backdrop.material = new THREE.ShaderMaterial({
-    defines,
     uniforms: { backdropPixels: { value: pixels.texture } },
     vertexShader,
     fragmentShader: `
       uniform sampler2D backdropPixels;
       void main() {
-        ivec2 pixel = ivec2(gl_FragCoord.xy);
-        #ifndef STUDIO_PORTRAIT
-          pixel.x &= 3;
-        #endif
-        gl_FragColor = texelFetch(backdropPixels, pixel, 0);
+        gl_FragColor = texelFetch(backdropPixels, ivec2(gl_FragCoord.xy), 0);
       }
     `,
     depthTest: false,
