@@ -8,21 +8,25 @@ this page says so.
 
 ## Before Studio 3D
 
-`src/video/draw.ts` draws every frame with Canvas 2D at `t = i / fps` (speaker
-label, waveform from real PCM, captions, title cards). WebCodecs encodes and
-mp4-muxer writes the MP4. No Three.js, p5 or Godot code ships in the app.
+The original waveform-only renderer drew the speaker label, PCM waveform,
+captions and title cards with Canvas 2D at `t = i / fps`. The current browser
+export still uses Canvas 2D, WebCodecs and mp4-muxer, and also offers the
+lazily loaded Studio 3D scene.
 
 ## What "67JS" is
 
-Very probably CodePawl's **67.js**, now renamed **Crucible**: an agent-oriented
-browser 3D renderer built on Three.js with JSON scenes and still and MP4
-tooling. Checked by the manager on 2026-11-23 against the npm registry:
+The owner confirmed on 2026-11-23 that “67JS” refers to CodePawl's
+**Crucible**, formerly 67.js. The manager’s npm registry check on that date
+recorded the following package details.
 `@codepawlhq/67js` 0.19.0 is deprecated with the message "Renamed to
 @codepawlhq/crucible"; `@codepawlhq/crucible` 0.22.0 is MIT, peer-depends on
 `three` 0.187.0, has no install scripts, and was published two days earlier
-(pre-1.0). **Confirmed by the owner on 2026-11-23: "67JS" is Crucible.**
+(pre-1.0). Current registry metadata is unverified.
 
 ## Measured: Three.js scene spike (T51)
+
+These spike measurements describe the original harness. Their applicability
+to `c22a9fe` is unverified.
 
 Real Chromium 156 on the owner's Mac, headless, **software WebGL2 (SwiftShader)**,
 1920x1080, 150 frames (5 s at 30 fps), Three.js 0.187.0.
@@ -72,7 +76,7 @@ Not established (**UNVERIFIED**): Crucible's own MP4 and character-motion toolin
 4. The AI agent directs scenes through a strict JSON storyboard that selects
    pre-written, parameterised scenes. It never ships code to run in the page.
 5. Godot stays out of the browser path; at most an optional local export.
-6. A scene plugin interface (T50) comes first so these can coexist.
+6. The T50 scene interface supports the waveform and Studio 3D scenes.
 
 ## Crucible qualification (T56)
 
@@ -106,9 +110,11 @@ loads Three.js, drives the orbs and 32 spectrum blocks from turn PCM, and
 steps the camera on the same frame clock as waveform and the shared overlay.
 The palette, camera preset, and audio response intensity are recorded in the
 render receipt. Browsers that cannot initialize WebGL2 use waveform and show
-the substitution in the receipt. The spike measurements above describe the
-standalone harness. Integrated render timing and decoded-frame hashes need a
-Chromium run. [Scene interface](VIDEO-RENDER-DECISION.md#scene-interface)
+the substitution in the receipt. At `c22a9fe`, the manager’s Chromium 156–158
+runs with software WebGL passed 51/51 Factory tests twice with 62/62 automated
+visual QA points. The independent still-image review scored 79.0% (54.5/69)
+against the 85% bar. **Visual acceptance has not passed.** Reviewers flagged
+Studio 3D materials and grounding. [Scene interface](VIDEO-RENDER-DECISION.md#scene-interface) · [Visual QA](VISUAL-QA.md)
 
 ## Art direction (T60)
 
@@ -146,8 +152,7 @@ The turn cue adds 4% to the active orb, with a combined PCM and turn cap of
 5.3%. Reduced motion omits the turn scale accent and keeps the color cues.
 The key-facing arc gains up to 12% in linear light and the idle rim uses 80%
 of its previous strength. The `perf` Playwright project follows `render` and
-checks both aspects in a fresh browser process. Current Chromium timing and
-pixel checks are `NOT_RUN` in the K2 worktree.
+checks frame timing and pixel repeatability. [Studio 3D budget test](../tests/factory-video-3d-budget.browser.ts)
 
 ### Studio 3D backdrop and pedestal polish (L2)
 
@@ -159,7 +164,8 @@ toward the speaking host's accent over the existing turn easing and keeps
 the cue in reduced motion. The foreground bars retain the .012H cap and use
 a more muted tint toward the camera.
 
-The projected layout assertions now track the contact-shadow extent and check
+The projected layout assertions track the contact-shadow extent and check
 its clearance above the chips. The browser pixel checks compare against the card
-gradient and require 3:1 active-bevel contrast. Chromium and the 30 ms median
-frame-time target are `NOT_RUN` in this worktree.
+gradient and require 3:1 active-bevel contrast. Browser execution for this
+documentation update was `NOT_RUN`. Real-GPU frame timing and long-episode
+memory remain **owner-only and unverified**. [Open items](ROADMAP.md#open-items)

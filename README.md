@@ -1,10 +1,9 @@
 # Knowledge Podcast Studio
 
-Research a topic, write a podcast script, generate narration and review the
-result in a browser. Studio can send requests directly to OpenAI with your own
-API key. The Library keeps episodes and audio in IndexedDB. An optional local
-worker adds scheduled discovery and production that can continue while the tab
-is closed. [Product direction](docs/PRODUCT-DIRECTION.md)
+Knowledge Podcast Studio is a browser-first podcast studio with bring-your-own-key
+(BYOK) access to OpenAI. V2 Studio is the only UI. The browser key stays in page
+memory only, and IndexedDB is the Library record store. A private Node.js worker is
+optional. [Product direction](docs/PRODUCT-DIRECTION.md)
 
 ## Browser quick start
 
@@ -45,25 +44,23 @@ unattended production. The worker must stay running. [Worker setup and access](d
 
 ## Video, animation and publishing
 
-The Episode view renders a finished episode to MP4 in the browser (Canvas 2D
-waveform and captions today, WebCodecs and MP4 muxing, H.264 with AAC or Opus
-depending on the browser), previews it, lets you edit the title, description
-and chapters, and then downloads one publish ZIP: video, thumbnail, title,
-description with chapters and sources, tags and a manual-upload checklist.
-Rendering never calls a provider. The owner uploads to YouTube manually.
-Verified in Chromium; Safari, phones and upload acceptance are **UNVERIFIED**.
-[Renderer](src/video/render.ts) · [Publish package](src/publish/package.ts)
+The Episode view uses Canvas 2D, WebCodecs and mp4-muxer to export MP4 in an
+OffscreenCanvas worker where supported. Video uses H.264 with AAC audio when
+available and falls back to Opus audio. Choose the waveform or the lazily
+loaded Studio 3D scene. Chapter storyboard generation requires consent, and
+you review the draft manually before applying it.
+[Renderer](src/video/render.ts) · [Animation decision](docs/ANIMATION-DECISION.md)
 
-A scene interface lets different scenes draw the video. A Three.js studio
-scene and an AI-directed storyboard are in progress. [Animation decision](docs/ANIMATION-DECISION.md) · [Research](docs/ANIMATION-RESEARCH-2026-11-23.md)
+The publish ZIP includes the MP4, a thumbnail, chapters and a timed SRT
+caption sidecar when measured captions are available. The owner uploads to
+YouTube manually. YouTube acceptance of Opus audio is **UNVERIFIED**.
+[Publish package](src/publish/package.ts)
 
 ## Agent
 
-Studio has a collapsed Agent panel: give a goal, consent to the run, and the
-in-page agent calls tools (research, script, narration, render, export). Each
-paid tool asks for separate approval, a live log shows every step, and
-cancellation stops at the next safe point. Tested with mocked provider
-turns; a real model-driven run is **UNVERIFIED**. [Agent](docs/AGENT.md) · [pi bridge spike](docs/PI-BRIDGE.md)
+See the Agent guide for the in-page workflow and consent requirements. A real
+model-driven agent run on `c22a9fe` is **UNVERIFIED**.
+[Agent](docs/AGENT.md) · [pi bridge spike](docs/PI-BRIDGE.md)
 
 ## Repository layout
 
@@ -77,14 +74,17 @@ turns; a real model-driven run is **UNVERIFIED**. [Agent](docs/AGENT.md) · [pi 
 
 ## Verification
 
-On 2026-11-23 the project passed the type check, 199 Node tests (1 skipped),
-the strict locale scan (0 hard-coded CJK fragments), 38 of 38 Chromium browser
-tests, both builds and the dependency audit (0 vulnerabilities). One real
-end-to-end run with a user-supplied key produced a 1:53 episode, an MP4 and a
-publish ZIP in about 3 minutes with 14 provider calls and no key found in
-storage. **Not verified:** listening quality and continuity, actual dollar
-cost, Safari, phones, physical-device accessibility, long episodes and manual
-upload compatibility. [Test matrix](docs/TEST-MATRIX.md) · [E2E trial](docs/E2E-TRIAL-2026-11-23.md) · [Provider contract](docs/PROVIDER-CONTRACT.md)
+On the manager’s Mac at `c22a9fe`, typecheck and both builds passed. `npm test`
+reported 289 tests, with 288 passed and one skipped because the Crucible spike
+dependency was absent. The strict i18n scan reported 0 findings and `npm audit`
+found 0 vulnerabilities. Two consecutive Factory runs passed 51/51 tests with
+automated visual QA at 62/62 in Chromium 156–158 with software WebGL. A separate
+parallel run had one intermittent failure in `tests/factory-video-options.browser.ts`.
+The failure is under investigation. [Test matrix](docs/TEST-MATRIX.md)
+
+**Visual acceptance has not passed.** The latest independent image-only review
+scored 79.0% (54.5/69) against an 85% acceptance bar. See the roadmap for the
+remaining owner-only and unverified checks. [Visual QA](docs/VISUAL-QA.md) · [Roadmap](docs/ROADMAP.md#open-items)
 
 Pages publishes the tested public build through the Pages workflow. The
 optional worker has its own distributable artifact. Use the release and

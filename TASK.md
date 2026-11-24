@@ -1,11 +1,10 @@
 # Improvement backlog
 
-Baseline: reviewed `main` at `c18280e` on 2026-11-04. This is a planning
-backlog, not a list of completed features. See the [six-persona review](docs/REVIEW-2026-11-04.md)
-for evidence, assumptions, and review limits. The owner reported that real
-browser BYOK can now produce WAVs, but that the same narrator sounds
-discontinuous across segments. The reviewers did not independently listen to
-those WAVs or make paid OpenAI calls.
+T01–T16 are historical V1 tasks from the 2026-11-04 review of `c18280e`.
+Their observations and test results apply to that interface. The owner
+reported discontinuity between narrator segments. A listening review of real
+TTS audio remains **owner-only and unverified**.
+[V1 review](docs/REVIEW-2026-11-04.md) · [Current evidence](docs/TEST-MATRIX.md)
 
 ## Constraints and priority
 
@@ -278,7 +277,9 @@ silence as proof of improved narration continuity.
 
 ## V2 browser-local production follow-up
 
-The V2 workflow runs topic discovery, independent evidence search, adaptive narration and audio comparison in a trusted worker, then hands the episode to the browser Library. See the [V2 runbook](docs/V2-FACTORY.md) for setup, verification limits and independent QA.
+V2 Studio is the only UI at `c22a9fe`. The browser is the primary runtime,
+IndexedDB is the record store, and the private Node.js worker is optional.
+[V2 runbook](docs/V2-FACTORY.md)
 
 ## V3: browser-first BYOK, then video and YouTube
 
@@ -287,17 +288,29 @@ review. Owner rule (2026-11-23): **browser first, BYOK, no server required.**
 Full plan, milestones, risks and unverified claims: [docs/ROADMAP.md](docs/ROADMAP.md).
 Decisions: [docs/PRODUCT-DIRECTION.md](docs/PRODUCT-DIRECTION.md).
 
-V1 and browser BYOK were removed in `71a53da`, which left `main` out of
-compliance with the rule above. M0 repairs that. The old code is at `636fae0`.
+M0 restored browser BYOK after the V1 UI was retired. The old code is at `636fae0`.
 T05 and T06 (narration continuity experiment) are **superseded**: their runner
 lived in V1. Revisit continuity only through T27 if the owner still hears
 discontinuity.
+
+At `c22a9fe`, the manager’s Mac passed typecheck and both builds. `npm test`
+reported 289 tests, 288 passed and 1 skipped because the Crucible spike
+dependency was absent. The strict i18n scan had 0 findings and `npm audit`
+reported 0 vulnerabilities. Factory passed 51/51 twice in Chromium 156–158
+with software WebGL and automated visual QA at 62/62. A separate parallel run
+had one intermittent failure in `tests/factory-video-options.browser.ts`,
+which is under investigation. [Test matrix](docs/TEST-MATRIX.md)
+
+Visual acceptance remains open. The independent review scored 79.0% (54.5/69)
+against an 85% bar. [Visual QA](docs/VISUAL-QA.md) · [Owner-only open items](docs/ROADMAP.md#open-items)
 
 Rules for every task below: key in page memory only; per-run consent and
 estimate-labelled cost disclosure; no automatic retry of ambiguous paid
 requests; tests intercept provider requests by default; save before the next
 paid step; nothing uploads without approval. Effort is an estimate (S/M/L).
-Status words: `[ ]` open, `[x]` done.
+`[ ]` marks open work. `[x]` marks completed task work. Earlier task evidence
+applies to its original revision. The roadmap and test matrix record current
+verification and owner-only sign-offs.
 
 ### M0. Restore browser-first BYOK (do first)
 
@@ -321,14 +334,15 @@ Status words: `[ ]` open, `[x]` done.
   function injected, so the worker and the browser run the same code.
   Acceptance: existing worker tests still pass; no Node-only imports in the
   shared modules; no behavior change in worker mode.
-  _(done 2026-11-23: merged `bc32459`; package-worker and 91 tests pass)_
+  _(merged as `bc32459`)_
 - [x] **T27 — Browser narrator** (L). Port `src/browser-tts.ts` (history at
   `636fae0`) to the shared pipeline: WebRTC Realtime audio, `Uint8Array`
   instead of `Buffer`, WAV or PCM assembly, completeness checks, and
   save-before-next. Acceptance: mock-provider and local-WebRTC tests; cancel
   and save-failure recovery tests (restore the V1 protections that were
   removed with the specs); listen to one real take with the owner's approval.
-  _(done 2026-11-23: merged; real-provider check passed for wording and completeness, listening review still open (see docs/PROVIDER-CONTRACT.md))_
+  The listening review of real TTS is **owner-only and unverified**.
+  [Earlier provider checks](docs/PROVIDER-CONTRACT.md)
 - [x] **T28 — Browser job runner** (L). The stage machine from
   `server/jobs.mjs` (research, outline, script, audio, QA) running in the page
   with each stage checkpointed in IndexedDB, resume after reload, cancel, and
@@ -341,12 +355,13 @@ Status words: `[ ]` open, `[x]` done.
   browser mode; the worker is labelled optional; Automation is labelled worker
   only. Acceptance: browser test creates an episode with no worker running;
   the dead-end `no-worker` state is gone. Implemented in `a6f35a4`. The browser
-  completed a real episode on the static build. [Trial](docs/E2E-TRIAL-2026-11-23.md)
+  trial is recorded for the earlier static build. Real-provider execution on
+  `c22a9fe` is **unverified**. [Earlier trial](docs/E2E-TRIAL-2026-11-23.md)
 - [x] **T30 — Rule gates and tests** (M). A Playwright config with no worker; a
   default-deny provider interception fixture; a key-leak scan across
   IndexedDB, backups, service-worker caches, console and URLs; CI runs it.
   Acceptance: CI fails if a test reaches a real provider or leaks the key.
-  _(done 2026-11-23: guards, rule tests and CI gate merged; full browser suite 32 of 32 in Chromium)_
+  [Current Factory results](docs/TEST-MATRIX.md)
 - [x] **T31 — Documentation** (S). Update README, V2-FACTORY, SECURITY,
   TEST-MATRIX and the production checklist for browser mode; remove the stale
   V1 text. Acceptance: docs state only what is implemented.
@@ -359,19 +374,17 @@ Status words: `[ ]` open, `[x]` done.
   Chromium and Safari. Record codec support, speed and memory. Choose
   (a) WebCodecs, (b) ffmpeg.wasm or (c) a worker-side ffmpeg. Acceptance: a
   decision note and a sample MP4 with no provider calls. WebCodecs is
-  selected. Native Safari 27.2 rendered, played and sought the 10-second H.264
-  and AAC fixture. FFmpeg decoded both tracks and verified the sample audio
-  signal. The browser suite verifies Chromium MP4 playback. Peak
-  memory on the target devices is still open.
-  [Codec and playback evidence](docs/VIDEO-RENDER-DECISION.md#desktop-safari-rendering)
+  selected. The earlier codec fixture is recorded separately. Safari/iOS,
+  real-device checks and long-episode memory on `c22a9fe` remain **owner-only
+  and unverified**.
+  [Earlier codec notes](docs/VIDEO-RENDER-DECISION.md#desktop-safari-rendering)
 - [x] **T33 — Timeline plan** (M). A deterministic timeline (speaker turns,
   chapters, caption cues) from the episode record and audio timings.
   Acceptance: unit tests on fixtures; same input gives the same plan.
   _(done 2026-11-23: merged `d182f09` lineage; timeline and capability probe, tests pass)_
 - [x] **T34 — Scene library v1** (M). **Owner decided 2026-11-23: waveform plus
-  captions** for the first release (avatars and 3D scenes come later). Two
-  themes. Waveform stays the default. The browser tests cover both themes,
-  and the visual review covers landscape and portrait. [Review](docs/VISUAL-REVIEW-ROUND3.md)
+  captions** as the initial scene. Waveform stays the default, and Studio 3D
+  is available as a lazily loaded scene. [Current visual review](docs/VISUAL-QA.md)
 - [x] **T35 — In-browser renderer** (L). OffscreenCanvas worker, frame
   stepping, progress, cancel, memory and storage limits, MP4 stored in
   IndexedDB with a SHA-256 receipt. Acceptance: deterministic fixture render,
@@ -384,14 +397,12 @@ Status words: `[ ]` open, `[x]` done.
 
 ### M2. Publish package (YouTube upload is out of scope)
 
-**Owner decided 2026-11-23:** Podcast Studio only needs to produce a fully
-production-ready MP4; the owner uploads to YouTube manually. Real upload is
-dropped from the critical path.
+**Owner decided 2026-11-23:** Podcast Studio produces an MP4 and publish ZIP
+for review. The owner uploads to YouTube manually. YouTube acceptance of Opus
+audio remains **owner-only and unverified**.
 
-  _(done 2026-11-23: Episode video panel merged; real Chromium render, preview, review, ZIP download and cancel tests pass)_
-- [ ] **T37 — YouTube upload client** (parked). A mock-tested client was built
-  on branch `feat/t37` as an experiment. It is **not merged** and not wired
-  into the UI. Revisit only if the owner asks for in-app upload.
+- [ ] **T37 — YouTube upload client** (parked). Revisit only if the owner asks
+  for in-app upload.
 - [x] **T38 — Publish package export** (S). Export, per episode, the MP4, a
   title, a description with chapter lines (first at 0:00), tags, a thumbnail
   image, a timed `captions.srt` file from measured narration when available,
@@ -401,38 +412,26 @@ dropped from the critical path.
 
 ### M3 to M5
 
-  _(done 2026-11-23: publish package exported from the Studio after approval; manual YouTube upload)_
-- [x] **T39 — In-browser agent and local pi bridge spike** (L). **Decision (manager,
-  2026-11-23; the owner asked us to decide):** a browser page cannot spawn the
-  local `pi` CLI, so there are two layers. (1) A native in-page agent loop on
-  the OpenAI Responses API with tools (research, outline, script, narrate,
-  render, export) behind one `AgentBridge` interface; it needs no server and
-  works today. (2) An optional pi bridge: pi 1.5.2 is installed locally and
-  offers `--mode rpc` and extensions; a small loopback bridge on 127.0.0.1
-  would connect pi to the same `AgentBridge`. A no-cost spike on 2026-11-23 proved pi `--mode rpc` plus a loopback
-  WebSocket extension can reach a real browser page (see
-  [docs/PI-BRIDGE.md](docs/PI-BRIDGE.md)). A local model fixture also
-  dispatched a registered tool through the same connection. Production
-  tool forwarding remains an optional integration. The in-page agent
-  works within browser limits (the BYOK key, the browser sandbox, no
-  filesystem); "no limitation" is not achievable literally, so each tool is
-  explicit and bounded. Acceptance: mock-provider tests, cost disclosure and
-  consent, no automatic paid retries, every tool call logged for the user.
+- [x] **T39 — In-browser agent and local pi bridge spike** (L). The manager’s
+  2026-11-23 decision records an in-page agent loop and an optional loopback
+  pi bridge spike. Acceptance calls for mocked-provider tests, cost disclosure
+  and consent, no automatic paid retries, and a tool call log. A real model-driven
+  agent run on `c22a9fe` is **unverified**.
+  [Agent guide](docs/AGENT.md) · [Earlier bridge spike](docs/PI-BRIDGE.md)
 - [x] **T40 — Godot path** (M). Evaluate Godot as a worker or export renderer.
   Keep the built-in browser exporter and reserve Godot Movie Maker for a
   future project with a scene authored in Godot. [Decision](docs/ANIMATION-DECISION.md#godot-export-decision-t40)
 - [x] **T41 — Worker as optional** (S). Keep Automation and unattended runs as
   worker features, labelled optional, using the shared pipeline from T26.
-  Verified a real worker-produced episode on macOS. [Worker evidence](docs/V2-FACTORY.md#verified-macos-installation-and-playback)
+  Unattended production on the target host is **unverified**.
+  [Earlier worker evidence](docs/V2-FACTORY.md#verified-macos-installation-and-playback)
 - [x] **T42 — Release gates for video and upload** (S). Extend
   `docs/V2-PRODUCTION-CHECKLIST.md`: render, review, upload, and YouTube
   content and licensing checks for AI-generated media. [Episode sign-off](docs/V2-PRODUCTION-CHECKLIST.md)
 - [ ] **T43 — Real-device and offline verification** (M). Phones and Safari,
   storage quota with large video blobs, offline Library after upload.
-  Desktop Chrome persisted a ten-minute 1080p MP4 offline and read back its
-  full digest. A Chromium Studio regression exercises a real origin quota
-  failure on replacement of an approved video. Physical phone coverage remains
-  open. [Desktop measurements](docs/VIDEO-RENDER-DECISION.md#desktop-long-episode-measurement)
+  Real-device and Safari/iOS checks and long-episode memory are **owner-only
+  and unverified**. [Earlier desktop measurements](docs/VIDEO-RENDER-DECISION.md#desktop-long-episode-measurement)
 
 Suggested order: T24 and T32 in parallel, then T25, T26, T27, T28, T29, T30,
 T31, then T33 to T36, then T38, T39, then T40 to T43 (T37 is parked).
@@ -450,27 +449,28 @@ collide.
   updates, and CI checks (missing or empty keys per locale, unused keys,
   placeholder consistency, question-mark-only strings, duplicate keys).
   Acceptance: unit tests; runtime switch without reload.
-  _(done 2026-11-23: merged `9ae3e45`; 152 unit and 26 browser tests pass; runtime locale switch verified)_
+  _(merged as `9ae3e45`)_
 - [x] **T45 — Extract UI strings** (L, parallel by file group). Move every
   user-facing string, thrown error and aria label in `src/factory/*.tsx`,
   `src/agent`, `src/publish` and `src/video` user messages into catalogue keys.
   Source locale stays `zh-CN`. Acceptance: a scan finds no hard-coded
   user-facing string; behavior unchanged; existing browser tests updated only
   where text changed.
-  _(done 2026-11-23: merged; 0 hard-coded CJK fragments in src, 121 backend error codes (T45b))_
+  The strict i18n scan at `c22a9fe` found 0 CJK text fragments outside `src/i18n`.
 - [x] **T46 — English and Malay catalogues and glossary** (M). Complete `en` and
   `ms` with a per-locale glossary (key, cost, consent, estimate, unknown
   outcome, backup, episode, narration). Mark consent, cost, key-risk and
   no-retry messages for native review. Acceptance: no missing key; `ms`
   recorded as unreviewed until a native speaker signs off.
-  _(done 2026-11-23: en and ms catalogues complete for every key, glossary in `src/i18n/glossary.md`; ms and the consent, cost, key-risk and no-retry text in en and ms remain **unreviewed by a native speaker**)_
+  Native-speaker review of Malay and English consent and cost copy remains
+  **owner-only and unverified**. The Malay product name remains an owner decision.
 - [x] **T47 — UI/UX standard audit and fixes** (L). Run the evidence in the
   standard per locale: scans, runtime toggle, 1440, 768 and 390 screenshots
   viewed by the manager, 200% text, keyboard pass, state coverage (empty,
   loading, running, failed, unknown paid outcome, offline), CJK typography,
   16px inputs and 44px targets, focus and live regions. Fix findings.
   Acceptance: evidence table committed; remaining gaps listed.
-  _(done 2026-11-23: sweep passes 12 of 12 in Chromium; evidence in docs/UIUX-EVIDENCE.md)_
+  [Earlier UI/UX evidence](docs/UIUX-EVIDENCE.md)
 - [x] **T48 — Compatibility and evidence record** (S). Fill the
   `pwa:product-standard` evidence rows for what actually ran; everything
   not run (real iOS, Safari, VoiceOver, field Web Vitals) stays `NOT_RUN`.
@@ -483,18 +483,15 @@ white and hard to read, so check contrast and add the reason next to the button;
 (3) 768 px and the Library, Episode and running or failed states were not
 reviewed yet.
 
-  _(done 2026-11-23: evidence rows filled for what ran; real iOS, Safari, VoiceOver, field Web Vitals stay NOT_RUN)_
 ### M7. Animation (owner question 2026-11-23: Three.js, "67JS", Godot)
 
 The app has a waveform scene and a lazily loaded Three.js scene, driven by
 the same fixed frame clock and WebCodecs export. The owner confirmed that
 “67JS” refers to Crucible. [Engine decision and benchmarks](docs/ANIMATION-DECISION.md)
 
-- [x] **T49 — Video polish from the first real trial** _(done 2026-11-23: bitrate
-  900 kbit/s halves the MP4 (22.8 to 13.8 MiB for a 124 s synthetic episode,
-  29 to about 14 MiB expected for the trial), balanced CJK wrapping, tracking
-  parameters stripped; 32 of 32 browser tests pass)_
-- [x] **T50 — Scene plugin interface** (M). _(done 2026-11-23: registry, waveform scene, per-chapter overrides, receipt records the scene; fixed the waveform window at turn starts; the pre-refactor draw-call snapshot matches; 38 of 38 browser tests pass. Waveform uses an absolute scale, so quiet audio gives short bars: consider optional normalisation.)_ Refactor `drawFrame` into a registry of
+- [x] **T49 — Video polish from the first real trial.**
+  [Video render decision](docs/VIDEO-RENDER-DECISION.md)
+- [x] **T50 — Scene plugin interface** (M). Refactor `drawFrame` into a registry of
   scenes (`waveform` first), selected by id in the plan and the Video panel.
 - [x] **T51 — Three.js audio-reactive scene spike** (L). _(done 2026-11-23: median
   26.7 ms per 1080p frame on software WebGL, identical frame hashes across runs and
@@ -509,7 +506,7 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
 - [x] **T53 — Identify and evaluate the library adapter** (S). The owner
   confirmed Crucible. T54 tested the fixed recipe adapter and T56 owns any
   production integration. [Fixture and review](spikes/crucible-scene/README.md)
-- [x] **T55 — Three.js studio scene in the app** (L). _(done 2026-11-23: lazy chunk 135.6 kB gzip, main bundle 195.7 to 189.1 kB gzip, WebGL2 fallback to waveform, presets and receipt; real 124 s render at 1080p in Chromium works, 13.8 MiB; 41 of 41 browser tests pass. Design polish follows from the visual design spec.)_ Add `three` 0.187.0 as a
+- [x] **T55 — Three.js studio scene in the app** (L). Add `three` 0.187.0 as a
   dependency, a lazily loaded `studio3d` scene registered through the T50
   registry, WebGL layer compositing under the shared overlay, capability check
   and automatic fallback to the waveform, parametrised by preset ids (palette,
@@ -522,25 +519,26 @@ the same fixed frame clock and WebCodecs export. The owner confirmed that
   the validated storyboard only (closed ids, no shaders, no asset references, no
   URLs, no scripts), pinned to an exact version, with the T54 safety review
   repeated against the installed code and the frame-time and hash gates from
-  T51 and T54. Default stays the hand-written Three.js scene unless the owner
-  chooses otherwise. The current qualification missed both frame-time gates.
+  T51 and T54. Studio 3D remains the available 3D scene. The earlier Crucible
+  qualification missed both frame-time gates.
   [Measured result](docs/ANIMATION-DECISION.md#crucible-qualification-t56)
 
 ### Visual design implementation (owner delegated style; spec: docs/VISUAL-DESIGN-SPEC.md)
 
 - [x] **T58 fonts and caption timing**, **T59 layout, overlay, waveform, timeline and portrait**,
-  **T60 Studio 3D art direction**, **T61 thumbnails** _(merged 2026-11-23; 247 unit and 45 of 45
-  browser tests pass; integration fixes: the font preflight notice in Node tests, Vite library-mode
-  `process.env` in two test bundlers, two chapter-timestamp assertions that correctly moved earlier
-  because speech now starts at frame 0)_
+  **T60 Studio 3D art direction**, **T61 thumbnails**.
 - [x] **T62 Studio panel for the new options** (M): orientation (16:9 or 9:16), palette, mood,
   reduced-motion export, thumbnail variant and headline fields, and preview
   guides. [Panel options tests](tests/factory-video-options.browser.ts)
 - [x] **T63 Rubric checks in Playwright** (L): contrast from sampled pixels, safe area, line counts,
   orphan characters, flash limit, hash determinism, per spec section 8.
-- [x] **T64 Visual review** (manager): real landscape and portrait frames and thumbnails, an
-  independent reviewer scoring the 100-point rubric, up to three rework rounds.
-  Round 3 exceeded the 85% static review gate. [Review](docs/VISUAL-REVIEW-ROUND3.md)
+- [ ] **T64 Visual review** (manager). **Visual acceptance has not passed.** The
+  latest independent image-only review scored 79.0% (54.5/69), below 85%.
+  Remaining findings cover portrait chapter title size (.041H to .047H),
+  speaking-state readability of waveform active bars and the active chip
+  outline, Studio 3D materials and grounding, and minor gradient steps. The
+  Mandarin portrait caption break is subjective because reviewers disagreed.
+  [Review history](docs/VISUAL-QA.md#history-and-status)
 - [x] **T65 Bundle size** (S). The app loads the renderer, font coverage, 3D scene,
   and video tools on demand. The PWA still precaches their assets for offline
   use. [Render hook](src/factory/useVideoRender.ts) · [Agent hook](src/factory/useAgent.ts)

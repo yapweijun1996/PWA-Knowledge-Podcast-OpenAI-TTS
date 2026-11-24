@@ -1,7 +1,7 @@
 # Visual QA: how the video design is checked
 
-The visual design ([VISUAL-DESIGN-SPEC.md](VISUAL-DESIGN-SPEC.md)) is accepted only through evidence.
-Three layers, each catching different failures. A layer passing never substitutes for another.
+Visual acceptance requires the automated gates and the independent review to
+pass. [Visual design spec](VISUAL-DESIGN-SPEC.md)
 
 | Layer | What it proves | What it cannot prove | Run it |
 | --- | --- | --- | --- |
@@ -15,7 +15,7 @@ Three layers, each catching different failures. A layer passing never substitute
 | --- | --- |
 | Captions | At most two lines; per-line limits from the tokens; no line ends with a CJK function word (的 地 得 了 着 过 和 与 在 对 把 被 从 向 为 以 及 或 而) or starts with 呢 吗 吧 啊 嘛 啦 or a closing mark; no single-character last line; Latin words whole; cues cover the turn text with no lost words; reading rate within the caption-timing ceilings. |
 | Contrast | Every checked text element reaches 4.5:1 in the raw frame **and** in the frame decoded from the H.264 MP4. Small text is measured after compression because that is what viewers see. |
-| Framing | Element boxes inside the spec's safe rectangle for each orientation; no decoded ink outside the title-safe rectangle (.05 .05 .95 .95). |
+| Framing | Element boxes stay inside the spec's safe rectangle for each orientation. The title-safe exterior (.05 .05 .95 .95) is checked for raw foreground crossings and connected decoded edges. |
 | Typography | Bundled faces loaded, no missing glyphs after NFC normalisation, wordmark in the episode language. |
 | Opening and chapters | Caption and title ink at frame 0; title hold 2.0 s landscape and 1.5 s portrait; chapter cards on the first voiced frame; correct `n / total` progress. |
 | Flash safety | General-flash and red-flash counts over the area rule must be at most 3 per rolling second. The cell-level count is a diagnostic reported as a warning with its value (soft limit 10 per second). |
@@ -42,9 +42,9 @@ presentation order. It checks the track frame count, dimensions, and each
 sample's timestamp. The frame-indexed test compares decoded indices with the
 native media element, including the callout boundary at frame 45.
 
-The shared QA frame reader requests software decoding for repeatable frame
-measurements across machines. Chromium's hardware decoder on macOS can fail
-on the first frame of a valid export during a QA run.
+The shared QA frame reader requests `prefer-software` when decoding MP4 frames.
+Chromium’s hardware H.264 decoder on macOS failed on the first frame of a valid
+export during QA runs. [QA frame reader](../tests/fixtures/visual-mp4.ts)
 
 Flash analysis samples a 160×90 landscape grid or a 90×160 portrait grid. It
 checks all raw frames and uses every decoded frame within eight source frames
@@ -58,17 +58,12 @@ frames. Beside confirmed coded padding, it rechecks gradients that touch the
 final 4:2:0 chroma sample with the same four-pixel stencil shifted inward.
 Components confined to the affected edge contribute to a codec-rim metric.
 Any connection to an inward edge or a perpendicular gradient at that rim
-counts in the framing check. The two GitHub frame pairs showed 44 and 166 such
-decoded edge candidates with zero raw foreground crossings.
-[First frame pair](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45195525332)
-· [Second frame pair](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45201453995)
+counts in the framing check. [Framing harness](../tests/fixtures/visual-qa.ts)
 
 The Studio 3D preview regression compares source-frame SHA-256 values from two
 actual worker exports. It decodes the resulting MP4s at the same presentation
 times and requires at least 40 dB RGB PSNR for every sampled frame. It also checks
-native playback. The GitHub Linux x64 pair had six identical source frames, 81
-matching sample timestamps and matching keyframe positions. FFmpeg measured a
-minimum of 43.74 dB across the two decoded videos. [Native encoding evidence](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45200272739)
+native playback. [Studio 3D browser tests](../tests/factory-video-3d.browser.ts)
 
 The rubric keeps a 120 s deadline per video fixture and a 30 s deadline for
 each thumbnail or fallback fixture. It records partial results and fails if
@@ -86,33 +81,39 @@ render jobs share a single Playwright worker to avoid starving those fixtures.
    images attached, `gpt-6.2-sol` at `xhigh`) together with section 8 of the spec. The reviewer must score
    only what is visible, mark motion, determinism, performance and caption sync NOT_ASSESSABLE, list defects
    with image, region and a concrete fix, and say which scene should be the default.
-3. Pass: at least 85 percent of the assessable points and every hard gate. Record the report in this
-   folder (see the [round 3 result](VISUAL-REVIEW-ROUND3.md)).
+3. Passing requires at least 85 percent of the assessable points and every hard
+   gate. Record the result with its revision and fixture set.
 
 ## History and status
 
-| Date | Event | Result |
-| --- | --- | --- |
-| 2026-11-23 | Round 1 independent review of the first implementation | **57 percent** of 69 assessable points: the opening title hold was missing, captions broke at unnatural places, 3D showed banding and weak speaker emphasis, portrait left the lower half empty, the wordmark did not match the thumbnails. |
-| 2026-11-23 | Browser rubric first run | 47 percent. Real findings: wordmark not localised in the render path, small text below 4.5:1 after H.264, flash semantics, a too-fast caption fixture. |
-| 2026-11-23 | After fixes, second browser rubric run | 35 percent, dominated by harness frame misalignment (decoded ratio exactly 1.00) and one real finding (decomposed accents reported as missing glyphs). Harness and NFC fixes were in progress when this was written. |
-| 2026-11-23 | Manager's merged Chromium run after the presentation-callback rewrite | 47 browser tests passed. The visual rubric reported 0 of 62 after its fixture evaluations hit the 360 s test timeout. |
-| 2026-11-23 | Frame-centre seek reader and isolated fixture watchdogs | Chromium `NOT_RUN` in the G3 worktree. The new scores and 40 s runtime target await a browser run. |
+At `c22a9fe`, the manager’s Mac (Chromium 156–158, software WebGL) passed
+two consecutive Factory runs at **51/51** with automated visual QA at
+**62/62**. One separate parallel run had an intermittent failure in
+`tests/factory-video-options.browser.ts`. Investigation is open. Browser
+execution for this documentation update was `NOT_RUN`.
+[Test matrix](TEST-MATRIX.md)
 
-| 2026-11-23 | After the reader rewrite (G3): browser rubric and round 2 independent review | Browser rubric **62 of 62**, 49 of 49 browser tests. Independent review **64.5 percent** ([round 2](VISUAL-REVIEW-ROUND2.md)): the reviewer saw chapter-card banding that no automated gate measures. |
+The independent image-only reviews used the same prompt and the same nine
+stills. The scores cover only assessable visible points.
 
-**Status: the visual design has not passed its acceptance bar (the independent review is below 85 percent).** Update this table with each run; do
-not mark the design accepted until the rubric and an independent review both pass.
+| Review | Score |
+| --- | ---: |
+| Baseline before the latest rounds | 76.8% |
+| Earlier alternative line | 71.0% |
+| Following review | 71.7% |
+| Latest review at `c22a9fe` | **79.0% (54.5/69)** |
+
+**Visual acceptance has not passed.** The bar is 85%. Earlier round reports
+apply to their own samples. [Round 2](VISUAL-REVIEW-ROUND2.md) · [Round 3](VISUAL-REVIEW-ROUND3.md)
+
+- Reviewers asked to increase the portrait chapter title from .041H to .047H.
+- The waveform’s active bars and the active chip outline need clearer speaking-state cues.
+- Reviewers flagged Studio 3D materials and grounding, and minor gradient steps.
+- Reviewers disagreed about the Mandarin portrait caption break. The item is subjective.
 
 ## Not verified
 
-Real GPUs and other drivers (pixel hashes may differ), Safari and phones, motion quality judged by eye,
-long episodes, audio-visual sync against real speech, YouTube's own caption and chapter handling, and any
-claim about retention or click-through.
-
-The round 3 Linux ARM64 Chromium run at `af0dd0d` passed all seven visual
-fixtures and 62 of 62 automated points. Each full video fixture decoded the
-534-frame MP4, with total fixture times of 47.48, 51.66, 74.40 and 61.08
-seconds. This run used the independent local Linux environment. GitHub
-Actions records the release verification on its own runner.
-[Core release workflow](https://github.com/yapweijun1996/PWA-Knowledge-Podcast-OpenAI-TTS/actions/runs/45191682709)
+Real-GPU frame timing, real-device and Safari/iOS checks, long-episode memory,
+listening review of real TTS audio and YouTube acceptance of Opus audio are
+**owner-only and unverified**. The independent stills leave motion quality and
+audio-visual sync against real speech unverified. [Open items](ROADMAP.md#open-items)
