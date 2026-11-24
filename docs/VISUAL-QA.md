@@ -42,6 +42,10 @@ presentation order. It checks the track frame count, dimensions, and each
 sample's timestamp. The frame-indexed test compares decoded indices with the
 native media element, including the callout boundary at frame 45.
 
+The shared QA frame reader requests software decoding for repeatable frame
+measurements across machines. Chromium's hardware decoder on macOS can fail
+on the first frame of a valid export during a QA run.
+
 Flash analysis samples a 160×90 landscape grid or a 90×160 portrait grid. It
 checks all raw frames and uses every decoded frame within eight source frames
 of a chapter, title hold or speaker or PCM transition, as well as the rapid

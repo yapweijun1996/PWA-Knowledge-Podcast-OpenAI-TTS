@@ -35,6 +35,7 @@ export async function readMp4Frames(
     codec: track.codec,
     codedWidth: track.video.width,
     codedHeight: track.video.height,
+    hardwareAcceleration: "prefer-software",
     description: bytes.slice(
       avcC.start + avcC.hdr_size,
       avcC.start + avcC.size,
