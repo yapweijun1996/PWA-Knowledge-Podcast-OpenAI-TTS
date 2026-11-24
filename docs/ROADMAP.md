@@ -58,6 +58,8 @@ and 62/62 automated visual QA points. **Visual acceptance has not passed.**
   thumbnails alongside the automated gates. Recheck the Studio 3D speaking cue,
   pedestals and floor marks, portrait chapter title size and balance, and faint
   gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
+- **Long-episode export.** Qualify a five-minute interim cap and develop a
+  file-backed MP4 path for 30–60 minute episodes. [Long-episode plan](LONG-EPISODES.md)
 - **Owner-only checks and decisions.** Verify playback on real devices, private
   YouTube Opus playback, TTS quality, Malay and English copy, real-GPU frame
   timing, long-episode memory and USD cost. Sign off on the Malay product name

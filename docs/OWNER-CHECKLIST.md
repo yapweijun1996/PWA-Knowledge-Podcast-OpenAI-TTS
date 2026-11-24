@@ -53,7 +53,7 @@ open and owner visual acceptance is pending.
   Reopen the episode, play and seek through the saved MP4, and recheck memory
   after returning to Library. **Pass when** both exports save and reopen at
   full duration, playback reaches the end, and memory settles after export
-  without a crash, out-of-memory error or tab reload. [Duration guard](../src/factory/useVideoRender.ts)
+  without a crash, out-of-memory error or tab reload. [Duration guard](../src/factory/useVideoRender.ts) · [Long-episode plan](LONG-EPISODES.md)
 - [ ] **USD cost for one real run.** Use a dedicated OpenAI project with one
   owner-approved run in the measurement window. Before consenting, record the
   Studio usage estimate and convert the covered quantities to USD using the
