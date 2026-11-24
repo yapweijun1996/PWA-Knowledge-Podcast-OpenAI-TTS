@@ -1,13 +1,14 @@
 # Visual QA: how the video design is checked
 
-Visual acceptance requires the automated gates and the independent review to
-pass. [Visual design spec](VISUAL-DESIGN-SPEC.md)
+Visual acceptance requires passing automated gates and owner sign-off on real
+exports. [Visual design spec](VISUAL-DESIGN-SPEC.md)
 
 | Layer | What it proves | What it cannot prove | Run it |
 | --- | --- | --- | --- |
 | 1. Unit tests | Layout boxes, wrapping rules, caption timing, palettes, envelopes and camera maths are correct as pure functions. | That real pixels, fonts or encoders behave. | `npm test` |
 | 2. Browser rubric (`tests/visual-qa.browser.ts`) | Real Chromium renders real MP4s (waveform and Studio 3D, landscape and portrait, Mandarin, English, Malay, mixed text) with the bundled fonts; decoded frames are measured against the spec's section 8 gates and a machine-readable score report is attached. A three-second H.264 clip checks that the reader returns the right encoded index and sees a callout disappear exactly at frame 45. | Taste, motion feel, real GPUs, other browsers. | `npm run e2e:factory -- --no-deps --project=render tests/visual-qa.browser.ts` |
-| 3. Independent visual review | A reviewer who did not build the design looks at real rendered frames and scores them against the rubric. | Anything not visible in stills: motion, determinism, performance. | See below. |
+| 3. Independent image-only review | A reviewer scores visible criteria in rendered stills and suggests fixes. | Motion, determinism, performance or visual acceptance. | [Review procedure](#independent-review-procedure) |
+| 4. Owner review | The owner judges the actual exported videos in motion and the exported thumbnails. | Hard defects covered by the automated gates still require their own checks. | [Owner checklist](OWNER-CHECKLIST.md) |
 
 ## The gates the browser rubric enforces
 
@@ -33,7 +34,7 @@ Decisions that shaped the gates (2026-11-23):
   after H.264.
 - **Text normalisation:** all visible text is normalised to NFC before measuring, drawing and the font
   check, so decomposed accents do not report missing glyphs.
-- **Default scene:** waveform until Studio 3D passes the same review.
+- **Default scene:** waveform. Studio 3D remains opt-in pending owner sign-off.
 
 ## Decoding, flash sampling and timing
 
@@ -81,8 +82,8 @@ render jobs share a single Playwright worker to avoid starving those fixtures.
    images attached, `gpt-6.2-sol` at `xhigh`) together with section 8 of the spec. The reviewer must score
    only what is visible, mark motion, determinism, performance and caption sync NOT_ASSESSABLE, list defects
    with image, region and a concrete fix, and say which scene should be the default.
-3. Passing requires at least 85 percent of the assessable points and every hard
-   gate. Record the result with its revision and fixture set.
+3. Record the score, revision, fixture set, prompt and reviewer settings. Use
+   repeated findings to guide the owner's export review.
 
 ## History and status
 
@@ -93,27 +94,50 @@ two consecutive Factory runs at **51/51** with automated visual QA at
 execution for this documentation update was `NOT_RUN`.
 [Test matrix](TEST-MATRIX.md)
 
-The independent image-only reviews used the same prompt and the same nine
-stills. The scores cover only assessable visible points.
-
-| Review | Score |
-| --- | ---: |
-| Baseline before the latest rounds | 76.8% |
-| Earlier alternative line | 71.0% |
-| Following review | 71.7% |
-| Latest review at `c22a9fe` | **79.0% (54.5/69)** |
-
-**Visual acceptance has not passed.** The bar is 85%. Earlier round reports
-apply to their own samples. [Round 2](VISUAL-REVIEW-ROUND2.md) · [Round 3](VISUAL-REVIEW-ROUND3.md)
+**Visual acceptance has not passed.** Earlier round reports used an 85%
+still-image bar and apply to their own samples. [Round 2](VISUAL-REVIEW-ROUND2.md) · [Round 3](VISUAL-REVIEW-ROUND3.md)
 
 - Reviewers asked to increase the portrait chapter title from .041H to .047H.
 - The waveform’s active bars and the active chip outline need clearer speaking-state cues.
 - Reviewers flagged Studio 3D materials and grounding, and minor gradient steps.
 - Reviewers disagreed about the Mandarin portrait caption break. The item is subjective.
 
+## Review reliability and acceptance policy
+
+The manager verified five independent image-only reviews of the same nine
+stills with the same prompt. Scores cover assessable visible points.
+
+| Review | Score |
+| --- | ---: |
+| Baseline at `5546126` | 76.8% |
+| Earlier alternative line | 71.0% |
+| Following review | 71.7% |
+| Review recorded at `c22a9fe` | 79.0% (54.5/69) |
+| Review recorded at `7e76c16` | 70.3% |
+
+Scores spanned 8.7 percentage points. Individual criteria swung by up to
+6 points across reviews of near-identical frames. Contrast and host identity,
+for example, received 12 points and then 6. Reviewers gave three mutually
+contradictory preferences for the same Mandarin caption break. Allow for
+roughly ±8 percentage points of review noise, larger than the effect of one
+round of polish. A score is comparable only when the stills, prompt and
+reviewer settings are the same. Treat image-only reviews as advisory.
+
+Reviewers repeatedly found weak speaking cues on the Studio 3D stage itself,
+a prototype look from the pedestals and floor marks, portrait chapter titles
+that need more size and better vertical balance, and faint gradient steps.
+Check these findings in the exported videos.
+
+The owner decides visual acceptance by viewing real MP4 exports of waveform
+and Studio 3D in both landscape and portrait, plus the exported thumbnails,
+alongside the automated gate results. The recorded Factory suite result
+(51/51) and automated visual QA result (62/62) establish that the checks found
+no hard defects in the cases they cover. A single still-image score is an
+unreliable acceptance gate. [Owner checklist](OWNER-CHECKLIST.md)
+
 ## Not verified
 
 Real-GPU frame timing, real-device and Safari/iOS checks, long-episode memory,
 listening review of real TTS audio and YouTube acceptance of Opus audio are
 **owner-only and unverified**. The independent stills leave motion quality and
-audio-visual sync against real speech unverified. [Open items](ROADMAP.md#open-items)
+audio-visual sync against real speech unverified. [Owner checklist](OWNER-CHECKLIST.md) · [Open items](ROADMAP.md#open-items)

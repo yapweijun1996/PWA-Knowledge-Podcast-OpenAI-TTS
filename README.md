@@ -82,9 +82,9 @@ automated visual QA at 62/62 in Chromium 156–158 with software WebGL. A separa
 parallel run had one intermittent failure in `tests/factory-video-options.browser.ts`.
 The failure is under investigation. [Test matrix](docs/TEST-MATRIX.md)
 
-**Visual acceptance has not passed.** The latest independent image-only review
-scored 79.0% (54.5/69) against an 85% acceptance bar. See the roadmap for the
-remaining owner-only and unverified checks. [Visual QA](docs/VISUAL-QA.md) · [Roadmap](docs/ROADMAP.md#open-items)
+**Visual acceptance has not passed.** The owner reviews real exports alongside
+the automated gates. Image-only reviews are advisory.
+[Visual QA](docs/VISUAL-QA.md#review-reliability-and-acceptance-policy) · [Owner checklist](docs/OWNER-CHECKLIST.md) · [Roadmap](docs/ROADMAP.md#open-items)
 
 Pages publishes the tested public build through the Pages workflow. The
 optional worker has its own distributable artifact. Use the release and

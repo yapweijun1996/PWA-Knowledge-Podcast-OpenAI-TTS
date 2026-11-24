@@ -18,10 +18,8 @@ measured captions are available.
 On the manager’s Mac, typecheck and both builds passed. Of 289 tests, 288
 passed and 1 skipped because the Crucible spike dependency was absent. The
 strict i18n scan reported 0 findings and `npm audit` reported 0 vulnerabilities.
-Chromium 156–158 with software WebGL passed
-51/51 Factory tests twice in a row and 62/62 automated visual QA points. The
-latest independent still-image review scored 79.0% (54.5/69), below the 85%
-acceptance bar. **Visual acceptance has not passed.**
+Chromium 156–158 with software WebGL passed 51/51 Factory tests twice in a row
+and 62/62 automated visual QA points. **Visual acceptance has not passed.**
 [Test matrix](TEST-MATRIX.md) · [Visual QA](VISUAL-QA.md)
 
 ## Milestone status
@@ -35,7 +33,7 @@ acceptance bar. **Visual acceptance has not passed.**
 | M4 · Optional worker, T40 and T41 | Optional private Node.js worker. | Unattended production on the target host is unverified. |
 | M5 · Release hardening, T42 and T43 | Release verification remains open. | Real-device and Safari/iOS checks. |
 | M6 · i18n and UI/UX, T44 to T48 | Strict i18n scan passed with 0 findings. | Native-speaker review of Malay and English consent and cost copy, and the Malay product name decision. |
-| M7 · Animation, T50 to T56 | Waveform and lazily loaded Studio 3D are available. Automated visual QA passed 62/62. | Independent visual acceptance and real-GPU frame timing. |
+| M7 · Animation, T50 to T56 | Waveform and lazily loaded Studio 3D are available. Automated visual QA passed 62/62. | Owner visual acceptance, real-GPU frame timing and the default scene decision. |
 
 ## Rules every milestone keeps
 
@@ -56,16 +54,15 @@ acceptance bar. **Visual acceptance has not passed.**
 
 - **Browser QA.** One parallel run had an intermittent failure in
   `tests/factory-video-options.browser.ts`. Investigation is open.
-- **Visual acceptance.** Reviewers proposed increasing the portrait chapter title
-  from .041H to .047H and flagged speaking-state readability of waveform active bars and the
-  active chip outline, Studio 3D materials and grounding, and minor gradient
-  steps. Reviewers disagreed on the Mandarin portrait caption break, which is
-  subjective. [Visual QA](VISUAL-QA.md#history-and-status)
-- **Owner-only and unverified.** Real-device and Safari/iOS checks, listening
-  review of real TTS audio, YouTube acceptance of Opus audio, native-speaker
-  review of Malay and English consent and cost copy, real-GPU frame timing,
-  long-episode memory and USD cost accuracy. The Malay product name remains an
-  owner decision.
+- **Visual acceptance.** Review both scenes in both orientations and the
+  thumbnails alongside the automated gates. Recheck the Studio 3D speaking cue,
+  pedestals and floor marks, portrait chapter title size and balance, and faint
+  gradient steps. [Acceptance policy](VISUAL-QA.md#review-reliability-and-acceptance-policy)
+- **Owner-only checks and decisions.** Verify playback on real devices, private
+  YouTube Opus playback, TTS quality, Malay and English copy, real-GPU frame
+  timing, long-episode memory and USD cost. Sign off on the Malay product name
+  and the default scene. The 30–60 minute memory check is blocked by the
+  Episode export duration limit. [Owner checklist](OWNER-CHECKLIST.md)
 
 [Production readiness](PRODUCTION-READINESS.md) · [Episode sign-off](V2-PRODUCTION-CHECKLIST.md)
 
