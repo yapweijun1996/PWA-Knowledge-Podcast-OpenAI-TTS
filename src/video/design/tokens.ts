@@ -36,11 +36,12 @@ export const designTokens = {
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .30, .78, .445],
+    chapterBox: [.08, .30, .78, .485],
     stageBox: [.09, .17, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
-    chapterHostTagCenter: [.43, .495],
+    chapterHostTagCenter: [.43, .53],
+    chapterWash: { topH: .02, bottomH: .62, alpha: .06 },
     hostTagMaxWidthW: .30,
     hostMarkerBoxH: .018, hostMarkerStrokeH: .003,
     calloutBox: [.08, .507, .78, .575],
@@ -50,7 +51,7 @@ export const designTokens = {
     orbCenters: [[.25, .30], [.61, .30]], orbDiameterH: .118,
     typeH: { title: .046, chapter: .041, caption: .032,
              host: .020, callout: .023, progress: .019, wordmark: .021 },
-    text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
+    text: { title: [2,8,16], chapter: [3,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
   },
   common: {

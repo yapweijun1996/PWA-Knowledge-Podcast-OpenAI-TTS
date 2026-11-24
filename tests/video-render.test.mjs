@@ -391,14 +391,16 @@ function overlappingPlan(resolution = { width: 1920, height: 1080 }) {
   );
 }
 
-test("waveform drawing snapshot covers the live opening, chapter overlay and return to the stage", async () => {
+function drawingHash({ calls }) {
+  return createHash("sha256").update(JSON.stringify(calls)).digest("hex");
+}
+
+test("landscape waveform drawing snapshot covers the live opening, chapter overlay and return to the stage", async () => {
   const snapshotPlan = overlappingPlan();
   const { deps, trace } = fakeDependencies();
   await renderVideo({ plan: snapshotPlan, audio, theme: "dark", deps });
   assert.deepEqual(
-    trace.frames.map(({ calls }) =>
-      createHash("sha256").update(JSON.stringify(calls)).digest("hex"),
-    ),
+    trace.frames.map(drawingHash),
     [
       "bd5175dc01b564aaab1e7806f76391b6bd24d66d22aba58d7425edeae5471de7",
       "a2a6522fc1f5715699aa81c16d9f6af49936006b00b286eaae99203d8c7b98c9",
@@ -420,6 +422,40 @@ test("waveform drawing snapshot covers the live opening, chapter overlay and ret
       "f61408ba493c7ab3cd898eaff84aa940724e6d05920ceeb7868f12ef20613d5a",
       "6876fc61bbf6ac475dfd08d3f56c6d8ab673d301c5143b1cad897c6a5bc40a30",
       "24fae7ed8b504ebf4535c048326960d5c869d8fe890ed520f1781d6962ced76a",
+    ],
+  );
+});
+
+test("portrait waveform drawing snapshot pins the chapter wash and chapter chip", async () => {
+  const plan = overlappingPlan({ width: 1080, height: 1920 });
+  const { deps, trace } = fakeDependencies();
+  const createCanvas = deps.createCanvas;
+  deps.createCanvas = () => {
+    const canvas = createCanvas();
+    canvas.context.createLinearGradient = (...line) => ({
+      line,
+      stops: [],
+      addColorStop(...stop) {
+        this.stops.push(stop);
+      },
+    });
+    return canvas;
+  };
+  await renderVideo({ plan, audio, theme: "dark", deps });
+  const washedFrames = trace.frames.flatMap(({ calls }, index) =>
+    calls.some(([method, fill]) => method === "rect" && fill.line?.[2] === 0)
+      ? [index]
+      : [],
+  );
+  assert.deepEqual(washedFrames, [10, 11, 12, 13, 14]);
+  assert.deepEqual(
+    [9, 10, 12, 14, 15].map((index) => drawingHash(trace.frames[index])),
+    [
+      "d2619a6ce6bba05fc8265906f012ff2b63fed96359662b258a9a896152b532a8",
+      "6b8bec8001e6a95e7113ef000c2a0e46d44b94d9569a3d61e30019212fbe2bc3",
+      "53c518477115bfff2b3aed1047a55887e78e800f89381113b9d51c8c5417997b",
+      "3509f8d48ce6c671655dfe2a072f2b40d9a7e45383a3cec3f17ebc15acc12cf6",
+      "e942ec65ee5994fb27036cce33ba18975ac62d6b0cf1b5d12cdc3c474b5240a2",
     ],
   );
 });

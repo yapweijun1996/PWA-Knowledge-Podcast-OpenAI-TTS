@@ -61,11 +61,12 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     progressTopRight: [.78, .120], progressWidthW: .18,
     titleBox: [.08, .215, .78, .425],
     titleGraphicBox: [.60, .455, .76, .50],
-    chapterBox: [.08, .30, .78, .445],
+    chapterBox: [.08, .30, .78, .485],
     stageBox: [.09, .195, .77, .51],
     hostTagCenters: [[.25, .480], [.61, .480]],
     cardHostTagCenter: [.43, .505],
-    chapterHostTagCenter: [.43, .495],
+    chapterHostTagCenter: [.43, .53],
+    chapterWash: { topH: .02, bottomH: .62, alpha: .06 },
     hostTagMaxWidthW: .30,
     hostMarkerBoxH: .018, hostMarkerStrokeH: .003,
     calloutBox: [.08, .507, .78, .575],
@@ -75,7 +76,7 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
     orbCenters: [[.25, .325], [.61, .325]], orbDiameterH: .107,
     typeH: { title: .046, chapter: .041, caption: .032,
              host: .020, callout: .023, progress: .019, wordmark: .021 },
-    text: { title: [2,8,16], chapter: [2,10,24], caption: [2,11,26],
+    text: { title: [2,8,16], chapter: [3,10,24], caption: [2,11,26],
             host: [1,7,16], callout: [2,14,26], wordmark: [1,9,20] }
   },
   common: {
@@ -112,6 +113,8 @@ Coordinates use `[left, top, right, bottom]` from the top-left of the frame. Hor
 ```
 
 **Safe areas.** The centered 90% rectangle follows SMPTE’s 16:9 title-safe dimensions and is also the product’s baseline for portrait. The stricter product rectangles above reserve roughly 15% at the bottom of landscape and 22% at the right and 28% at the bottom of portrait. Use landscape top and bottom player-control masks and portrait top controls, right action rail, and bottom metadata masks in QA. Google publishes overlay templates for **ads**, which are a reference for the kinds of areas to reserve. The organic watch page and Shorts Feed masks require device checks. [SMPTE ST 2046-1](https://pub.smpte.org/pub/st2046-1/st2046-1-2009.pdf) and [Google Ads video safe-zone guidance](https://support.google.com/google-ads/answer/13547298?hl=en), accessed 2026-11-23.
+
+The portrait chapter wash spans the frame width and peaks near `.35H` using the palette’s primary ink at up to `.06` alpha. The chapter chip leaves about `.036H` above the caption plate. The card and callout rail take turns.
 
 Use primary ink for the video wordmark, both host labels, progress and chapter index labels, and captions. Use the episode language for the video and publish-thumbnail wordmark. Singapore mixed episodes use the English mark and keep their mixed-script caption layout. A fitting custom show name takes precedence on the video.
 

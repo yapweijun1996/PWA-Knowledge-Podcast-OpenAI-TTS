@@ -123,9 +123,12 @@ for (const [
     if (orientation === "portrait") {
       close(layout.chapter.y / height, 0.30);
       close(layout.type.chapter / height, 0.041);
-      close(center(layout.chapterChip) / height, 0.495);
+      close(center(layout.chapterChip) / height, 0.53);
       close(center(layout.cardChip) / height, 0.505);
       close((caption.x + caption.width / 2) / width, 0.43);
+      close((caption.y - bottom(layout.chapterChip)) / height, 0.03572);
+      assert.ok(bottom(progress) < layout.chapter.y);
+      assert.ok(bottom(layout.chapter) < callout.y);
       assert.ok(bottom(layout.chapter) < layout.chapterChip.y);
       close(layout.stage.y / height, 0.17);
       for (const rail of wave) close(center(rail) / height, 0.3);
@@ -192,32 +195,6 @@ for (const [
       ).stageFade,
       0,
     );
-    if (orientation === "portrait") {
-      context.text.length = 0;
-      context.shapes.length = 0;
-      overlay.draw(overlay.frameAt(127 / 30), "ocean");
-      const label = context.text.find(
-        ({ value }) => value === overlayCopy(plan).chapterLabels[1],
-      );
-      close(label.y - (geometry.type.progress * 1.22) / 2, height * 0.30);
-      const chapterLines = context.text.filter(
-        ({ font }) => font === videoFont(800, geometry.type.chapter),
-      );
-      assert.equal(chapterLines.length, 2);
-      assert.equal(
-        chapterLines.map(({ value }) => value).join(" "),
-        episode.outline.chapters[1].title,
-      );
-      const chip = context.shapes.find(
-        ({ color, box }) =>
-          color === palettes.ocean.plate && box[1] === geometry.chapterChip.y,
-      );
-      assert.ok(chip);
-      const titleBottom =
-        chapterLines.at(-1).y + (geometry.type.chapter * 1.16) / 2;
-      assert.ok(titleBottom < chip.box[1]);
-      assert.ok(chip.box[1] + chip.box[3] < Math.round(geometry.caption.y));
-    }
   });
 
   test(`${orientation} caption plate is fixed and centers one or two lines`, () => {
@@ -293,6 +270,102 @@ for (const [
     }
   });
 }
+
+test("portrait chapter titles of one to three lines clear the HUD, chip and two-line caption", () => {
+  const resolution = { width: 1080, height: 1920 };
+  const { width, height } = resolution;
+  const { type, progress, chapter, chapterChip, callout, caption } = videoLayout(
+    width,
+    height,
+    "portrait",
+  );
+  const captionText = "We share the park and walk home.";
+  const calloutText = "A useful detail about shared space";
+  const titleFont = videoFont(800, type.chapter);
+  const captionFont = videoFont(600, type.caption);
+  const calloutFont = videoFont(600, type.callout);
+  const chapterId = "park";
+  const chapterEnd = 100 / 30;
+  const titles = [
+    "Shared spaces",
+    "Sharing spaces around the park",
+    "Shared spaces around the park near the river",
+  ];
+  for (const [index, title] of titles.entries()) {
+    const plan = {
+      duration: 6,
+      fps: 30,
+      resolution,
+      chapterWindows: [
+        { chapterId: "opening", start: 0, end: 2 },
+        { chapterId, start: 2, end: 6 },
+      ],
+      scenes: [
+        { kind: "chapter", chapterId, title, start: 2, end: chapterEnd },
+        {
+          kind: "turn",
+          chapterId,
+          speakerId: "A",
+          start: 2,
+          end: 6,
+          audioStart: 0,
+          captions: [{ start: 2, end: 6, lines: [captionText] }],
+        },
+      ],
+      // An overlapping input still cannot place an annotation on a card.
+      callouts: [{ chapterId, start: 2, end: 5, text: calloutText }],
+    };
+    const context = recordingContext();
+    const copy = overlayCopy(plan);
+    const overlay = prepareOverlay(context, plan, copy);
+    const palette = palettes.ocean;
+    for (const frame of [60, 62, 80, 99]) {
+      context.text.length = 0;
+      context.shapes.length = 0;
+      overlay.draw(overlay.frameAt(frame / 30), "ocean");
+      const label = context.text.find(
+        ({ value }) => value === copy.chapterLabels[1],
+      );
+      const titleTop = label.y - (type.progress * 1.22) / 2;
+      close(titleTop / height, 0.30);
+      const track = context.shapes.find(({ color }) => color === palette.track);
+      close(track.box[1] + track.box[3], bottom(progress));
+      assert.ok(bottom(progress) < titleTop);
+
+      const titleLines = context.text.filter(({ font }) => font === titleFont);
+      assert.equal(titleLines.length, index + 1, title);
+      assert.equal(titleLines.map(({ value }) => value).join(" "), title);
+      const titleBottom = titleLines.at(-1).y + (type.chapter * 1.16) / 2;
+      assert.ok(titleBottom <= bottom(chapter));
+      assert.ok(titleBottom < callout.y);
+
+      const plates = context.shapes.filter(({ color }) => color === palette.plate);
+      assert.equal(plates.length, 2);
+      const [chipPlate, captionPlate] = plates.map(({ box }) => box);
+      close(chipPlate[1], chapterChip.y);
+      assert.ok(titleBottom < chipPlate[1]);
+      close(captionPlate[1], Math.round(caption.y));
+      close(captionPlate[1] + captionPlate[3], Math.round(bottom(caption)));
+      assert.ok(chipPlate[1] + chipPlate[3] < captionPlate[1]);
+      const cueLines = context.text.filter(({ font }) => font === captionFont);
+      assert.equal(cueLines.length, 2);
+      assert.equal(cueLines.map(({ value }) => value).join(" "), captionText);
+      assert.ok(context.text.every(({ font }) => font !== calloutFont));
+    }
+
+    context.text.length = 0;
+    context.shapes.length = 0;
+    overlay.draw(overlay.frameAt(chapterEnd), "ocean");
+    const annotation = context.text.filter(({ font }) => font === calloutFont);
+    assert.equal(annotation.map(({ value }) => value).join(" "), calloutText);
+    const [stageA, stageB, calloutPlate, captionPlate] = context.shapes
+      .filter(({ color }) => color === palette.plate)
+      .map(({ box }) => box);
+    assert.ok(stageA[1] + stageA[3] < calloutPlate[1]);
+    assert.ok(stageB[1] + stageB[3] < calloutPlate[1]);
+    assert.ok(calloutPlate[1] + calloutPlate[3] < captionPlate[1]);
+  }
+});
 
 test("compact landscape host chips fit their labels and show both marker states", () => {
   const context = recordingContext();

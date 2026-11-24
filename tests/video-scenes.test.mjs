@@ -4,6 +4,8 @@ import {
   isCurrentVideo,
   videoArtifactKey,
 } from "../src/factory/useVideoRender.ts";
+import { palettes } from "../src/video/design/palettes.ts";
+import { prepareOverlay } from "../src/video/overlay.ts";
 import { getScene, listScenes } from "../src/video/scenes/registry.ts";
 import {
   drawWaveform,
@@ -75,6 +77,124 @@ test("chapter overrides work from the opening speech and match later chapter car
     start: 0,
     timestamp: "0:00",
   });
+});
+
+test("the dithered portrait chapter wash keeps adjacent background luma steps within 3/255", (t) => {
+  class PixelCanvas {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+    }
+    getContext() {
+      return {
+        createImageData: (width, height) => ({
+          data: new Uint8ClampedArray(4 * width * height),
+        }),
+        getImageData: () => ({ data: this.pixels.slice() }),
+        putImageData: ({ data }) => {
+          this.pixels = data;
+        },
+        drawImage: (source) => {
+          this.pixels = source.pixels.slice();
+        },
+      };
+    }
+  }
+  const previousCanvas = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "OffscreenCanvas",
+  );
+  Object.defineProperty(globalThis, "OffscreenCanvas", {
+    value: PixelCanvas,
+    configurable: true,
+  });
+  t.after(() => {
+    if (previousCanvas) Object.defineProperty(globalThis, "OffscreenCanvas", previousCanvas);
+    else delete globalThis.OffscreenCanvas;
+  });
+
+  const width = 1080;
+  const height = 1920;
+  const plan = {
+    duration: 3,
+    resolution: { width, height },
+    scenes: [{ kind: "chapter", title: "Shared spaces", start: 1, end: 2 }],
+  };
+  const context = {
+    drawImage(source) {
+      this.background = source.pixels;
+    },
+    createPattern(strip, repetition) {
+      assert.equal(repetition, "repeat-x");
+      return {
+        strip,
+        setTransform({ f }) {
+          this.top = f;
+        },
+      };
+    },
+    fillRect(...box) {
+      if (this.fillStyle.strip) this.wash = { ...this.fillStyle, box };
+    },
+    fillText() {},
+    measureText: (value) => ({ width: value.length * 20 }),
+  };
+  const overlay = prepareOverlay(context, plan);
+  const luma = [0.2126, 0.7152, 0.0722];
+  const previousRow = new Float64Array(width);
+  let maxStep = 0;
+  for (const paletteId of Object.keys(palettes)) {
+    overlay.drawBackground(paletteId);
+    overlay.draw(overlay.frameAt(1.5), paletteId);
+    const { strip, top, box } = context.wash;
+    assert.deepEqual(box, [0, top, width, strip.height]);
+    const { pixels, width: stripWidth } = strip;
+    assert.equal(stripWidth, 4);
+    const alphaAt = (x, y) => pixels[(y * stripWidth + x) * 4 + 3];
+    const peakRow = Math.round(0.35 * height) - top;
+    assert.equal(alphaAt(0, peakRow), 15);
+    assert.equal(alphaAt(0, 0), 0);
+    assert.equal(alphaAt(0, strip.height - 1), 0);
+    const alphas = pixels.filter((_, index) => index % 4 === 3);
+    assert.ok(alphas.every((alpha) => alpha / 255 <= 0.06));
+    assert.ok(
+      alphas.some(
+        (alpha, index) => index % stripWidth > 0 && alpha !== alphas[index - 1],
+      ),
+    );
+
+    // Sample the 8-bit source-over composite including the wash boundaries.
+    let paletteStep = 0;
+    for (let y = top - 1; y <= top + strip.height; y++) {
+      let previous = 0;
+      for (let x = 0; x < width; x++) {
+        const mask = ((y - top) * stripWidth + x % stripWidth) * 4;
+        const alpha = (pixels[mask + 3] ?? 0) / 255;
+        const base = (y * width + x) * 4;
+        let value = 0;
+        for (let channel = 0; channel < 3; channel++) {
+          const ink = Math.round((pixels[mask + channel] ?? 0) * alpha);
+          const composite = ink + context.background[base + channel] * (1 - alpha);
+          value += luma[channel] * Math.round(composite);
+        }
+        if (x > 0) paletteStep = Math.max(paletteStep, Math.abs(value - previous));
+        if (y >= top) paletteStep = Math.max(paletteStep, Math.abs(value - previousRow[x]));
+        previous = value;
+        previousRow[x] = value;
+      }
+    }
+    assert.ok(paletteStep <= 3, `${paletteId}: ${paletteStep.toFixed(4)}/255`);
+    maxStep = Math.max(maxStep, paletteStep);
+
+    context.wash = undefined;
+    overlay.draw(overlay.frameAt(2), paletteId);
+    assert.equal(context.wash, undefined);
+    overlay.draw(overlay.frameAt(1), paletteId);
+    assert.equal(context.wash.strip, strip);
+  }
+  t.diagnostic(
+    `Maximum adjacent luma step across five palettes: ${maxStep.toFixed(4)}/255`,
+  );
 });
 
 test("the smoothed waveform is seek-independent, resets on host changes and decays in a turn", () => {

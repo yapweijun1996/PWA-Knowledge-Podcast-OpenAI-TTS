@@ -12,7 +12,11 @@ import { videoLayout, type PixelBox } from "./design/layout.ts";
 import { palettes, type Palette } from "./design/palettes.ts";
 import { designTokens } from "./design/tokens.ts";
 import { videoFont } from "./fonts/loader.ts";
-import type { DrawingContext, TextLayoutCache } from "./scenes/types.ts";
+import type {
+  DrawingContext,
+  SceneContext,
+  TextLayoutCache,
+} from "./scenes/types.ts";
 import type { VideoPaletteId } from "./themes.ts";
 import {
   beforeEnd,
@@ -31,6 +35,75 @@ const bottom = (box: PixelBox) => box.y + box.height;
 const centerY = (box: PixelBox) => box.y + box.height / 2;
 const right = (box: PixelBox) => box.x + box.width;
 const centerX = (box: PixelBox) => box.x + box.width / 2;
+
+type WashContext = DrawingContext & Partial<Pick<SceneContext, "createPattern">>;
+const chapterWashes = new WeakMap<
+  WashContext,
+  { height: number; palette: Palette; fill: CanvasPattern | CanvasGradient }
+>();
+
+function createChapterWash(
+  context: WashContext,
+  y: number,
+  height: number,
+  palette: Palette,
+) {
+  const peak = Math.floor(designTokens.portrait.chapterWash.alpha * 255)
+    .toString(16)
+    .padStart(2, "0");
+  if (context.createPattern && typeof OffscreenCanvas === "function") {
+    // Repeat one horizontal period of the backdrop's ordered dither.
+    const strip = new OffscreenCanvas(4, height);
+    const mask = strip.getContext("2d", { willReadFrequently: true });
+    if (mask) {
+      drawVideoBackground(mask, strip.width, height, {
+        ...palette,
+        stops: ["#000000", `#${peak.repeat(3)}`, "#000000"],
+      });
+      const pixels = mask.getImageData(0, 0, strip.width, height);
+      const ink = [1, 3, 5].map((start) =>
+        parseInt(palette.ink.slice(start, start + 2), 16),
+      );
+      for (let offset = 0; offset < pixels.data.length; offset += 4) {
+        pixels.data[offset + 3] = pixels.data[offset];
+        pixels.data.set(ink, offset);
+      }
+      mask.putImageData(pixels, 0, 0);
+      const pattern = context.createPattern(strip, "repeat-x");
+      if (pattern) {
+        pattern.setTransform({ f: y });
+        return pattern;
+      }
+    }
+  }
+  const gradient = context.createLinearGradient?.(0, y, 0, y + height);
+  if (gradient) {
+    gradient.addColorStop(0, `${palette.ink}00`);
+    gradient.addColorStop(0.55, `${palette.ink}${peak}`);
+    gradient.addColorStop(1, `${palette.ink}00`);
+  }
+  return gradient;
+}
+
+function drawChapterWash(
+  context: WashContext,
+  { width, height }: { width: number; height: number },
+  palette: Palette,
+) {
+  const { topH, bottomH } = designTokens.portrait.chapterWash;
+  const y = Math.round(topH * height);
+  const washHeight = Math.round(bottomH * height) - y;
+  if (washHeight <= 0) return;
+  let wash = chapterWashes.get(context);
+  if (wash?.height !== height || wash.palette !== palette) {
+    const fill = createChapterWash(context, y, washHeight, palette);
+    if (!fill) return;
+    wash = { height, palette, fill };
+    chapterWashes.set(context, wash);
+  }
+  context.fillStyle = wash.fill;
+  context.fillRect(0, y, width, washHeight);
+}
 
 function decoration(
   time: number,
@@ -527,6 +600,8 @@ export function prepareOverlay(
     ) {
       const palette = palettes[paletteId];
       const { card, chapter, chapterIndex, turn, time, cue } = frame;
+      if (orientation === "portrait" && card?.kind === "chapter")
+        drawChapterWash(context, geometry, palette);
       if (wordmark) {
         context.fillStyle = palette.ink;
         context.font = canvasFont("wordmark");
