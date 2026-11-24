@@ -5,6 +5,10 @@ import type { Episode } from "../shared/factory.ts";
 import type { AgentArtifact } from "../src/agent/artifacts.ts";
 import { createTranslator } from "../src/i18n/index.ts";
 import { encodeCaptionTrack } from "../src/video/caption-track.ts";
+import {
+  loadedCaptionCues,
+  loadedVideoDimensions,
+} from "./fixtures/video-preview.ts";
 
 test.use({ serviceWorkers: "block" });
 
@@ -181,14 +185,17 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     .toBe(true);
   await render.click();
   await expect(video).toHaveAttribute("src", /^blob:/, { timeout: 45_000 });
-  await expect
-    .poll(() =>
-      video.evaluate((element: HTMLVideoElement) => [
-        element.videoWidth,
-        element.videoHeight,
-      ]),
-    )
-    .toEqual([1080, 1920]);
+  const preview = await video.elementHandle();
+  const dimensions = await page.waitForFunction(
+    loadedVideoDimensions,
+    preview,
+    {
+      timeout: 15_000,
+    },
+  );
+  expect(await dimensions.jsonValue(), "portrait video dimensions").toEqual([
+    1080, 1920,
+  ]);
 
   const receipt = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -240,25 +247,20 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
     english("publish.review.previewCaptions"),
   );
   await previewCaptions.check();
-  await expect
-    .poll(() =>
-      video.evaluate((element: HTMLVideoElement) =>
-        Array.from(element.textTracks[0]?.cues ?? []).map((cue) => [
-          cue.id,
-          Math.round(cue.startTime * 1000),
-          Math.round(cue.endTime * 1000),
-          (cue as VTTCue).text,
-        ]),
-      ),
-    )
-    .toEqual(
-      track!.cues.map(({ startMs, endMs, speaker, lines }, index) => [
-        String(index + 1),
-        startMs,
-        endMs,
-        `${speaker}: ${lines.join("\n")}`,
-      ]),
-    );
+  const cues = await page.waitForFunction(loadedCaptionCues, preview, {
+    timeout: 15_000,
+  });
+  expect(
+    await cues.jsonValue(),
+    "loaded preview captions match the receipt",
+  ).toEqual(
+    track!.cues.map(({ startMs, endMs, speaker, lines }, index) => [
+      String(index + 1),
+      startMs,
+      endMs,
+      `${speaker}: ${lines.join("\n")}`,
+    ]),
+  );
   await previewCaptions.uncheck();
   await expect(video.locator("track")).toHaveCount(0);
 
@@ -362,5 +364,5 @@ test("Studio renders portrait options, restores its receipt, shows guides and ga
       name: english("publish.review.downloadThumbnail"),
     }),
   ).toBeDisabled();
-  expect(unexpectedRequests).toEqual([]);
+  expect(unexpectedRequests, "unexpected requests from Studio").toEqual([]);
 });
